@@ -1,0 +1,7 @@
+---
+pid: 10152
+cwd: "C:\OSPanel\home\subs-back.local\cw_inertia"
+command: "cd \"C:\\OSPanel\\home\\subs-back.local\\cw_inertia\"; php artisan test --filter=\"ForbiddenPageTest|SubscriberToolsInfrastructureTest|NotFoundPageTest\" 2>&1"
+started_at: 2026-07-03T09:58:36.544Z
+running_for_ms: 8475000  
+---

@@ -1,0 +1,438 @@
+
+   PASS  Tests\Unit\ExampleTest
+  ✓ that true is true
+
+   PASS  Tests\Unit\SubscribersSubscriptionsLimitTest
+  ✓ get month limit sums base and extra when base is zero                                                        0.29s  
+  ✓ get month limit sums base and extra                                                                          0.03s  
+  ✓ get month limit returns extra when base key missing                                                          0.03s  
+  ✓ get month limit returns false when both are zero                                                             0.03s  
+  ✓ minus month limit spends from extra when base is zero                                                        0.04s  
+  ✓ minus month limit spends from base before extra                                                              0.03s  
+  ✓ minus month limit spends from extra when base key missing                                                    0.03s  
+
+   PASS  Tests\Unit\WbApiUsageServiceTest
+  ✓ it records request and syncs legal entity                                                                    0.07s  
+
+   PASS  Tests\Feature\ExampleTest
+  ✓ the application returns a successful response                                                                0.08s  
+
+   FAIL  Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest
+  ✓ user can list own competitors                                                                                0.10s  
+  ✓ user can store competitor                                                                                    0.07s  
+  ✓ user can view competitor                                                                                     0.05s  
+  ⨯ user can update competitor                                                                                   0.07s  
+  ✓ user can delete competitor                                                                                   0.04s  
+  ✓ user can toggle status                                                                                       0.06s  
+  ✓ user cannot access foreign competitor                                                                        0.06s  
+  ⨯ user can search competitors catalog                                                                          0.06s  
+  ⨯ user can search competitors product redirect                                                                 0.05s  
+  ⨯ user can fetch bulk competitors info                                                                         0.05s  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest > user can update competitor                     
+  Failed asserting that null is identical to 53000.
+
+  at tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest.php:201
+    197▕                 'messages' => ['Данные обновлены'],
+    198▕             ])
+    199▕             ->assertJsonPath('data.nm_id', 10000)
+    200▕             ->assertJsonPath('data.difference_type', 'amount')
+  ➜ 201▕             ->assertJsonPath('data.product_data.product.price', 53000)
+    202▕             ->assertJsonPath('data.product_data.competitors.0.nm_id', 987654)
+    203▕             ->assertJsonPath('data.status', false);
+    204▕ 
+    205▕         $this->assertDatabaseHas('wb_repricer_competitors', [
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest > user can search competitors catalog            
+  Expected response status code [200] but received 500.
+Failed asserting that 500 is identical to 200.
+
+The following exception occurred during the last request:
+
+PDOException: SQLSTATE[HY000]: General error: 1 no such table: wb_search_requests in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:595
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(595): PDO->prepare('insert into "wb...')
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(846): Illuminate\Database\Connection->Illuminate\Database\{closure}('insert into "wb...', Array)
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('insert into "wb...', Array, Object(Closure))
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(590): Illuminate\Database\Connection->run('insert into "wb...', Array, Object(Closure))
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(554): Illuminate\Database\Connection->statement('insert into "wb...', Array)
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Processors\Processor.php(32): Illuminate\Database\Connection->insert('insert into "wb...', Array)
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(4257): Illuminate\Database\Query\Processors\Processor->processInsertGetId(Object(Illuminate\Database\Query\Builder), 'insert into "wb...', Array, 'id')
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(2271): Illuminate\Database\Query\Builder->insertGetId(Array, 'id')
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1662): Illuminate\Database\Eloquent\Builder->__call('insertGetId', Array)
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1578): Illuminate\Database\Eloquent\Model->insertAndSetId(Object(Illuminate\Database\Eloquent\Builder), Array)
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1382): Illuminate\Database\Eloquent\Model->performInsert(Object(Illuminate\Database\Eloquent\Builder))
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(1225): Illuminate\Database\Eloquent\Model->save()
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\helpers.php(393): Illuminate\Database\Eloquent\Builder->Illuminate\Database\Eloquent\{closure}(Object(App\Models\WbSearchRequest))
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(1224): tap(Object(App\Models\WbSearchRequest), Object(Closure))
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\Traits\ForwardsCalls.php(23): Illuminate\Database\Eloquent\Builder->create(Array)
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(2809): Illuminate\Database\Eloquent\Model->forwardCallTo(Object(Illuminate\Database\Eloquent\Builder), 'create', Array)
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(2825): Illuminate\Database\Eloquent\Model->__call('create', Array)
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCompetitorsController.php(335): Illuminate\Database\Eloquent\Model::__callStatic('create', Array)
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(939): App\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCompetitorsController->search(Object(Illuminate\Http\Request))
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(1078): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->_mockery_handleMethodCall('search', Array)
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Controller.php(54): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->search(Object(Illuminate\Http\Request))
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(939): Illuminate\Routing\Controller->callAction('search', Array)
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(1169): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->_mockery_handleMethodCall('callAction', Array)
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\ControllerDispatcher.php(43): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->callAction('search', Array)
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(275): Illuminate\Routing\ControllerDispatcher->dispatch(Object(Illuminate\Routing\Route), Object(Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController), 'search')
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(215): Illuminate\Routing\Route->runController()
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(822): Illuminate\Routing\Route->run()
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\PermissionMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\PermissionMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), 'subscriber wb r...')
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\RoleMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\RoleMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), '\xD0\x9F\xD0\xBE\xD0\xB4\xD0\xBF\xD0\xB8\xD1\x81\xD1\x87\xD0...')
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\EnsureEmailIsVerified.php(41): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\EnsureEmailIsVerified->handle(Object(Illuminate\Http\Request), Object(Closure))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(168): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(129): Illuminate\Routing\Middleware\ThrottleRequests->handleRequest(Object(Illuminate\Http\Request), Object(Closure), Array)
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(90): Illuminate\Routing\Middleware\ThrottleRequests->handleRequestUsingNamedLimiter(Object(Illuminate\Http\Request), Object(Closure), 'api', Object(Closure))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\ThrottleRequests->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\Authenticate.php(63): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\Authenticate->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#57 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#58 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#59 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#60 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#61 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#62 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#63 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#64 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#65 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(573): Illuminate\Foundation\Testing\TestCase->call('GET', '/api/subscriber...', Array, Array, Array, Array, '[]')
+#66 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(381): Illuminate\Foundation\Testing\TestCase->json('GET', '/api/subscriber...', Array, Array, 0)
+#67 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest.php(317): Illuminate\Foundation\Testing\TestCase->getJson('/api/subscriber...')
+#68 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest->test_user_can_search_competitors_catalog()
+#69 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_user_can_s...', Array)
+#70 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#71 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#72 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest))
+#73 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#74 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#75 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#76 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#77 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#78 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#79 {main}
+
+Next Illuminate\Database\QueryException: SQLSTATE[HY000]: General error: 1 no such table: wb_search_requests (Connection: sqlite, Database: :memory:, SQL: insert into "wb_search_requests" ("user_id", "type", "payload", "status", "updated_at", "created_at") values (1, search, {"query":"boots"}, pending, 2026-06-26 12:06:34, 2026-06-26 12:06:34)) in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:857
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('insert into "wb...', Array, Object(Closure))
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(590): Illuminate\Database\Connection->run('insert into "wb...', Array, Object(Closure))
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(554): Illuminate\Database\Connection->statement('insert into "wb...', Array)
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Processors\Processor.php(32): Illuminate\Database\Connection->insert('insert into "wb...', Array)
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(4257): Illuminate\Database\Query\Processors\Processor->processInsertGetId(Object(Illuminate\Database\Query\Builder), 'insert into "wb...', Array, 'id')
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(2271): Illuminate\Database\Query\Builder->insertGetId(Array, 'id')
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1662): Illuminate\Database\Eloquent\Builder->__call('insertGetId', Array)
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1578): Illuminate\Database\Eloquent\Model->insertAndSetId(Object(Illuminate\Database\Eloquent\Builder), Array)
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1382): Illuminate\Database\Eloquent\Model->performInsert(Object(Illuminate\Database\Eloquent\Builder))
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(1225): Illuminate\Database\Eloquent\Model->save()
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\helpers.php(393): Illuminate\Database\Eloquent\Builder->Illuminate\Database\Eloquent\{closure}(Object(App\Models\WbSearchRequest))
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(1224): tap(Object(App\Models\WbSearchRequest), Object(Closure))
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\Traits\ForwardsCalls.php(23): Illuminate\Database\Eloquent\Builder->create(Array)
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(2809): Illuminate\Database\Eloquent\Model->forwardCallTo(Object(Illuminate\Database\Eloquent\Builder), 'create', Array)
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(2825): Illuminate\Database\Eloquent\Model->__call('create', Array)
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCompetitorsController.php(335): Illuminate\Database\Eloquent\Model::__callStatic('create', Array)
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(939): App\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCompetitorsController->search(Object(Illuminate\Http\Request))
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(1078): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->_mockery_handleMethodCall('search', Array)
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Controller.php(54): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->search(Object(Illuminate\Http\Request))
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(939): Illuminate\Routing\Controller->callAction('search', Array)
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(1169): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->_mockery_handleMethodCall('callAction', Array)
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\ControllerDispatcher.php(43): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->callAction('search', Array)
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(275): Illuminate\Routing\ControllerDispatcher->dispatch(Object(Illuminate\Routing\Route), Object(Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController), 'search')
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(215): Illuminate\Routing\Route->runController()
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(822): Illuminate\Routing\Route->run()
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\PermissionMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\PermissionMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), 'subscriber wb r...')
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\RoleMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\RoleMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), '\xD0\x9F\xD0\xBE\xD0\xB4\xD0\xBF\xD0\xB8\xD1\x81\xD1\x87\xD0...')
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\EnsureEmailIsVerified.php(41): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\EnsureEmailIsVerified->handle(Object(Illuminate\Http\Request), Object(Closure))
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(168): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(129): Illuminate\Routing\Middleware\ThrottleRequests->handleRequest(Object(Illuminate\Http\Request), Object(Closure), Array)
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(90): Illuminate\Routing\Middleware\ThrottleRequests->handleRequestUsingNamedLimiter(Object(Illuminate\Http\Request), Object(Closure), 'api', Object(Closure))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\ThrottleRequests->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\Authenticate.php(63): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\Authenticate->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#57 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#58 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#59 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#60 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#61 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#62 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#63 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(573): Illuminate\Foundation\Testing\TestCase->call('GET', '/api/subscriber...', Array, Array, Array, Array, '[]')
+#64 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(381): Illuminate\Foundation\Testing\TestCase->json('GET', '/api/subscriber...', Array, Array, 0)
+#65 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest.php(317): Illuminate\Foundation\Testing\TestCase->getJson('/api/subscriber...')
+#66 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest->test_user_can_search_competitors_catalog()
+#67 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_user_can_s...', Array)
+#68 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#69 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#70 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest))
+#71 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#72 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#73 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#74 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#75 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#76 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#77 {main}
+
+----------------------------------------------------------------------------------
+
+SQLSTATE[HY000]: General error: 1 no such table: wb_search_requests (Connection: sqlite, Database: :memory:, SQL: insert into "wb_search_requests" ("user_id", "type", "payload", "status", "updated_at", "created_at") values (1, search, {"query":"boots"}, pending, 2026-06-26 12:06:34, 2026-06-26 12:06:34))
+
+  at tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest.php:319
+    315▕         Passport::actingAs($user, [], 'api');
+    316▕ 
+    317▕         $response = $this->getJson('/api/subscriber/wb/repricer/competitors/search?query=boots');
+    318▕ 
+  ➜ 319▕         $response->assertStatus(200)
+    320▕             ->assertJsonPath('success', true)
+    321▕             ->assertJsonPath('data.0.nm_id', 987654)
+    322▕             ->assertJsonPath('data.0.price', 43000);
+    323▕     }
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest > user can search competitors product redirec…   
+  Expected response status code [200] but received 500.
+Failed asserting that 500 is identical to 200.
+
+The following exception occurred during the last request:
+
+PDOException: SQLSTATE[HY000]: General error: 1 no such table: wb_search_requests in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:595
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(595): PDO->prepare('insert into "wb...')
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(846): Illuminate\Database\Connection->Illuminate\Database\{closure}('insert into "wb...', Array)
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('insert into "wb...', Array, Object(Closure))
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(590): Illuminate\Database\Connection->run('insert into "wb...', Array, Object(Closure))
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(554): Illuminate\Database\Connection->statement('insert into "wb...', Array)
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Processors\Processor.php(32): Illuminate\Database\Connection->insert('insert into "wb...', Array)
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(4257): Illuminate\Database\Query\Processors\Processor->processInsertGetId(Object(Illuminate\Database\Query\Builder), 'insert into "wb...', Array, 'id')
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(2271): Illuminate\Database\Query\Builder->insertGetId(Array, 'id')
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1662): Illuminate\Database\Eloquent\Builder->__call('insertGetId', Array)
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1578): Illuminate\Database\Eloquent\Model->insertAndSetId(Object(Illuminate\Database\Eloquent\Builder), Array)
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1382): Illuminate\Database\Eloquent\Model->performInsert(Object(Illuminate\Database\Eloquent\Builder))
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(1225): Illuminate\Database\Eloquent\Model->save()
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\helpers.php(393): Illuminate\Database\Eloquent\Builder->Illuminate\Database\Eloquent\{closure}(Object(App\Models\WbSearchRequest))
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(1224): tap(Object(App\Models\WbSearchRequest), Object(Closure))
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\Traits\ForwardsCalls.php(23): Illuminate\Database\Eloquent\Builder->create(Array)
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(2809): Illuminate\Database\Eloquent\Model->forwardCallTo(Object(Illuminate\Database\Eloquent\Builder), 'create', Array)
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(2825): Illuminate\Database\Eloquent\Model->__call('create', Array)
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCompetitorsController.php(335): Illuminate\Database\Eloquent\Model::__callStatic('create', Array)
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(939): App\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCompetitorsController->search(Object(Illuminate\Http\Request))
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(1078): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->_mockery_handleMethodCall('search', Array)
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Controller.php(54): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->search(Object(Illuminate\Http\Request))
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(939): Illuminate\Routing\Controller->callAction('search', Array)
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(1169): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->_mockery_handleMethodCall('callAction', Array)
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\ControllerDispatcher.php(43): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->callAction('search', Array)
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(275): Illuminate\Routing\ControllerDispatcher->dispatch(Object(Illuminate\Routing\Route), Object(Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController), 'search')
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(215): Illuminate\Routing\Route->runController()
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(822): Illuminate\Routing\Route->run()
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\PermissionMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\PermissionMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), 'subscriber wb r...')
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\RoleMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\RoleMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), '\xD0\x9F\xD0\xBE\xD0\xB4\xD0\xBF\xD0\xB8\xD1\x81\xD1\x87\xD0...')
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\EnsureEmailIsVerified.php(41): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\EnsureEmailIsVerified->handle(Object(Illuminate\Http\Request), Object(Closure))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(168): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(129): Illuminate\Routing\Middleware\ThrottleRequests->handleRequest(Object(Illuminate\Http\Request), Object(Closure), Array)
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(90): Illuminate\Routing\Middleware\ThrottleRequests->handleRequestUsingNamedLimiter(Object(Illuminate\Http\Request), Object(Closure), 'api', Object(Closure))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\ThrottleRequests->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\Authenticate.php(63): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\Authenticate->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#57 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#58 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#59 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#60 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#61 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#62 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#63 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#64 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#65 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(573): Illuminate\Foundation\Testing\TestCase->call('GET', '/api/subscriber...', Array, Array, Array, Array, '[]')
+#66 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(381): Illuminate\Foundation\Testing\TestCase->json('GET', '/api/subscriber...', Array, Array, 0)
+#67 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest.php(331): Illuminate\Foundation\Testing\TestCase->getJson('/api/subscriber...')
+#68 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest->test_user_can_search_competitors_product_redirect()
+#69 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_user_can_s...', Array)
+#70 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#71 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#72 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest))
+#73 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#74 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#75 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#76 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#77 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#78 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#79 {main}
+
+Next Illuminate\Database\QueryException: SQLSTATE[HY000]: General error: 1 no such table: wb_search_requests (Connection: sqlite, Database: :memory:, SQL: insert into "wb_search_requests" ("user_id", "type", "payload", "status", "updated_at", "created_at") values (1, search, {"query":"redirect-query"}, pending, 2026-06-26 12:06:34, 2026-06-26 12:06:34)) in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:857
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('insert into "wb...', Array, Object(Closure))
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(590): Illuminate\Database\Connection->run('insert into "wb...', Array, Object(Closure))
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(554): Illuminate\Database\Connection->statement('insert into "wb...', Array)
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Processors\Processor.php(32): Illuminate\Database\Connection->insert('insert into "wb...', Array)
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(4257): Illuminate\Database\Query\Processors\Processor->processInsertGetId(Object(Illuminate\Database\Query\Builder), 'insert into "wb...', Array, 'id')
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(2271): Illuminate\Database\Query\Builder->insertGetId(Array, 'id')
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1662): Illuminate\Database\Eloquent\Builder->__call('insertGetId', Array)
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1578): Illuminate\Database\Eloquent\Model->insertAndSetId(Object(Illuminate\Database\Eloquent\Builder), Array)
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(1382): Illuminate\Database\Eloquent\Model->performInsert(Object(Illuminate\Database\Eloquent\Builder))
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(1225): Illuminate\Database\Eloquent\Model->save()
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\helpers.php(393): Illuminate\Database\Eloquent\Builder->Illuminate\Database\Eloquent\{closure}(Object(App\Models\WbSearchRequest))
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(1224): tap(Object(App\Models\WbSearchRequest), Object(Closure))
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\Traits\ForwardsCalls.php(23): Illuminate\Database\Eloquent\Builder->create(Array)
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(2809): Illuminate\Database\Eloquent\Model->forwardCallTo(Object(Illuminate\Database\Eloquent\Builder), 'create', Array)
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Model.php(2825): Illuminate\Database\Eloquent\Model->__call('create', Array)
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCompetitorsController.php(335): Illuminate\Database\Eloquent\Model::__callStatic('create', Array)
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(939): App\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCompetitorsController->search(Object(Illuminate\Http\Request))
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(1078): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->_mockery_handleMethodCall('search', Array)
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Controller.php(54): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->search(Object(Illuminate\Http\Request))
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(939): Illuminate\Routing\Controller->callAction('search', Array)
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\mockery\mockery\library\Mockery\Loader\EvalLoader.php(30) : eval()'d code(1169): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->_mockery_handleMethodCall('callAction', Array)
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\ControllerDispatcher.php(43): Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController->callAction('search', Array)
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(275): Illuminate\Routing\ControllerDispatcher->dispatch(Object(Illuminate\Routing\Route), Object(Mockery_1_App_Http_Controllers_Api_Subscriber_Wb_RePricer_RepricerCompetitorsController), 'search')
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(215): Illuminate\Routing\Route->runController()
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(822): Illuminate\Routing\Route->run()
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\PermissionMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\PermissionMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), 'subscriber wb r...')
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\RoleMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\RoleMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), '\xD0\x9F\xD0\xBE\xD0\xB4\xD0\xBF\xD0\xB8\xD1\x81\xD1\x87\xD0...')
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\EnsureEmailIsVerified.php(41): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\EnsureEmailIsVerified->handle(Object(Illuminate\Http\Request), Object(Closure))
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(168): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(129): Illuminate\Routing\Middleware\ThrottleRequests->handleRequest(Object(Illuminate\Http\Request), Object(Closure), Array)
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(90): Illuminate\Routing\Middleware\ThrottleRequests->handleRequestUsingNamedLimiter(Object(Illuminate\Http\Request), Object(Closure), 'api', Object(Closure))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\ThrottleRequests->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\Authenticate.php(63): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\Authenticate->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#57 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#58 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#59 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#60 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#61 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#62 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#63 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(573): Illuminate\Foundation\Testing\TestCase->call('GET', '/api/subscriber...', Array, Array, Array, Array, '[]')
+#64 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(381): Illuminate\Foundation\Testing\TestCase->json('GET', '/api/subscriber...', Array, Array, 0)
+#65 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest.php(331): Illuminate\Foundation\Testing\TestCase->getJson('/api/subscriber...')
+#66 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest->test_user_can_search_competitors_product_redirect()
+#67 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_user_can_s...', Array)
+#68 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#69 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#70 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest))
+#71 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#72 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#73 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#74 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#75 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#76 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#77 {main}
+
+----------------------------------------------------------------------------------
+
+SQLSTATE[HY000]: General error: 1 no such table: wb_search_requests (Connection: sqlite, Database: :memory:, SQL: insert into "wb_search_requests" ("user_id", "type", "payload", "status", "updated_at", "created_at") values (1, search, {"query":"redirect-query"}, pending, 2026-06-26 12:06:34, 2026-06-26 12:06:34))
+
+  at tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest.php:333
+    329▕         Passport::actingAs($user, [], 'api');
+    330▕ 
+    331▕         $response = $this->getJson('/api/subscriber/wb/repricer/competitors/search?query=redirect-query');
+    332▕ 
+  ➜ 333▕         $response->assertStatus(200)
+    334▕             ->assertJsonPath('success', true)
+    335▕             ->assertJsonPath('data.0.nm_id', 7654321)
+    336▕             ->assertJsonPath('data.0.price', 53000);
+    337▕     }
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest > user can fetch bulk competitors info           
+  Failed asserting that actual size 0 matches expected size 2.
+
+  at tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest.php:354
+    350▕             ->assertJsonPath('success', true);
+    351▕ 
+    352▕         $data = $response->json('data');
+    353▕ 
+  ➜ 354▕         $this->assertCount(2, $data);
+    355▕         $this->assertSame(987654, $data[0]['nm_id']);
+    356▕         $this->assertSame(7654321, $data[1]['nm_id']);
+    357▕         $this->assertSame([], $response->json('failed'));
+    358▕     }
+
+  1   tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest.php:354
+
+
+  Tests:    4 failed, 16 passed (66 assertions)
+  Duration: 1.62s
+

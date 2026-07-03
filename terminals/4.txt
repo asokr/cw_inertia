@@ -1,0 +1,7 @@
+---
+pid: 19880
+cwd: "C:\OSPanel\home\subs-back.local\cw_inertia"
+command: "cd \"C:\\OSPanel\\home\\subs-back.local\\cw_inertia\"; php artisan test tests/Feature/Web/Errors/ForbiddenPageTest.php --no-ansi 2>&1"
+started_at: 2026-07-03T10:04:10.366Z
+running_for_ms: 8140006  
+---

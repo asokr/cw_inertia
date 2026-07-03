@@ -1,0 +1,449 @@
+
+   PASS  Tests\Unit\ExampleTest
+  ✓ that true is true
+
+   PASS  Tests\Unit\SubscribersSubscriptionsLimitTest
+  ✓ get month limit sums base and extra when base is zero                                                        0.27s  
+  ✓ get month limit sums base and extra                                                                          0.02s  
+  ✓ get month limit returns extra when base key missing                                                          0.03s  
+  ✓ get month limit returns false when both are zero                                                             0.02s  
+  ✓ minus month limit spends from extra when base is zero                                                        0.04s  
+  ✓ minus month limit spends from base before extra                                                              0.03s  
+  ✓ minus month limit spends from extra when base key missing                                                    0.03s  
+
+   PASS  Tests\Unit\WbApiUsageServiceTest
+  ✓ it records request and syncs legal entity                                                                    0.05s  
+
+   PASS  Tests\Feature\ExampleTest
+  ✓ the application returns a successful response                                                                0.06s  
+
+   PASS  Tests\Feature\Wb\Repricer\RepricerCompetitorsControllerTest
+  ✓ user can list own competitors                                                                                0.09s  
+  ✓ user can store competitor                                                                                    0.04s  
+  ✓ user can view competitor                                                                                     0.04s  
+  ✓ user can update competitor                                                                                   0.04s  
+  ✓ user can delete competitor                                                                                   0.05s  
+  ✓ user can toggle status                                                                                       0.04s  
+  ✓ user cannot access foreign competitor                                                                        0.04s  
+  ✓ user can search competitors catalog                                                                          0.05s  
+  ✓ user can search competitors product redirect                                                                 0.04s  
+  ✓ user can fetch bulk competitors info                                                                         0.04s  
+
+   FAIL  Tests\Feature\Web\Admin\AdminSubscriberTest
+  ✓ subscribers page requires super admin                                                                        0.05s  
+  ⨯ super admin can open subscribers page                                                                        0.37s  
+  ⨯ super admin can open plans and payments pages                                                                0.30s  
+
+   PASS  Tests\Feature\Web\Admin\BlogPostTest
+  ✓ blog posts page requires permission                                                                          0.05s  
+  ✓ user with blog view can open posts page                                                                      0.09s  
+
+   PASS  Tests\Feature\Web\Auth\LoginTest
+  ✓ login page renders                                                                                           0.06s  
+  ✓ user can login with valid credentials                                                                        0.05s  
+  ✓ user cannot login with invalid credentials                                                                   0.25s  
+  ✓ unverified user is redirected to verification notice                                                         0.04s  
+
+   PASS  Tests\Feature\Web\Auth\LogoutTest
+  ✓ authenticated user can logout                                                                                0.04s  
+
+   PASS  Tests\Feature\Web\Auth\RegisterTest
+  ✓ register page renders                                                                                        0.06s  
+  ✓ user can register                                                                                            0.04s  
+  ✓ register validation errors are returned                                                                      0.03s  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Admin\AdminSubscriberTest > super admin can open subscribers page                          
+  Expected response status code [200] but received 500.
+Failed asserting that 500 is identical to 200.
+
+The following exception occurred during the last request:
+
+PDOException: SQLSTATE[HY000]: General error: 1 no such table: ai_costs in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:435
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(435): PDO->prepare('select provider...')
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(846): Illuminate\Database\Connection->Illuminate\Database\{closure}('select provider...', Array)
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('select provider...', Array, Object(Closure))
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(426): Illuminate\Database\Connection->run('select provider...', Array, Object(Closure))
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3573): Illuminate\Database\Connection->select('select provider...', Array, true, Array)
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3557): Illuminate\Database\Query\Builder->runSelect()
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(908): Illuminate\Database\Query\Builder->get(Array)
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(890): Illuminate\Database\Eloquent\Builder->getModels(Array)
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\app\Services\Admin\AiCostService.php(20): Illuminate\Database\Eloquent\Builder->get()
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Middleware\HandleInertiaRequests.php(73): App\Services\Admin\AiCostService->today()
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(36): App\Http\Middleware\HandleInertiaRequests->App\Http\Middleware\{closure}()
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\Util.php(43): Illuminate\Container\BoundMethod::Illuminate\Container\{closure}()
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(84): Illuminate\Container\Util::unwrapIfClosure(Object(Closure))
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(35): Illuminate\Container\BoundMethod::callBoundMethod(Object(Illuminate\Foundation\Application), Object(Closure), Object(Closure))
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\Container.php(799): Illuminate\Container\BoundMethod::call(Object(Illuminate\Foundation\Application), Object(Closure), Array, NULL)
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\Facades\Facade.php(363): Illuminate\Container\Container->call(Object(Closure))
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\ResolvesCallables.php(14): Illuminate\Support\Facades\Facade::__callStatic('call', Array)
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(438): Inertia\PropsResolver->resolveCallable(Object(Closure))
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(271): Inertia\PropsResolver->resolveValue(Object(Closure), 'aiCostsToday', Array)
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(166): Inertia\PropsResolver->resolveProps(Array)
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Response.php(189): Inertia\PropsResolver->resolve(Array, Array)
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(921): Inertia\Response->toResponse(Object(Illuminate\Http\Request))
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(906): Illuminate\Routing\Router::toResponse(Object(Illuminate\Http\Request), Object(Inertia\Response))
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Routing\Router->prepareResponse(Object(Illuminate\Http\Request), Object(Inertia\Response))
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\RoleMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\RoleMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), '\xD0\xA1\xD1\x83\xD0\xBF\xD0\xB5\xD1\x80-\xD0\x90\xD0\xB4...')
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\EnsureEmailIsVerified.php(41): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\EnsureEmailIsVerified->handle(Object(Illuminate\Http\Request), Object(Closure))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware.php(138): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware->handle(Object(Illuminate\Http\Request), Object(Closure))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\Authenticate.php(63): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\Authenticate->handle(Object(Illuminate\Http\Request), Object(Closure))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestForgery.php(104): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestForgery->handle(Object(Illuminate\Http\Request), Object(Closure))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\View\Middleware\ShareErrorsFromSession.php(48): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\View\Middleware\ShareErrorsFromSession->handle(Object(Illuminate\Http\Request), Object(Closure))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Session\Middleware\StartSession.php(120): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Session\Middleware\StartSession.php(63): Illuminate\Session\Middleware\StartSession->handleStatefulRequest(Object(Illuminate\Http\Request), Object(Illuminate\Session\Store), Object(Closure))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Session\Middleware\StartSession->handle(Object(Illuminate\Http\Request), Object(Closure))
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse.php(36): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse->handle(Object(Illuminate\Http\Request), Object(Closure))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Cookie\Middleware\EncryptCookies.php(74): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Cookie\Middleware\EncryptCookies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware\EnsureGetOnRedirect.php(19): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware\EnsureGetOnRedirect->handle(Object(Illuminate\Http\Request), Object(Closure))
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#57 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#58 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#59 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#60 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#61 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#62 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#63 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#64 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#65 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#66 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#67 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#68 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#69 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#70 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#71 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(368): Illuminate\Foundation\Testing\TestCase->call('GET', '/cw-page/subscr...', Array, Array, Array, Array)
+#72 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Web\Admin\AdminSubscriberTest.php(49): Illuminate\Foundation\Testing\TestCase->get('/cw-page/subscr...')
+#73 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Web\Admin\AdminSubscriberTest->test_super_admin_can_open_subscribers_page()
+#74 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_super_admi...', Array)
+#75 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#76 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#77 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Web\Admin\AdminSubscriberTest))
+#78 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#79 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#80 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#81 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#82 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#83 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#84 {main}
+
+Next Illuminate\Database\QueryException: SQLSTATE[HY000]: General error: 1 no such table: ai_costs (Connection: sqlite, Database: :memory:, SQL: select provider, SUM(cost) as total_cost from "ai_costs" where strftime('%Y-%m-%d', "date") = cast(2026-06-26 as text) group by "provider") in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:857
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('select provider...', Array, Object(Closure))
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(426): Illuminate\Database\Connection->run('select provider...', Array, Object(Closure))
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3573): Illuminate\Database\Connection->select('select provider...', Array, true, Array)
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3557): Illuminate\Database\Query\Builder->runSelect()
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(908): Illuminate\Database\Query\Builder->get(Array)
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(890): Illuminate\Database\Eloquent\Builder->getModels(Array)
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\app\Services\Admin\AiCostService.php(20): Illuminate\Database\Eloquent\Builder->get()
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Middleware\HandleInertiaRequests.php(73): App\Services\Admin\AiCostService->today()
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(36): App\Http\Middleware\HandleInertiaRequests->App\Http\Middleware\{closure}()
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\Util.php(43): Illuminate\Container\BoundMethod::Illuminate\Container\{closure}()
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(84): Illuminate\Container\Util::unwrapIfClosure(Object(Closure))
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(35): Illuminate\Container\BoundMethod::callBoundMethod(Object(Illuminate\Foundation\Application), Object(Closure), Object(Closure))
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\Container.php(799): Illuminate\Container\BoundMethod::call(Object(Illuminate\Foundation\Application), Object(Closure), Array, NULL)
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\Facades\Facade.php(363): Illuminate\Container\Container->call(Object(Closure))
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\ResolvesCallables.php(14): Illuminate\Support\Facades\Facade::__callStatic('call', Array)
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(438): Inertia\PropsResolver->resolveCallable(Object(Closure))
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(271): Inertia\PropsResolver->resolveValue(Object(Closure), 'aiCostsToday', Array)
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(166): Inertia\PropsResolver->resolveProps(Array)
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Response.php(189): Inertia\PropsResolver->resolve(Array, Array)
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(921): Inertia\Response->toResponse(Object(Illuminate\Http\Request))
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(906): Illuminate\Routing\Router::toResponse(Object(Illuminate\Http\Request), Object(Inertia\Response))
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Routing\Router->prepareResponse(Object(Illuminate\Http\Request), Object(Inertia\Response))
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\RoleMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\RoleMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), '\xD0\xA1\xD1\x83\xD0\xBF\xD0\xB5\xD1\x80-\xD0\x90\xD0\xB4...')
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\EnsureEmailIsVerified.php(41): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\EnsureEmailIsVerified->handle(Object(Illuminate\Http\Request), Object(Closure))
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware.php(138): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware->handle(Object(Illuminate\Http\Request), Object(Closure))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\Authenticate.php(63): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\Authenticate->handle(Object(Illuminate\Http\Request), Object(Closure))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestForgery.php(104): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestForgery->handle(Object(Illuminate\Http\Request), Object(Closure))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\View\Middleware\ShareErrorsFromSession.php(48): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\View\Middleware\ShareErrorsFromSession->handle(Object(Illuminate\Http\Request), Object(Closure))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Session\Middleware\StartSession.php(120): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Session\Middleware\StartSession.php(63): Illuminate\Session\Middleware\StartSession->handleStatefulRequest(Object(Illuminate\Http\Request), Object(Illuminate\Session\Store), Object(Closure))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Session\Middleware\StartSession->handle(Object(Illuminate\Http\Request), Object(Closure))
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse.php(36): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse->handle(Object(Illuminate\Http\Request), Object(Closure))
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Cookie\Middleware\EncryptCookies.php(74): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Cookie\Middleware\EncryptCookies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware\EnsureGetOnRedirect.php(19): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware\EnsureGetOnRedirect->handle(Object(Illuminate\Http\Request), Object(Closure))
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#57 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#58 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#59 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#60 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#61 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#62 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#63 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#64 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#65 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#66 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#67 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#68 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#69 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(368): Illuminate\Foundation\Testing\TestCase->call('GET', '/cw-page/subscr...', Array, Array, Array, Array)
+#70 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Web\Admin\AdminSubscriberTest.php(49): Illuminate\Foundation\Testing\TestCase->get('/cw-page/subscr...')
+#71 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Web\Admin\AdminSubscriberTest->test_super_admin_can_open_subscribers_page()
+#72 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_super_admi...', Array)
+#73 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#74 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#75 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Web\Admin\AdminSubscriberTest))
+#76 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#77 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#78 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#79 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#80 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#81 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#82 {main}
+
+----------------------------------------------------------------------------------
+
+SQLSTATE[HY000]: General error: 1 no such table: ai_costs (Connection: sqlite, Database: :memory:, SQL: select provider, SUM(cost) as total_cost from "ai_costs" where strftime('%Y-%m-%d', "date") = cast(2026-06-26 as text) group by "provider")
+
+  at tests\Feature\Web\Admin\AdminSubscriberTest.php:50
+     46▕         $user->assignRole('super-admin');
+     47▕ 
+     48▕         $this->actingAs($user)
+     49▕             ->get('/cw-page/subscribers')
+  ➜  50▕             ->assertOk()
+     51▕             ->assertInertia(fn ($page) => $page->component('Admin/Subscribers/Index'));
+     52▕     }
+     53▕ 
+     54▕     public function test_super_admin_can_open_plans_and_payments_pages(): void
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Admin\AdminSubscriberTest > super admin can open plans and payments pages                  
+  Expected response status code [200] but received 500.
+Failed asserting that 500 is identical to 200.
+
+The following exception occurred during the last request:
+
+PDOException: SQLSTATE[HY000]: General error: 1 no such table: ai_costs in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:435
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(435): PDO->prepare('select provider...')
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(846): Illuminate\Database\Connection->Illuminate\Database\{closure}('select provider...', Array)
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('select provider...', Array, Object(Closure))
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(426): Illuminate\Database\Connection->run('select provider...', Array, Object(Closure))
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3573): Illuminate\Database\Connection->select('select provider...', Array, true, Array)
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3557): Illuminate\Database\Query\Builder->runSelect()
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(908): Illuminate\Database\Query\Builder->get(Array)
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(890): Illuminate\Database\Eloquent\Builder->getModels(Array)
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\app\Services\Admin\AiCostService.php(20): Illuminate\Database\Eloquent\Builder->get()
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Middleware\HandleInertiaRequests.php(73): App\Services\Admin\AiCostService->today()
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(36): App\Http\Middleware\HandleInertiaRequests->App\Http\Middleware\{closure}()
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\Util.php(43): Illuminate\Container\BoundMethod::Illuminate\Container\{closure}()
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(84): Illuminate\Container\Util::unwrapIfClosure(Object(Closure))
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(35): Illuminate\Container\BoundMethod::callBoundMethod(Object(Illuminate\Foundation\Application), Object(Closure), Object(Closure))
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\Container.php(799): Illuminate\Container\BoundMethod::call(Object(Illuminate\Foundation\Application), Object(Closure), Array, NULL)
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\Facades\Facade.php(363): Illuminate\Container\Container->call(Object(Closure))
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\ResolvesCallables.php(14): Illuminate\Support\Facades\Facade::__callStatic('call', Array)
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(438): Inertia\PropsResolver->resolveCallable(Object(Closure))
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(271): Inertia\PropsResolver->resolveValue(Object(Closure), 'aiCostsToday', Array)
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(166): Inertia\PropsResolver->resolveProps(Array)
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Response.php(189): Inertia\PropsResolver->resolve(Array, Array)
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(921): Inertia\Response->toResponse(Object(Illuminate\Http\Request))
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(906): Illuminate\Routing\Router::toResponse(Object(Illuminate\Http\Request), Object(Inertia\Response))
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Routing\Router->prepareResponse(Object(Illuminate\Http\Request), Object(Inertia\Response))
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\RoleMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\RoleMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), '\xD0\xA1\xD1\x83\xD0\xBF\xD0\xB5\xD1\x80-\xD0\x90\xD0\xB4...')
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\EnsureEmailIsVerified.php(41): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\EnsureEmailIsVerified->handle(Object(Illuminate\Http\Request), Object(Closure))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware.php(138): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware->handle(Object(Illuminate\Http\Request), Object(Closure))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\Authenticate.php(63): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\Authenticate->handle(Object(Illuminate\Http\Request), Object(Closure))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestForgery.php(104): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestForgery->handle(Object(Illuminate\Http\Request), Object(Closure))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\View\Middleware\ShareErrorsFromSession.php(48): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\View\Middleware\ShareErrorsFromSession->handle(Object(Illuminate\Http\Request), Object(Closure))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Session\Middleware\StartSession.php(120): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Session\Middleware\StartSession.php(63): Illuminate\Session\Middleware\StartSession->handleStatefulRequest(Object(Illuminate\Http\Request), Object(Illuminate\Session\Store), Object(Closure))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Session\Middleware\StartSession->handle(Object(Illuminate\Http\Request), Object(Closure))
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse.php(36): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse->handle(Object(Illuminate\Http\Request), Object(Closure))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Cookie\Middleware\EncryptCookies.php(74): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Cookie\Middleware\EncryptCookies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware\EnsureGetOnRedirect.php(19): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware\EnsureGetOnRedirect->handle(Object(Illuminate\Http\Request), Object(Closure))
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#57 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#58 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#59 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#60 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#61 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#62 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#63 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#64 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#65 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#66 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#67 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#68 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#69 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#70 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#71 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(368): Illuminate\Foundation\Testing\TestCase->call('GET', '/cw-page/plans', Array, Array, Array, Array)
+#72 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Web\Admin\AdminSubscriberTest.php(63): Illuminate\Foundation\Testing\TestCase->get('/cw-page/plans')
+#73 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Web\Admin\AdminSubscriberTest->test_super_admin_can_open_plans_and_payments_pages()
+#74 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_super_admi...', Array)
+#75 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#76 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#77 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Web\Admin\AdminSubscriberTest))
+#78 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#79 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#80 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#81 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#82 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#83 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#84 {main}
+
+Next Illuminate\Database\QueryException: SQLSTATE[HY000]: General error: 1 no such table: ai_costs (Connection: sqlite, Database: :memory:, SQL: select provider, SUM(cost) as total_cost from "ai_costs" where strftime('%Y-%m-%d', "date") = cast(2026-06-26 as text) group by "provider") in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:857
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('select provider...', Array, Object(Closure))
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(426): Illuminate\Database\Connection->run('select provider...', Array, Object(Closure))
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3573): Illuminate\Database\Connection->select('select provider...', Array, true, Array)
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3557): Illuminate\Database\Query\Builder->runSelect()
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(908): Illuminate\Database\Query\Builder->get(Array)
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(890): Illuminate\Database\Eloquent\Builder->getModels(Array)
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\app\Services\Admin\AiCostService.php(20): Illuminate\Database\Eloquent\Builder->get()
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Middleware\HandleInertiaRequests.php(73): App\Services\Admin\AiCostService->today()
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(36): App\Http\Middleware\HandleInertiaRequests->App\Http\Middleware\{closure}()
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\Util.php(43): Illuminate\Container\BoundMethod::Illuminate\Container\{closure}()
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(84): Illuminate\Container\Util::unwrapIfClosure(Object(Closure))
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\BoundMethod.php(35): Illuminate\Container\BoundMethod::callBoundMethod(Object(Illuminate\Foundation\Application), Object(Closure), Object(Closure))
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Container\Container.php(799): Illuminate\Container\BoundMethod::call(Object(Illuminate\Foundation\Application), Object(Closure), Array, NULL)
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Support\Facades\Facade.php(363): Illuminate\Container\Container->call(Object(Closure))
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\ResolvesCallables.php(14): Illuminate\Support\Facades\Facade::__callStatic('call', Array)
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(438): Inertia\PropsResolver->resolveCallable(Object(Closure))
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(271): Inertia\PropsResolver->resolveValue(Object(Closure), 'aiCostsToday', Array)
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\PropsResolver.php(166): Inertia\PropsResolver->resolveProps(Array)
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Response.php(189): Inertia\PropsResolver->resolve(Array, Array)
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(921): Inertia\Response->toResponse(Object(Illuminate\Http\Request))
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(906): Illuminate\Routing\Router::toResponse(Object(Illuminate\Http\Request), Object(Inertia\Response))
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Routing\Router->prepareResponse(Object(Illuminate\Http\Request), Object(Inertia\Response))
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\spatie\laravel-permission\src\Middleware\RoleMiddleware.php(42): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Spatie\Permission\Middleware\RoleMiddleware->handle(Object(Illuminate\Http\Request), Object(Closure), '\xD0\xA1\xD1\x83\xD0\xBF\xD0\xB5\xD1\x80-\xD0\x90\xD0\xB4...')
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\EnsureEmailIsVerified.php(41): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\EnsureEmailIsVerified->handle(Object(Illuminate\Http\Request), Object(Closure))
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware.php(138): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware->handle(Object(Illuminate\Http\Request), Object(Closure))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Auth\Middleware\Authenticate.php(63): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Auth\Middleware\Authenticate->handle(Object(Illuminate\Http\Request), Object(Closure))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestForgery.php(104): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestForgery->handle(Object(Illuminate\Http\Request), Object(Closure))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\View\Middleware\ShareErrorsFromSession.php(48): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\View\Middleware\ShareErrorsFromSession->handle(Object(Illuminate\Http\Request), Object(Closure))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Session\Middleware\StartSession.php(120): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Session\Middleware\StartSession.php(63): Illuminate\Session\Middleware\StartSession->handleStatefulRequest(Object(Illuminate\Http\Request), Object(Illuminate\Session\Store), Object(Closure))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Session\Middleware\StartSession->handle(Object(Illuminate\Http\Request), Object(Closure))
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse.php(36): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse->handle(Object(Illuminate\Http\Request), Object(Closure))
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Cookie\Middleware\EncryptCookies.php(74): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Cookie\Middleware\EncryptCookies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware\EnsureGetOnRedirect.php(19): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware\EnsureGetOnRedirect->handle(Object(Illuminate\Http\Request), Object(Closure))
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#57 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#58 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#59 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#60 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#61 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#62 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#63 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#64 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#65 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#66 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#67 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#68 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#69 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(368): Illuminate\Foundation\Testing\TestCase->call('GET', '/cw-page/plans', Array, Array, Array, Array)
+#70 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Web\Admin\AdminSubscriberTest.php(63): Illuminate\Foundation\Testing\TestCase->get('/cw-page/plans')
+#71 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Web\Admin\AdminSubscriberTest->test_super_admin_can_open_plans_and_payments_pages()
+#72 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_super_admi...', Array)
+#73 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#74 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#75 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Web\Admin\AdminSubscriberTest))
+#76 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#77 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#78 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#79 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#80 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#81 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#82 {main}
+
+----------------------------------------------------------------------------------
+
+SQLSTATE[HY000]: General error: 1 no such table: ai_costs (Connection: sqlite, Database: :memory:, SQL: select provider, SUM(cost) as total_cost from "ai_costs" where strftime('%Y-%m-%d', "date") = cast(2026-06-26 as text) group by "provider")
+
+  at tests\Feature\Web\Admin\AdminSubscriberTest.php:64
+     60▕         $user->assignRole('super-admin');
+     61▕ 
+     62▕         $this->actingAs($user)
+     63▕             ->get('/cw-page/plans')
+  ➜  64▕             ->assertOk()
+     65▕             ->assertInertia(fn ($page) => $page->component('Admin/Plans/Index'));
+     66▕ 
+     67▕         $this->actingAs($user)
+     68▕             ->get('/cw-page/payments')
+
+
+  Tests:    2 failed, 31 passed (128 assertions)
+  Duration: 2.85s
+

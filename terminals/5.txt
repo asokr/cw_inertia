@@ -1,0 +1,12 @@
+---
+pid: 24492
+cwd: "C:\OSPanel\home\subs-back.local\cw_inertia"
+command: "cd \"C:\\OSPanel\\home\\subs-back.local\\cw_inertia\"; vendor\\bin\\phpunit tests\\Feature\\Web\\Errors\\ForbiddenPageTest.php --colors=never"
+started_at: 2026-07-03T10:06:35.653Z
+running_for_ms: 7994998  
+---
+PHPUnit 12.5.30 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.3.6
+Configuration: C:\OSPanel\home\subs-back.local\cw_inertia\phpunit.xml
+
