@@ -11,6 +11,8 @@ const props = defineProps({
         default: () => [],
     },
     currentStage: { type: String, default: null },
+    statusLabel: { type: String, default: null },
+    progressPercent: { type: Number, default: null },
     detail: { type: String, default: null },
     waitingHint: { type: String, default: null },
     startedAt: { type: String, default: null },
@@ -31,6 +33,39 @@ const stageIndex = computed(() => {
 });
 
 const currentStageMeta = computed(() => props.stages[stageIndex.value] ?? null);
+
+const resolvedProgressPercent = computed(() => {
+    if (typeof props.progressPercent === "number") {
+        return Math.min(100, Math.max(0, props.progressPercent));
+    }
+
+    if (!props.stages.length) {
+        return 0;
+    }
+
+    const completedStages = props.failed ? stageIndex.value : stageIndex.value + 0.35;
+    return Math.min(100, Math.round((completedStages / props.stages.length) * 100));
+});
+
+const headline = computed(() => {
+    if (props.failed) {
+        return "Не удалось завершить задачу";
+    }
+
+    return props.statusLabel || props.title;
+});
+
+const subtitle = computed(() => {
+    if (props.failed) {
+        return null;
+    }
+
+    if (props.statusLabel && currentStageMeta.value?.description) {
+        return currentStageMeta.value.description;
+    }
+
+    return currentStageMeta.value?.description ?? null;
+});
 
 function formatElapsed(startedAt) {
     if (!startedAt) {
@@ -105,22 +140,43 @@ onUnmounted(() => {
         <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="space-y-1">
                 <h3 class="text-lg font-semibold tracking-tight text-foreground">
-                    {{ failed ? "Не удалось завершить задачу" : title }}
+                    {{ headline }}
                 </h3>
-                <p v-if="!failed && currentStageMeta" class="text-sm text-muted-foreground">
-                    {{ currentStageMeta.description }}
+                <p v-if="!failed && subtitle" class="text-sm text-muted-foreground">
+                    {{ subtitle }}
                 </p>
                 <p v-if="failed && error" class="text-sm text-destructive">
                     {{ error }}
                 </p>
             </div>
 
-            <div
-                v-if="!failed && elapsedLabel"
-                class="rounded-full border bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground"
-            >
-                Прошло: {{ elapsedLabel }}
+            <div class="flex items-center gap-2">
+                <div
+                    v-if="!failed"
+                    class="rounded-full border bg-background/80 px-3 py-1 text-xs font-semibold tabular-nums text-foreground"
+                >
+                    {{ resolvedProgressPercent }}%
+                </div>
+                <div
+                    v-if="!failed && elapsedLabel"
+                    class="rounded-full border bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground"
+                >
+                    Прошло: {{ elapsedLabel }}
+                </div>
             </div>
+        </div>
+
+        <div v-if="!failed" class="mt-4 space-y-2">
+            <div class="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                    class="h-full rounded-full bg-primary transition-all duration-700 ease-out"
+                    :class="{ 'animate-pulse': waitingHint }"
+                    :style="{ width: `${resolvedProgressPercent}%` }"
+                />
+            </div>
+            <p class="text-xs text-muted-foreground">
+                Сервис работает — страницу можно не закрывать, статус обновляется автоматически.
+            </p>
         </div>
 
         <ol class="mt-5 space-y-3">

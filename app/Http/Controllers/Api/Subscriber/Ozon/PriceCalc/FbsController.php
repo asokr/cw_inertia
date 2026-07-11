@@ -54,8 +54,8 @@ class FbsController extends Controller
             ], 200);
         }
 
-        $perPage = (int) $request->integer('per_page', 25);
-        $perPage = max(1, min(100, $perPage));
+        $perPage = (int) $request->integer('per_page', 250);
+        $perPage = max(1, min(250, $perPage));
 
         $query = OzPriceCalcFbs::where('cabinet_id', $cabinet->id);
 

@@ -8,6 +8,7 @@ use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -127,7 +128,103 @@ class OzPriceCalcTest extends WebAuthTestCase
         $this->assertDatabaseMissing('oz_price_calc_cabinets', ['id' => $cabinet->id]);
     }
 
-    private function createSubscriberUser(bool $withPermission = false): User
+    public function test_index_shows_oz_price_calc_limit(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true, ozPriceCalcLimit: 3);
+
+        $this->actingAs($user)
+            ->get('/panel/oz/price-calc')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('limits.oz_price_calc_clients', 3));
+    }
+
+    public function test_store_cabinet_rejected_when_limit_exhausted(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true, ozPriceCalcLimit: 0);
+
+        $this->actingAs($user)
+            ->post('/panel/oz/price-calc/cabinets', [
+                'name' => 'Blocked Cabinet',
+                'client_id' => 'client-blocked',
+                'apikey' => 'test-key',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('error');
+
+        $this->assertDatabaseMissing('oz_price_calc_cabinets', [
+            'user_id' => $user->id,
+            'name' => 'Blocked Cabinet',
+        ]);
+    }
+
+    public function test_store_cabinet_decrements_limit(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true, ozPriceCalcLimit: 2);
+
+        $this->actingAs($user)
+            ->post('/panel/oz/price-calc/cabinets', [
+                'name' => 'New Cabinet',
+                'client_id' => 'client-new',
+                'apikey' => 'test-key',
+            ])
+            ->assertRedirect('/panel/oz/price-calc')
+            ->assertSessionHas('success');
+
+        $subscription = SubscribersSubscriptions::query()
+            ->where('subscribers_id', $user->subscriber->id)
+            ->first();
+
+        $this->assertSame(1, (int) $subscription->limits_plan['oz_price_calc_clients']);
+    }
+
+    public function test_destroy_cabinet_increments_limit(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true, ozPriceCalcLimit: 0);
+        $cabinet = $this->createCabinet($user, 'Restore Limit');
+
+        $this->actingAs($user)
+            ->delete("/panel/oz/price-calc/cabinets/{$cabinet->id}")
+            ->assertRedirect('/panel/oz/price-calc');
+
+        $subscription = SubscribersSubscriptions::query()
+            ->where('subscribers_id', $user->subscriber->id)
+            ->first();
+
+        $this->assertSame(1, (int) $subscription->limits_plan['oz_price_calc_clients']);
+    }
+
+    public function test_sync_fbo_dispatches_batch(): void
+    {
+        Bus::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Sync Cabinet');
+
+        $this->actingAs($user)
+            ->post("/panel/oz/price-calc/cabinets/{$cabinet->id}/sync")
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        Bus::assertBatched(fn ($batch) => $batch->name === "ozon_fbo_sync_{$cabinet->id}");
+    }
+
+    public function test_calculate_fbo_dispatches_batch(): void
+    {
+        Bus::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Calc Cabinet');
+
+        $this->actingAs($user)
+            ->post("/panel/oz/price-calc/cabinets/{$cabinet->id}/calculate")
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        Bus::assertBatched(fn ($batch) => $batch->name === "ozon_fbo_calc_{$cabinet->id}");
+    }
+
+    private function createSubscriberUser(bool $withPermission = false, ?int $ozPriceCalcLimit = null): User
     {
         $user = User::factory()->create([
             'email_verified_at' => now(),
@@ -140,10 +237,20 @@ class OzPriceCalcTest extends WebAuthTestCase
             $user->givePermissionTo('subscriber oz price calc');
         }
 
-        Subscribers::query()->create([
+        $subscriber = Subscribers::query()->create([
             'user_id' => $user->id,
             'status' => 1,
         ]);
+
+        if ($ozPriceCalcLimit !== null) {
+            SubscribersSubscriptions::query()->create([
+                'subscribers_id' => $subscriber->id,
+                'plan_id' => 1,
+                'status' => 1,
+                'end_date' => now()->addMonth(),
+                'limits_plan' => ['oz_price_calc_clients' => $ozPriceCalcLimit],
+            ]);
+        }
 
         return $user;
     }

@@ -1,6 +1,6 @@
 <script setup>
 import { Link, router, usePage } from "@inertiajs/vue3";
-import { useDark, useToggle } from "@vueuse/core";
+import { toggleAppColorMode, useAppColorMode } from "@/composables/useAppColorMode";
 import {
     ChevronDown,
     LogOut,
@@ -12,6 +12,7 @@ import {
 } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import FlashToasts from "@/components/admin/FlashToasts.vue";
+import SubscriptionPromoBanner from "@/components/subscriber/SubscriptionPromoBanner.vue";
 import TopBalance from "@/components/subscriber/TopBalance.vue";
 import Badge from "@/components/ui/Badge.vue";
 import Button from "@/components/ui/Button.vue";
@@ -31,8 +32,7 @@ const page = usePage();
 const { can, hasRole, isAdmin } = usePermissions();
 const mobileOpen = ref(false);
 const expandedGroups = ref({});
-const isDark = useDark();
-const toggleDark = useToggle(isDark);
+const isDark = useAppColorMode();
 
 const user = computed(() => page.props.auth?.user);
 const nav = computed(() => getSubscriberNav({ can, hasRole, isAdmin: isAdmin.value }));
@@ -82,11 +82,11 @@ function navLinkClass(href, comingSoon) {
 </script>
 
 <template>
-    <div class="min-h-screen bg-background text-foreground">
+    <div class="subscriber-cabinet min-h-screen bg-background text-foreground">
         <FlashToasts />
         <div class="mx-auto flex min-h-screen w-full max-w-[1920px]">
-            <aside class="hidden w-60 shrink-0 border-r bg-card md:flex md:flex-col">
-                <div class="flex h-14 items-center border-b px-4">
+            <aside class="hidden w-60 shrink-0 border-r border-border/60 bg-card/90 backdrop-blur dark:bg-card dark:backdrop-blur-none md:flex md:flex-col">
+                <div class="flex h-14 items-center border-b border-border/60 px-4">
                     <Link href="/panel" class="text-sm font-semibold tracking-tight">CW Platform</Link>
                 </div>
 
@@ -156,7 +156,7 @@ function navLinkClass(href, comingSoon) {
                     </template>
                 </nav>
 
-                <div class="border-t p-3">
+                <div class="border-t border-border/60 p-3">
                     <template v-for="item in nav.bottom" :key="item.label">
                         <span
                             v-if="item.comingSoon"
@@ -168,6 +168,15 @@ function navLinkClass(href, comingSoon) {
                             </span>
                             <Badge variant="secondary" class="text-[10px]">скоро</Badge>
                         </span>
+                        <Link
+                            v-else
+                            :href="item.href"
+                            class="mb-1 flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                            :class="isActive(item.href) ? 'bg-accent font-medium' : 'text-muted-foreground'"
+                        >
+                            <component :is="item.icon" v-if="item.icon" class="h-4 w-4" />
+                            {{ item.label }}
+                        </Link>
                     </template>
 
                     <Link
@@ -188,7 +197,7 @@ function navLinkClass(href, comingSoon) {
 
             <div v-if="mobileOpen" class="fixed inset-0 z-40 bg-black/40 md:hidden" @click="mobileOpen = false" />
             <aside
-                class="fixed inset-y-0 left-0 z-50 w-64 border-r bg-card p-4 transition-transform md:hidden"
+                class="fixed inset-y-0 left-0 z-50 w-64 border-r border-border/60 bg-card/95 p-4 backdrop-blur transition-transform dark:bg-card dark:backdrop-blur-none md:hidden"
                 :class="mobileOpen ? 'translate-x-0' : '-translate-x-full'"
             >
                 <div class="mb-4 flex items-center justify-between">
@@ -205,18 +214,41 @@ function navLinkClass(href, comingSoon) {
                     >
                         Главная
                     </Link>
-                    <Link
-                        href="/panel/user/profile"
-                        class="block rounded-md px-3 py-2 text-sm hover:bg-accent"
-                        @click="mobileOpen = false"
-                    >
-                        Профиль
-                    </Link>
+                    <div class="mt-4 border-t border-border/60 pt-4">
+                        <template v-for="item in nav.bottom" :key="item.label">
+                            <span
+                                v-if="item.comingSoon"
+                                class="mb-1 flex items-center justify-between rounded-md px-3 py-2 text-sm text-muted-foreground/60"
+                            >
+                                <span>{{ item.label }}</span>
+                                <Badge variant="secondary" class="text-[10px]">скоро</Badge>
+                            </span>
+                            <Link
+                                v-else
+                                :href="item.href"
+                                class="block rounded-md px-3 py-2 text-sm hover:bg-accent"
+                                @click="mobileOpen = false"
+                            >
+                                {{ item.label }}
+                            </Link>
+                        </template>
+                        <Link
+                            href="/panel/user/profile"
+                            class="block rounded-md px-3 py-2 text-sm hover:bg-accent"
+                            @click="mobileOpen = false"
+                        >
+                            Профиль
+                        </Link>
+                    </div>
                 </nav>
             </aside>
 
-            <div class="flex min-w-0 flex-1 flex-col">
-                <header class="flex h-14 items-center justify-between border-b px-4">
+            <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+                <div class="subscriber-cabinet__glow subscriber-cabinet__glow--left" aria-hidden="true" />
+                <div class="subscriber-cabinet__glow subscriber-cabinet__glow--right" aria-hidden="true" />
+                <div class="subscriber-cabinet__grid" aria-hidden="true" />
+
+                <header class="relative z-10 flex h-14 items-center justify-between border-b border-border/60 bg-card/80 px-4 backdrop-blur dark:bg-card/95">
                     <div class="flex items-center gap-3">
                         <button type="button" class="md:hidden" @click="mobileOpen = true">
                             <Menu class="h-5 w-5" />
@@ -241,13 +273,14 @@ function navLinkClass(href, comingSoon) {
                         >
                             Админка
                         </Link>
-                        <Button variant="ghost" size="icon" @click="toggleDark()">
+                        <Button variant="ghost" size="icon" @click="toggleAppColorMode">
                             <Sun v-if="isDark" class="h-4 w-4" />
                             <Moon v-else class="h-4 w-4" />
                         </Button>
                     </div>
                 </header>
-                <main class="flex-1 p-4 md:p-6">
+                <SubscriptionPromoBanner />
+                <main class="relative z-10 flex-1 p-4 md:p-6">
                     <slot />
                 </main>
             </div>

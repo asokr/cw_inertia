@@ -7,6 +7,7 @@ use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV2Settings;
 use App\Models\User;
+use App\Services\Wb\WbPriceCalculationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -94,6 +95,32 @@ class WbPriceCalcTest extends WebAuthTestCase
         $this->actingAs($intruder)
             ->get("/panel/wb/price-calc/cabinets/{$cabinet->id}")
             ->assertForbidden();
+    }
+
+    public function test_sync_products_passes_cabinet_id_from_web_panel(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Sync Cabinet');
+
+        $this->mock(WbPriceCalculationService::class, function ($mock): void {
+            $mock->shouldReceive('getAllCards')
+                ->once()
+                ->andReturn(['httpCode' => 200, 'body' => json_encode(['cards' => []])]);
+            $mock->shouldReceive('parseApiResponse')
+                ->once()
+                ->andReturn(['success' => true, 'data' => ['cards' => []]]);
+        });
+
+        $this->actingAs($user)
+            ->post("/panel/wb/price-calc/cabinets/{$cabinet->id}/sync", [], [
+                'HTTP_ACCEPT' => 'text/html, application/json',
+                'CONTENT_TYPE' => 'application/json',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success')
+            ->assertSessionMissing('error');
+
+        $this->assertStringContainsString('Товары не найдены', session('success'));
     }
 
     public function test_destroy_cabinet_redirects_with_success(): void

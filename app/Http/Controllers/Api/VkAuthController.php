@@ -127,22 +127,15 @@ class VkAuthController extends Controller
 
                 $user->assignRole('Подписчик');
 
-                $user->plan_id = 2; // ID тестового тарифа по умолчанию
-
                 if ($request->coupon_code) {
                     try {
                         $coupon = $couponService->validateCoupon($request->coupon_code);
-
-                        $user->plan_id = $coupon->value;
-
                         $couponService->minusCouponLimit($coupon);
-
                         $couponService->recordCouponUsage($user, $coupon, [
                             'source' => 'vk_registration',
-                            'ip' => $request->ip()
+                            'ip' => $request->ip(),
                         ]);
                     } catch (\Throwable $th) {
-                        // Игнорируем ошибку купона, продолжаем с тестовым тарифом
                     }
                 }
 

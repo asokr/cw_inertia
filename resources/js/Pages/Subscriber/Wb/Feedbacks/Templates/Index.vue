@@ -1,15 +1,15 @@
 <script setup>
 import { ref } from "vue";
-import { Head, router, useForm, usePage } from "@inertiajs/vue3";
+import { Head, router, useForm } from "@inertiajs/vue3";
 import { Pencil, Trash2 } from "lucide-vue-next";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import Button from "@/components/ui/Button.vue";
-import Alert from "@/components/ui/Alert.vue";
 import Card from "@/components/ui/Card.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import Switch from "@/components/ui/Switch.vue";
 import Textarea from "@/components/ui/Textarea.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     client: { type: Object, required: true },
@@ -44,8 +44,9 @@ const editForm = useForm({
     maxRating: 5,
 });
 
-const page = usePage();
 const baseUrl = `/panel/wb/feedbacks/clients/${props.client.id}`;
+const { showError, watchPropToast } = useFlashToast();
+watchPropToast(() => props.templatesError);
 const templatesUrl = `${baseUrl}/templates`;
 
 function openAdd() {
@@ -137,7 +138,7 @@ async function generateTemplateText() {
             addForm.text = data.data ?? "";
         }
     } catch {
-        window.alert("Не удалось сгенерировать шаблон");
+        showError("Не удалось сгенерировать шаблон");
     }
 }
 </script>
@@ -154,14 +155,6 @@ async function generateTemplateText() {
                 <Button @click="openAdd">Добавить шаблон</Button>
             </template>
         </ToolPageHeader>
-
-        <Alert v-if="templatesError" variant="destructive" class="mb-4">
-            {{ templatesError }}
-        </Alert>
-
-        <Alert v-else-if="page.props.flash?.error" variant="destructive" class="mb-4">
-            {{ page.props.flash.error }}
-        </Alert>
 
         <div v-if="templates.length" class="mb-6 flex items-center gap-3">
             <Switch :model-value="botEnabled" :disabled="botSaving" @update:model-value="updateBotStatus" />

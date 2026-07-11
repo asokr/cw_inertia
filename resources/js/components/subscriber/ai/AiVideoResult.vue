@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { AlertCircle, Download, Loader2, ShieldAlert } from "lucide-vue-next";
 import Button from "@/components/ui/Button.vue";
-import { toAiMediaUrl } from "@/composables/useAiMediaUrl";
+import { normalizeVideoItem } from "@/composables/useAiMediaUrl";
 
 const props = defineProps({
     tasks: { type: Array, default: () => [] },
@@ -21,7 +21,7 @@ const activeTask = computed(() => {
     return props.tasks[0];
 });
 
-const resolvedVideoUrl = computed(() => toAiMediaUrl(activeTask.value?.video?.url || ""));
+const resolvedVideoUrl = computed(() => normalizeVideoItem(activeTask.value?.video)?.url || "");
 
 async function downloadVideo() {
     const url = resolvedVideoUrl.value;
@@ -71,7 +71,15 @@ async function downloadVideo() {
                     Скачать
                 </Button>
             </div>
-            <video :src="resolvedVideoUrl" controls loop class="w-full rounded-xl bg-black" />
+            <video
+                :key="resolvedVideoUrl"
+                :src="resolvedVideoUrl"
+                controls
+                loop
+                playsinline
+                preload="metadata"
+                class="w-full rounded-xl bg-black"
+            />
         </div>
 
         <div

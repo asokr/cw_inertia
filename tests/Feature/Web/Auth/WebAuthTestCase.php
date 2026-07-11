@@ -99,5 +99,13 @@ abstract class WebAuthTestCase extends TestCase
                 $table->foreign('role_id')->references('id')->on('roles')->onDelete('cascade');
             });
         }
+
+        if (! Schema::hasTable('password_reset_tokens')) {
+            Schema::create('password_reset_tokens', function (Blueprint $table) {
+                $table->string('email')->primary();
+                $table->string('token');
+                $table->timestamp('created_at')->nullable();
+            });
+        }
     }
 }

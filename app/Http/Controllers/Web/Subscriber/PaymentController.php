@@ -21,9 +21,12 @@ class PaymentController extends Controller
 
     public function create(DepositRequest $request, SubscriberPaymentService $service): HttpResponse
     {
+        $validated = $request->validated();
+
         $result = $service->createDeposit(
             $request->user(),
-            (float) $request->validated('amount'),
+            (float) $validated['amount'],
+            isset($validated['plan_id']) ? (int) $validated['plan_id'] : null,
         );
 
         if (! $result['success'] || empty($result['payment_url'])) {

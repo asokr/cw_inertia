@@ -12,6 +12,8 @@ use App\Http\Controllers\Web\Auth\VkOAuthController;
 use App\Http\Controllers\Web\Auth\YandexOAuthController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Web\HomeController;
+use App\Http\Controllers\Web\SupportMessageController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
@@ -21,6 +23,12 @@ require __DIR__.'/blog.php';
 Route::redirect('/auth/login', '/login');
 Route::redirect('/auth/register', '/register');
 Route::redirect('/auth/forgot-password', '/forgot-password');
+Route::get('/auth/reset-password/{token}', function (Request $request, string $token) {
+    return redirect()->route('password.reset', array_filter([
+        'token' => $token,
+        'email' => $request->query('email'),
+    ]));
+});
 
 Route::get('/email/verify/{id}/{hash}', [VerificationController::class, 'verify'])
     ->middleware(['signed', 'throttle:6,1'])
@@ -30,6 +38,9 @@ Route::post('/check-coupon', [CouponController::class, 'check'])->name('coupon.c
 Route::post('/send-message', [AuthController::class, 'sendMessage'])
     ->middleware('throttle:10,1')
     ->name('contact.send');
+Route::post('/support-message', [SupportMessageController::class, 'store'])
+    ->middleware('throttle:5,1')
+    ->name('support.message');
 Route::post('/email/resend', [ResendVerificationController::class, 'store'])
     ->middleware('throttle:6,1')
     ->name('verification.resend');

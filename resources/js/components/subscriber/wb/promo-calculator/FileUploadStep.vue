@@ -2,16 +2,17 @@
 import { ref } from "vue";
 import { Check, Upload } from "lucide-vue-next";
 import Button from "@/components/ui/Button.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 import { usePromoCalculatorApi } from "@/composables/usePromoCalculatorApi";
 
 const emit = defineEmits(["uploaded"]);
 
 const { uploadFile } = usePromoCalculatorApi();
+const { showError } = useFlashToast();
 const fileInput = ref(null);
 const uploading = ref(false);
 const uploaded = ref(false);
 const fileName = ref("");
-const error = ref("");
 
 function openPicker() {
     fileInput.value?.click();
@@ -23,7 +24,6 @@ async function onFileChange(event) {
     if (!file) return;
 
     uploading.value = true;
-    error.value = "";
     uploaded.value = false;
 
     try {
@@ -32,7 +32,7 @@ async function onFileChange(event) {
         fileName.value = file.name;
         emit("uploaded", path);
     } catch (err) {
-        error.value = err?.message ?? "Не удалось загрузить файл";
+        showError(err?.message ?? "Не удалось загрузить файл");
     } finally {
         uploading.value = false;
     }
@@ -56,7 +56,6 @@ async function onFileChange(event) {
         </div>
 
         <p v-if="fileName" class="text-sm text-muted-foreground">{{ fileName }}</p>
-        <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
 
         <input
             ref="fileInput"

@@ -18,8 +18,7 @@ class EmailVerification extends Mailable
      */
     public function __construct($url, $user)
     {
-        $this->verifyUrl = str_replace('api/email/verify', 'verify-email', $url);
-        // $this->verifyUrl =  $url;
+        $this->verifyUrl = $url;
         $this->user = $user;
     }
 
@@ -30,11 +29,9 @@ class EmailVerification extends Mailable
      */
     public function build()
     {
-        $this->verifyUrl = str_replace(config('app.url'), 'https://cwplatform.ru/auth/', $this->verifyUrl);
-
         $from = config('mail.MAIL_FROM_ADDRESS');
         $subject = 'Подтверждение почты';
         return $this->to($this->user)->subject($subject)->from($from)->
-            markdown('emails.verify', ['url' => $this->verifyUrl, 'user' => $this->user, 'year' => date('Y')]);
+            view('emails.verify', ['url' => $this->verifyUrl, 'user' => $this->user, 'year' => date('Y')]);
     }
 }

@@ -33,6 +33,14 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    maxHeight: {
+        type: String,
+        default: null,
+    },
+    getRowClass: {
+        type: Function,
+        default: null,
+    },
 });
 
 const emit = defineEmits(["sort-change"]);
@@ -102,19 +110,58 @@ function groupClass(meta) {
     return map[meta?.group] ?? "";
 }
 
-function headerClass(header) {
-    const pinned = header.column.getIsPinned();
+function headerBackground(header) {
     const group = groupClass(header.column.columnDef.meta);
 
+    return group || "bg-muted/90";
+}
+
+function pinnedPositionStyle(target, kind) {
+    const column = target.column;
+    const pinned = column.getIsPinned();
+
     if (pinned === "left") {
-        return `sticky left-0 z-10 backdrop-blur ${group || "bg-muted/90"}`;
+        const offset = kind === "header" ? target.getStart("left") : column.getStart("left");
+
+        return { left: `${offset}px` };
     }
 
     if (pinned === "right") {
-        return `sticky right-0 z-10 backdrop-blur ${group || "bg-muted/90"}`;
+        const offset = kind === "header" ? target.getAfter("right") : column.getAfter("right");
+
+        return { right: `${offset}px` };
     }
 
-    return group;
+    return undefined;
+}
+
+function headerStyles(header) {
+    return {
+        ...columnStyle(header.column.columnDef.meta),
+        ...pinnedPositionStyle(header, "header"),
+    };
+}
+
+function cellStyles(cell) {
+    return {
+        ...columnStyle(cell.column.columnDef.meta),
+        ...pinnedPositionStyle(cell, "cell"),
+    };
+}
+
+function headerClass(header) {
+    const pinned = header.column.getIsPinned();
+    const bg = headerBackground(header);
+
+    if (pinned === "left") {
+        return `sticky top-0 z-20 backdrop-blur ${bg}`;
+    }
+
+    if (pinned === "right") {
+        return `sticky top-0 z-20 backdrop-blur ${bg}`;
+    }
+
+    return `sticky top-0 z-10 backdrop-blur ${bg}`;
 }
 
 function cellClass(cell) {
@@ -122,14 +169,21 @@ function cellClass(cell) {
     const group = groupClass(cell.column.columnDef.meta);
 
     if (pinned === "left") {
-        return `sticky left-0 z-10 ${group || "bg-card"}`;
+        return `sticky z-10 ${group || "bg-card"}`;
     }
 
     if (pinned === "right") {
-        return `sticky right-0 z-10 ${group || "bg-card"}`;
+        return `sticky z-10 ${group || "bg-card"}`;
     }
 
     return group;
+}
+
+function rowClass(row) {
+    const base = "border-b transition-colors hover:bg-muted/30";
+    const custom = props.getRowClass?.(row.original);
+
+    return custom ? `${base} ${custom}` : base;
 }
 
 function sortIcon(header) {
@@ -148,16 +202,20 @@ function sortIcon(header) {
 </script>
 
 <template>
-    <div class="overflow-x-auto rounded-md border">
+    <div
+        class="rounded-md border"
+        :class="maxHeight ? 'overflow-auto' : 'overflow-x-auto'"
+        :style="maxHeight ? { maxHeight } : undefined"
+    >
         <table class="w-full caption-bottom text-sm">
-            <thead class="border-b bg-muted/40">
+            <thead class="border-b">
                 <tr v-for="headerGroup in table.getHeaderGroups()" :key="headerGroup.id">
                     <th
                         v-for="header in headerGroup.headers"
                         :key="header.id"
                         class="h-9 whitespace-nowrap px-3 text-left align-middle font-medium text-muted-foreground"
                         :class="headerClass(header)"
-                        :style="columnStyle(header.column.columnDef.meta)"
+                        :style="headerStyles(header)"
                     >
                         <button
                             v-if="!header.isPlaceholder && header.column.getCanSort()"
@@ -183,14 +241,14 @@ function sortIcon(header) {
                 <tr
                     v-for="row in rows"
                     :key="row.id"
-                    class="border-b transition-colors hover:bg-muted/30"
+                    :class="rowClass(row)"
                 >
                     <td
                         v-for="cell in row.getVisibleCells()"
                         :key="cell.id"
                         class="h-9 whitespace-nowrap px-3 align-middle"
                         :class="cellClass(cell)"
-                        :style="columnStyle(cell.column.columnDef.meta)"
+                        :style="cellStyles(cell)"
                     >
                         <FlexRender
                             :render="cell.column.columnDef.cell"

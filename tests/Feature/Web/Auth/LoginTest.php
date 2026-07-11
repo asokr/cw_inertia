@@ -94,6 +94,6 @@ class LoginTest extends WebAuthTestCase
         ]);
 
         $response->assertRedirect(route('verification.notice'));
-        $this->assertGuest();
+        $this->assertAuthenticated();
     }
 }

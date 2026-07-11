@@ -1,13 +1,13 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { Head } from "@inertiajs/vue3";
 import AiAnalysisSection from "@/components/subscriber/wb/ai-cabinet-analyzer/AiAnalysisSection.vue";
 import NomenclaturesTable from "@/components/subscriber/wb/ai-cabinet-analyzer/NomenclaturesTable.vue";
 import ReportRunPanel from "@/components/subscriber/wb/ai-cabinet-analyzer/ReportRunPanel.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
-import Alert from "@/components/ui/Alert.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useAiCabinetReportPoll } from "@/composables/useAiCabinetReportPoll";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     cabinet: { type: Object, required: true },
@@ -28,11 +28,11 @@ const breadcrumbs = [
     { label: props.cabinet.name },
 ];
 
-const pollError = ref("");
+const { showError, watchPropToast } = useFlashToast();
 
 const poll = useAiCabinetReportPoll({
     onFailed: (message) => {
-        pollError.value = message;
+        showError(message);
     },
 });
 
@@ -43,9 +43,10 @@ const hasMeta = computed(() => Boolean(props.meta && Object.keys(props.meta).len
 const warnings = computed(() => (Array.isArray(props.meta?.warnings) ? props.meta.warnings : []));
 
 function onPollingStart() {
-    pollError.value = "";
     poll.start();
 }
+
+watchPropToast(() => warnings.value, "default");
 </script>
 
 <template>
@@ -55,8 +56,6 @@ function onPollingStart() {
         <ToolPageHeader title="ИИ анализ кабинета Wildberries" :description="cabinet.name" />
 
         <div class="space-y-6">
-            <Alert v-if="pollError" variant="destructive">{{ pollError }}</Alert>
-
             <ReportRunPanel
                 :cabinet-id="cabinet.id"
                 :report="report"
@@ -77,12 +76,6 @@ function onPollingStart() {
             />
 
             <template v-if="hasMeta">
-                <Alert v-if="warnings.length" variant="default">
-                    <div v-for="(warning, index) in warnings" :key="`warning-${index}`">
-                        {{ warning }}
-                    </div>
-                </Alert>
-
                 <NomenclaturesTable
                     v-if="isReportDone"
                     :show-url="showUrl"

@@ -150,22 +150,15 @@ class YandexAuthController extends Controller
 
                 $user->assignRole('Подписчик');
 
-                $user->plan_id = 2;
-
                 if ($request->coupon_code) {
                     try {
                         $coupon = $couponService->validateCoupon($request->coupon_code);
-
-                        $user->plan_id = $coupon->value;
-
                         $couponService->minusCouponLimit($coupon);
-
                         $couponService->recordCouponUsage($user, $coupon, [
                             'source' => 'yandex_registration',
                             'ip' => $request->ip(),
                         ]);
                     } catch (\Throwable $th) {
-                        // Игнорируем ошибку купона, продолжаем с тестовым тарифом.
                     }
                 }
 

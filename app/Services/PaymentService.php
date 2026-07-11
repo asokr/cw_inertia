@@ -4,8 +4,8 @@ namespace App\Services;
 
 use YooKassa\Client;
 
-class PaymentService {
-
+class PaymentService
+{
     public function getClient()
     {
         $client = new Client();
@@ -14,51 +14,55 @@ class PaymentService {
         return $client;
     }
 
-    public function createPayment(float $amount, string $description, array $options = [])
+    public function createPayment(float $amount, string $description, array $options = [], ?string $returnUrl = null)
     {
         $client = $this->getClient();
 
+        $metadata = [
+            'transaction_id' => $options['transaction_id'] ?? null,
+            'user_id' => $options['user_id'] ?? auth()->id(),
+        ];
+
+        if (! empty($options['plan_id'])) {
+            $metadata['plan_id'] = $options['plan_id'];
+        }
+
         $payment = $client->createPayment(
-            array(
-                'amount' => array(
+            [
+                'amount' => [
                     'value' => $amount,
                     'currency' => 'RUB',
-                ),
-                'confirmation' => array(
+                ],
+                'confirmation' => [
                     'type' => 'redirect',
-                    'return_url' => 'https://cwplatform.ru/panel',
-                ),
+                    'return_url' => $returnUrl ?? url('/panel'),
+                ],
                 'capture' => true,
                 'description' => $description,
-                'metadata' => [
-                    'transaction_id' => $options['transaction_id'],
-                    'user_id' => auth()->id()
-                ],
-                'receipt' => array(
-                    'customer' => array(
+                'metadata' => $metadata,
+                'receipt' => [
+                    'customer' => [
                         'email' => auth()->user()->email,
-                    ),
-                    'items' => array(
-                        array(
+                    ],
+                    'items' => [
+                        [
                             'description' => 'Пополнение счета CWPlatform',
                             'quantity' => 1.000,
-                            'amount' => array(
+                            'amount' => [
                                 'value' => $amount,
-                                'currency' => 'RUB'
-                            ),
+                                'currency' => 'RUB',
+                            ],
                             'tax_system_code' => 2,
                             'vat_code' => 1,
                             'payment_mode' => 'full_payment',
                             'payment_subject' => 'service',
-                        )
-                    )
-                )
-            ),
+                        ],
+                    ],
+                ],
+            ],
             uniqid('', true)
         );
 
         return $payment->getConfirmation()->getConfirmationUrl();
-
     }
-
 }

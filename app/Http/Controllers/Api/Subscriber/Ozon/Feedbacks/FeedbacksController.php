@@ -16,6 +16,27 @@ class FeedbacksController extends Controller
     use OzonApiTrait;
     use ChatGptTrait;
 
+    private const OZON_API_ERROR_HINTS = [
+        'Не хватает прав для API ключа' => 'У API-ключа не хватает прав для работы с отзывами. Проверьте настройки ключа в личном кабинете Ozon.',
+        'Не верный ключ API или ClientId' => 'Неверный API-ключ или Client ID. Проверьте данные в настройках кабинета.',
+    ];
+
+    private function ozonUserMessage(array $resp, string $scenario): string
+    {
+        $apiMessage = $resp['data']['message'] ?? null;
+
+        if (is_string($apiMessage) && isset(self::OZON_API_ERROR_HINTS[$apiMessage])) {
+            return self::OZON_API_ERROR_HINTS[$apiMessage];
+        }
+
+        return match ($scenario) {
+            'reviews_list' => 'Не удалось загрузить отзывы с Ozon. Проверьте API-ключ и Client ID, затем попробуйте снова.',
+            'products' => 'Не удалось получить данные о товарах для отзывов. Попробуйте позже.',
+            'count' => 'Не удалось получить количество неотвеченных отзывов. Попробуйте позже.',
+            default => 'Не удалось выполнить запрос к Ozon. Попробуйте позже.',
+        };
+    }
+
     public function getFeedbacksList(Request $request)
     {
 
@@ -33,8 +54,9 @@ class FeedbacksController extends Controller
 
         $client = FeedbacksClients::find($request->cabinet_id);
 
-        if (!$client)
-            return response()->json(['success' => false, 'messages' => ['Ошибка при получении данных кабинета']], 200);
+        if (!$client) {
+            return response()->json(['success' => false, 'messages' => ['Кабинет не найден']], 200);
+        }
 
         if ($client->user_id != Auth::id())
             return response()->json(["success" => false, "messages" => ["Не хватает прав"]], 200);
@@ -50,7 +72,10 @@ class FeedbacksController extends Controller
         $resp = $this->parseApiResponse($this->getReviewList($client->apikey, $client->client_id, $params, $filters), $client);
 
         if (!$resp['success']) {
-            return response()->json(['success' => false, 'messages' => ['Ошибка при получении отзывов1']], 200);
+            return response()->json([
+                'success' => false,
+                'messages' => [$this->ozonUserMessage($resp, 'reviews_list')],
+            ], 200);
         }
 
         $data['last_id'] = '';
@@ -79,7 +104,10 @@ class FeedbacksController extends Controller
 
         $resp = $this->parseApiResponse($this->getProductInfo($client->apikey, $client->client_id, $params), $client);
         if (!$resp['success']) {
-            return response()->json(['success' => false, 'messages' => ['Ошибка при получении отзывов']], 200);
+            return response()->json([
+                'success' => false,
+                'messages' => [$this->ozonUserMessage($resp, 'products')],
+            ], 200);
         }
 
         $data['reviews'] = [];
@@ -122,8 +150,9 @@ class FeedbacksController extends Controller
 
         $client = FeedbacksClients::find($request->cabinet_id);
 
-        if (!$client)
-            return response()->json(['success' => false, 'messages' => ['Ошибка при получении клиента']], 200);
+        if (!$client) {
+            return response()->json(['success' => false, 'messages' => ['Кабинет не найден']], 200);
+        }
 
         if ($client->user_id != Auth::id())
             return response()->json(["success" => false, "messages" => ["Не хватает прав"]], 200);
@@ -157,18 +186,26 @@ class FeedbacksController extends Controller
 
         $client = FeedbacksClients::find($request->cabinet_id);
 
-        if (!$client)
-            return response()->json(['success' => false, 'messages' => ['Ошибка при получении клиента']], 200);
+        if (!$client) {
+            return response()->json(['success' => false, 'messages' => ['Кабинет не найден']], 200);
+        }
 
         if ($client->user_id != Auth::id())
             return response()->json(["success" => false, "messages" => ["Не хватает прав"]], 200);
 
         $resp = $this->parseApiResponse($this->сountUnanswered($client->apikey, $client->client_id), $client);
 
-        if (!$resp['success'])
-            return response()->json(["success" => false, "messages" => ['Ошиюка при получении данных']], 200);
+        if (!$resp['success']) {
+            return response()->json([
+                'success' => false,
+                'messages' => [$this->ozonUserMessage($resp, 'count')],
+            ], 200);
+        }
 
-
-        return response()->json(["success" => true, "messages" => ["Ответ отправлен"], "data" => $resp['data']['unprocessed']], 200);
+        return response()->json([
+            'success' => true,
+            'messages' => ['Количество отзывов получено'],
+            'data' => $resp['data']['unprocessed'],
+        ], 200);
     }
 }

@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Web\Auth\WebAuthTestCase;
@@ -28,33 +29,52 @@ class AiMarketplaceTest extends WebAuthTestCase
         ]);
     }
 
-    public function test_guest_cannot_access_index(): void
+    public function test_guest_cannot_access_text_page(): void
     {
-        $this->get('/panel/ai')->assertUnauthorized();
+        $this->get('/panel/ai/text')->assertUnauthorized();
     }
 
-    public function test_user_without_permission_cannot_access_index(): void
+    public function test_user_without_permission_cannot_access_text_page(): void
     {
         $user = $this->createSubscriberUser();
 
         $this->actingAs($user)
-            ->get('/panel/ai')
+            ->get('/panel/ai/text')
             ->assertForbidden();
     }
 
-    public function test_subscriber_with_permission_can_access_index(): void
+    public function test_subscriber_with_permission_can_access_ai_pages(): void
     {
         $user = $this->createSubscriberUser(withAiPermission: true);
 
         $this->actingAs($user)
             ->get('/panel/ai')
+            ->assertRedirect('/panel/ai/text');
+
+        $this->actingAs($user)
+            ->get('/panel/ai/text')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Subscriber/Ai/Index')
+                ->component('Subscriber/Ai/Text')
                 ->has('limits')
                 ->where('limits.text', 10)
                 ->where('limits.image', 5)
                 ->where('limits.video', 30));
+
+        $this->actingAs($user)
+            ->get('/panel/ai/image')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Subscriber/Ai/Image'));
+
+        $this->actingAs($user)
+            ->get('/panel/ai/image/history')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Subscriber/Ai/ImageHistory'));
+
+        $this->actingAs($user)
+            ->get('/panel/ai/video')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Subscriber/Ai/Video'));
     }
 
     public function test_marketplace_requires_task_type(): void
@@ -85,6 +105,23 @@ class AiMarketplaceTest extends WebAuthTestCase
         $this->actingAs($user)
             ->get('/panel/ai/media/generated-videos/user-999/test.mp4')
             ->assertNotFound();
+    }
+
+    public function test_media_endpoint_supports_range_requests(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $relativePath = 'generated-videos/user-' . $user->id . '/2026/test.mp4';
+        $storagePath = 'ai/' . $relativePath;
+        Storage::disk('private')->put($storagePath, str_repeat('a', 1000));
+
+        $this->actingAs($user)
+            ->withHeader('Range', 'bytes=0-99')
+            ->get('/panel/ai/media/' . $relativePath)
+            ->assertStatus(206)
+            ->assertHeader('Accept-Ranges', 'bytes')
+            ->assertHeader('Content-Range', 'bytes 0-99/1000');
     }
 
     public function test_refresh_limits_returns_value(): void

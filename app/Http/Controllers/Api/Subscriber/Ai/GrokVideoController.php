@@ -7,12 +7,13 @@ use RuntimeException;
 use App\Enums\AiTaskType;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use App\Models\AiRequestLog;
+use App\Models\AiVideoGenerationTask;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Validator;
 use App\Services\Grok\GrokVideoApiClient;
 use App\Services\Ai\AiMediaStorageService;
+use App\Services\Ai\AiVideoGenerationService;
 use App\Models\Subscribers\SubscribersSubscriptions;
 
 class GrokVideoController extends Controller
@@ -24,7 +25,8 @@ class GrokVideoController extends Controller
 
     public function __construct(
         private readonly GrokVideoApiClient $grokVideoApiClient,
-        private readonly AiMediaStorageService $aiMediaStorageService
+        private readonly AiMediaStorageService $aiMediaStorageService,
+        private readonly AiVideoGenerationService $aiVideoGenerationService,
     ) {}
 
     public function start(Request $request): JsonResponse
@@ -40,6 +42,7 @@ class GrokVideoController extends Controller
             'aspect_ratio' => 'nullable|string',
             'aspectRatio' => 'nullable|string',
             'image' => 'nullable|string',
+            'generation_id' => 'nullable|integer|min:1',
         ], [
             'task_type.required' => 'Не указан тип задачи',
             'task_type.in' => 'Указан недопустимый тип задачи',
@@ -146,15 +149,12 @@ class GrokVideoController extends Controller
             }
         }
 
-        $requestPayloadForLog = array_merge($request->all(), [
-            'resolution' => $resolution,
-        ]);
-
-        if (is_string($aspectRatio) && $aspectRatio !== '') {
-            $requestPayloadForLog['aspect_ratio'] = $aspectRatio;
-        } else {
-            unset($requestPayloadForLog['aspect_ratio'], $requestPayloadForLog['aspectRatio']);
-        }
+        $generation = $this->aiVideoGenerationService->resolveForStart(
+            $request->filled('generation_id') ? (int) $request->input('generation_id') : null,
+            $subscriberId,
+            $userId,
+            $prompt,
+        );
 
         $options = [
             'duration' => $request->input('duration'),
@@ -179,26 +179,26 @@ class GrokVideoController extends Controller
                 $publicMessage = $this->resolvePublicErrorMessage($message, $statusCode);
                 $isModerationError = $this->isModerationError($message);
 
-                $logRecord = AiRequestLog::create([
-                    'user_id' => $user?->id,
-                    'subscriber_id' => $subscriberId,
-                    'task_type' => $taskType,
-                    'provider' => 'grok',
-                    'model' => (string) data_get($response, 'data.model', config('services.grok.video_model')),
-                    'request_payload' => $this->buildDbRequestPayload($requestPayloadForLog, $response, $sourceImageMeta),
-                    'provider_response_payload' => $this->extractProviderResponsePayload($response),
-                    'response_type' => 'video',
-                    'generation_status' => $isModerationError ? 'filtered_by_moderation' : 'failed',
-                    'images_count' => 0,
-                    'videos_count' => 0,
-                    'status_code' => $statusCode,
-                    'error_message' => $message,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
+                $taskRecord = $this->aiVideoGenerationService->createTask(
+                    generation: $generation,
+                    subscriberId: $subscriberId,
+                    userId: $userId,
+                    taskType: $taskType,
+                    prompt: $prompt,
+                    duration: $duration,
+                    resolution: $resolution,
+                    aspectRatio: $aspectRatio,
+                    sourceImages: $sourceImageMeta ? [$sourceImageMeta] : null,
+                    status: $isModerationError
+                        ? AiVideoGenerationTask::STATUS_FILTERED
+                        : AiVideoGenerationTask::STATUS_FAILED,
+                    externalRequestId: null,
+                    model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
+                    errorMessage: $message,
+                );
 
                 if ($isModerationError) {
-                    $this->consumeVideoLimitOnce($logRecord, $subscription);
+                    $this->consumeVideoLimitOnce($taskRecord, $subscription);
 
                     return response()->json([
                         'success' => false,
@@ -223,24 +223,20 @@ class GrokVideoController extends Controller
                 ], 200);
             }
 
-            AiRequestLog::create([
-                'user_id' => $user?->id,
-                'subscriber_id' => $subscriberId,
-                'task_type' => $taskType,
-                'provider' => 'grok',
-                'model' => (string) data_get($response, 'data.model', config('services.grok.video_model')),
-                'external_request_id' => $requestId,
-                'request_payload' => $this->buildDbRequestPayload($requestPayloadForLog, $response, $sourceImageMeta),
-                'provider_response_payload' => $this->extractProviderResponsePayload($response),
-                'response_type' => 'video',
-                'generation_status' => 'pending',
-                'images_count' => 0,
-                'videos_count' => 0,
-                'status_code' => 202,
-                'error_message' => null,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            $this->aiVideoGenerationService->createTask(
+                generation: $generation,
+                subscriberId: $subscriberId,
+                userId: $userId,
+                taskType: $taskType,
+                prompt: $prompt,
+                duration: $duration,
+                resolution: $resolution,
+                aspectRatio: $aspectRatio,
+                sourceImages: $sourceImageMeta ? [$sourceImageMeta] : null,
+                status: AiVideoGenerationTask::STATUS_PENDING,
+                externalRequestId: $requestId,
+                model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
+            );
 
             return response()->json([
                 'success' => true,
@@ -248,6 +244,7 @@ class GrokVideoController extends Controller
                 'data' => [
                     'request_id' => $requestId,
                     'status' => 'pending',
+                    'generation_id' => $generation->id,
                 ],
             ], 200);
         } catch (Throwable $exception) {
@@ -267,6 +264,7 @@ class GrokVideoController extends Controller
             'resolution' => 'nullable|string',
             'images' => 'required|array|min:1|max:7',
             'images.*' => 'required|string',
+            'generation_id' => 'nullable|integer|min:1',
         ], [
             'task_type.in' => 'Для этого endpoint допустим только task_type=generate_video_from_image',
             'prompt.required' => 'Не передан prompt',
@@ -336,7 +334,8 @@ class GrokVideoController extends Controller
             ], 200);
         }
 
-        $taskType = AiTaskType::GENERATE_VIDEO_FROM_IMAGE->value;
+        $storedTaskType = 'generate_video_from_scene';
+        $providerTaskType = AiTaskType::GENERATE_VIDEO_FROM_IMAGE->value;
         $resolution = $this->resolveResolution((string) $request->input('resolution', '480p'));
         $duration = (int) ($request->input('duration') ?? 1);
         $requiredVideoLimit = $this->resolveVideoLimitCost($duration, $resolution);
@@ -349,6 +348,12 @@ class GrokVideoController extends Controller
         }
 
         $prompt = trim((string) $request->input('prompt', ''));
+        $generation = $this->aiVideoGenerationService->resolveForStart(
+            $request->filled('generation_id') ? (int) $request->input('generation_id') : null,
+            $subscriberId,
+            $userId,
+            $prompt,
+        );
         $referenceImagesForProvider = $this->normalizeImagesInput($request->input('images', []));
         $sourceImagesMeta = [];
 
@@ -363,12 +368,6 @@ class GrokVideoController extends Controller
             ], 200);
         }
 
-        $requestPayloadForLog = array_merge($request->all(), [
-            'task_type' => $taskType,
-            'resolution' => $resolution,
-            'images' => $referenceImagesForProvider,
-        ]);
-
         $options = [
             'duration' => $request->input('duration'),
             'resolution' => $resolution,
@@ -377,7 +376,7 @@ class GrokVideoController extends Controller
 
         try {
             $response = $this->grokVideoApiClient->startGeneration(
-                taskType: $taskType,
+                taskType: $providerTaskType,
                 prompt: $prompt,
                 options: $options
             );
@@ -388,26 +387,26 @@ class GrokVideoController extends Controller
                 $publicMessage = $this->resolvePublicErrorMessage($message, $statusCode);
                 $isModerationError = $this->isModerationError($message);
 
-                $logRecord = AiRequestLog::create([
-                    'user_id' => $user?->id,
-                    'subscriber_id' => $subscriberId,
-                    'task_type' => $taskType,
-                    'provider' => 'grok',
-                    'model' => (string) data_get($response, 'data.model', config('services.grok.video_model')),
-                    'request_payload' => $this->buildDbRequestPayload($requestPayloadForLog, $response, null, $sourceImagesMeta),
-                    'provider_response_payload' => $this->extractProviderResponsePayload($response),
-                    'response_type' => 'video',
-                    'generation_status' => $isModerationError ? 'filtered_by_moderation' : 'failed',
-                    'images_count' => count($referenceImagesForProvider),
-                    'videos_count' => 0,
-                    'status_code' => $statusCode,
-                    'error_message' => $message,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
+                $taskRecord = $this->aiVideoGenerationService->createTask(
+                    generation: $generation,
+                    subscriberId: $subscriberId,
+                    userId: $userId,
+                    taskType: $storedTaskType,
+                    prompt: $prompt,
+                    duration: $duration,
+                    resolution: $resolution,
+                    aspectRatio: null,
+                    sourceImages: $sourceImagesMeta !== [] ? $sourceImagesMeta : null,
+                    status: $isModerationError
+                        ? AiVideoGenerationTask::STATUS_FILTERED
+                        : AiVideoGenerationTask::STATUS_FAILED,
+                    externalRequestId: null,
+                    model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
+                    errorMessage: $message,
+                );
 
                 if ($isModerationError) {
-                    $this->consumeVideoLimitOnce($logRecord, $subscription);
+                    $this->consumeVideoLimitOnce($taskRecord, $subscription);
 
                     return response()->json([
                         'success' => false,
@@ -432,24 +431,20 @@ class GrokVideoController extends Controller
                 ], 200);
             }
 
-            AiRequestLog::create([
-                'user_id' => $user?->id,
-                'subscriber_id' => $subscriberId,
-                'task_type' => $taskType,
-                'provider' => 'grok',
-                'model' => (string) data_get($response, 'data.model', config('services.grok.video_model')),
-                'external_request_id' => $requestId,
-                'request_payload' => $this->buildDbRequestPayload($requestPayloadForLog, $response, null, $sourceImagesMeta),
-                'provider_response_payload' => $this->extractProviderResponsePayload($response),
-                'response_type' => 'video',
-                'generation_status' => 'pending',
-                'images_count' => count($referenceImagesForProvider),
-                'videos_count' => 0,
-                'status_code' => 202,
-                'error_message' => null,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            $this->aiVideoGenerationService->createTask(
+                generation: $generation,
+                subscriberId: $subscriberId,
+                userId: $userId,
+                taskType: $storedTaskType,
+                prompt: $prompt,
+                duration: $duration,
+                resolution: $resolution,
+                aspectRatio: null,
+                sourceImages: $sourceImagesMeta !== [] ? $sourceImagesMeta : null,
+                status: AiVideoGenerationTask::STATUS_PENDING,
+                externalRequestId: $requestId,
+                model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
+            );
 
             return response()->json([
                 'success' => true,
@@ -457,6 +452,7 @@ class GrokVideoController extends Controller
                 'data' => [
                     'request_id' => $requestId,
                     'status' => 'pending',
+                    'generation_id' => $generation->id,
                 ],
             ], 200);
         } catch (Throwable $exception) {
@@ -493,18 +489,39 @@ class GrokVideoController extends Controller
             ], 200);
         }
 
-        $logRecord = AiRequestLog::query()
-            ->where('provider', 'grok')
-            ->where('external_request_id', $requestId)
-            ->where('subscriber_id', $subscriberId)
-            ->latest('id')
-            ->first();
+        $taskRecord = $this->aiVideoGenerationService->findTaskByExternalId($requestId, $subscriberId);
 
-        if (! $logRecord) {
+        if (! $taskRecord) {
             return response()->json([
                 'success' => false,
                 'messages' => ['Задача генерации видео не найдена'],
             ], 404);
+        }
+
+        if ($taskRecord->isTerminal()) {
+            if ($taskRecord->status === AiVideoGenerationTask::STATUS_DONE) {
+                $limits = $this->getLimits($subscription->fresh());
+
+                return response()->json(array_merge(
+                    $this->aiVideoGenerationService->buildDoneStatusResponse($taskRecord),
+                    ['meta' => ['limits' => $limits]],
+                ), 200);
+            }
+
+            $frontendStatus = $taskRecord->status === AiVideoGenerationTask::STATUS_FAILED
+                ? 'error'
+                : $taskRecord->status;
+
+            return response()->json([
+                'success' => $taskRecord->status !== AiVideoGenerationTask::STATUS_FAILED
+                    && $taskRecord->status !== AiVideoGenerationTask::STATUS_EXPIRED,
+                'messages' => [$this->resolvePublicErrorMessage($taskRecord->error_message, 200)],
+                'data' => [
+                    'request_id' => $requestId,
+                    'status' => $frontendStatus,
+                    'generation_id' => $taskRecord->video_generation_id,
+                ],
+            ], 200);
         }
 
         $response = $this->grokVideoApiClient->getGeneration($requestId);
@@ -514,19 +531,19 @@ class GrokVideoController extends Controller
             $statusCode = (int) ($response['status'] ?? 503);
 
             $isModerationError = $this->isModerationError($message);
-            $generationStatus = $isModerationError ? 'filtered_by_moderation' : 'failed';
+            $generationStatus = $isModerationError
+                ? AiVideoGenerationTask::STATUS_FILTERED
+                : AiVideoGenerationTask::STATUS_FAILED;
 
-            $logRecord->update([
-                'model' => (string) data_get($response, 'data.model', $logRecord->model ?? config('services.grok.video_model')),
-                'generation_status' => $generationStatus,
-                'status_code' => $statusCode,
+            $taskRecord->update([
+                'model' => (string) data_get($response, 'data.model', $taskRecord->model ?? config('services.grok.video_model')),
+                'status' => $generationStatus,
                 'error_message' => $message,
-                'provider_response_payload' => $this->extractProviderResponsePayload($response),
-                'updated_at' => now(),
             ]);
+            $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
 
             if ($isModerationError) {
-                $this->consumeVideoLimitOnce($logRecord, $subscription);
+                $this->consumeVideoLimitOnce($taskRecord, $subscription);
 
                 return response()->json([
                     'success' => false,
@@ -534,6 +551,7 @@ class GrokVideoController extends Controller
                     'data' => [
                         'request_id' => $requestId,
                         'status' => 'filtered_by_moderation',
+                        'generation_id' => $taskRecord->video_generation_id,
                     ],
                     'meta' => [
                         'limits' => $this->getLimits($subscription->fresh()),
@@ -550,13 +568,10 @@ class GrokVideoController extends Controller
         $status = mb_strtolower(trim((string) data_get($response, 'data.status', 'pending')));
 
         if ($status === 'pending') {
-            $logRecord->update([
-                'model' => (string) data_get($response, 'data.model', $logRecord->model ?? config('services.grok.video_model')),
-                'generation_status' => 'pending',
-                'status_code' => 202,
+            $taskRecord->update([
+                'model' => (string) data_get($response, 'data.model', $taskRecord->model ?? config('services.grok.video_model')),
+                'status' => AiVideoGenerationTask::STATUS_PENDING,
                 'error_message' => null,
-                'provider_response_payload' => $this->extractProviderResponsePayload($response),
-                'updated_at' => now(),
             ]);
 
             return response()->json([
@@ -565,19 +580,18 @@ class GrokVideoController extends Controller
                 'data' => [
                     'request_id' => $requestId,
                     'status' => 'pending',
+                    'generation_id' => $taskRecord->video_generation_id,
                 ],
             ], 200);
         }
 
         if ($status === 'expired') {
-            $logRecord->update([
-                'model' => (string) data_get($response, 'data.model', $logRecord->model ?? config('services.grok.video_model')),
-                'generation_status' => 'expired',
-                'status_code' => 410,
+            $taskRecord->update([
+                'model' => (string) data_get($response, 'data.model', $taskRecord->model ?? config('services.grok.video_model')),
+                'status' => AiVideoGenerationTask::STATUS_EXPIRED,
                 'error_message' => 'Срок ожидания генерации видео истёк',
-                'provider_response_payload' => $this->extractProviderResponsePayload($response),
-                'updated_at' => now(),
             ]);
+            $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
 
             return response()->json([
                 'success' => false,
@@ -585,6 +599,7 @@ class GrokVideoController extends Controller
                 'data' => [
                     'request_id' => $requestId,
                     'status' => 'expired',
+                    'generation_id' => $taskRecord->video_generation_id,
                 ],
             ], 200);
         }
@@ -596,20 +611,19 @@ class GrokVideoController extends Controller
                 'data' => [
                     'request_id' => $requestId,
                     'status' => $status,
+                    'generation_id' => $taskRecord->video_generation_id,
                 ],
             ], 200);
         }
 
         $video = data_get($response, 'data.video');
         if (! is_array($video) || trim((string) ($video['url'] ?? '')) === '') {
-            $logRecord->update([
-                'model' => (string) data_get($response, 'data.model', $logRecord->model ?? config('services.grok.video_model')),
-                'generation_status' => 'failed',
-                'status_code' => 500,
+            $taskRecord->update([
+                'model' => (string) data_get($response, 'data.model', $taskRecord->model ?? config('services.grok.video_model')),
+                'status' => AiVideoGenerationTask::STATUS_FAILED,
                 'error_message' => 'Grok API не вернул ссылку на видео',
-                'provider_response_payload' => $this->extractProviderResponsePayload($response),
-                'updated_at' => now(),
             ]);
+            $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
 
             return response()->json([
                 'success' => false,
@@ -617,7 +631,7 @@ class GrokVideoController extends Controller
             ], 200);
         }
 
-        if (! $this->consumeVideoLimitOnce($logRecord, $subscription)) {
+        if (! $this->consumeVideoLimitOnce($taskRecord, $subscription)) {
             return response()->json([
                 'success' => false,
                 'messages' => ['Не удалось списать лимит AI_VIDEO_QUERY'],
@@ -632,14 +646,12 @@ class GrokVideoController extends Controller
                 $userId
             );
         } catch (Throwable $exception) {
-            $logRecord->update([
-                'model' => (string) data_get($response, 'data.model', $logRecord->model ?? config('services.grok.video_model')),
-                'generation_status' => 'failed',
-                'status_code' => 500,
+            $taskRecord->update([
+                'model' => (string) data_get($response, 'data.model', $taskRecord->model ?? config('services.grok.video_model')),
+                'status' => AiVideoGenerationTask::STATUS_FAILED,
                 'error_message' => 'Не удалось сохранить видео в хранилище: ' . $exception->getMessage(),
-                'provider_response_payload' => $this->extractProviderResponsePayload($response),
-                'updated_at' => now(),
             ]);
+            $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
 
             return response()->json([
                 'success' => false,
@@ -647,25 +659,25 @@ class GrokVideoController extends Controller
             ], 200);
         }
 
-        $responseVideos = [[
-            'url' => (string) ($storedVideoMeta['signed_url'] ?? ''),
-            'url_preview' => (string) ($storedVideoMeta['url_preview'] ?? ''),
-            'provider_url' => $providerVideoUrl,
-            'path' => (string) ($storedVideoMeta['path'] ?? ''),
-            'duration' => (int) ($video['duration'] ?? 0),
-        ]];
+        $storedPath = (string) ($storedVideoMeta['path'] ?? '');
+        $panelVideoUrl = $this->aiMediaStorageService->resolvePanelMediaUrl(path: $storedPath)
+            ?? (string) ($storedVideoMeta['signed_url'] ?? '');
 
-        $logRecord->update([
-            'model' => (string) data_get($response, 'data.model', $logRecord->model ?? config('services.grok.video_model')),
-            'generation_status' => 'done',
-            'response_type' => 'video',
-            'response_videos' => $responseVideos,
-            'videos_count' => 1,
-            'status_code' => 200,
+        $resultVideo = [
+            'url' => $panelVideoUrl,
+            'url_preview' => $panelVideoUrl,
+            'provider_url' => $providerVideoUrl,
+            'path' => $storedPath,
+            'duration' => (int) ($video['duration'] ?? 0),
+        ];
+
+        $taskRecord->update([
+            'model' => (string) data_get($response, 'data.model', $taskRecord->model ?? config('services.grok.video_model')),
+            'status' => AiVideoGenerationTask::STATUS_DONE,
+            'result_video' => $resultVideo,
             'error_message' => null,
-            'provider_response_payload' => $this->extractProviderResponsePayload($response),
-            'updated_at' => now(),
         ]);
+        $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
 
         $limits = $this->getLimits($subscription->fresh());
 
@@ -676,9 +688,10 @@ class GrokVideoController extends Controller
                 'request_id' => $requestId,
                 'status' => 'done',
                 'video' => [
-                    'url' => (string) ($storedVideoMeta['signed_url'] ?? ''),
+                    'url' => $panelVideoUrl,
                 ],
                 'model' => (string) data_get($response, 'data.model', config('services.grok.video_model')),
+                'generation_id' => $taskRecord->video_generation_id,
             ],
             'meta' => [
                 'limits' => $limits,
@@ -697,16 +710,16 @@ class GrokVideoController extends Controller
         return $current >= $required;
     }
 
-    private function consumeVideoLimitOnce(AiRequestLog $logRecord, SubscribersSubscriptions $subscription): bool
+    private function consumeVideoLimitOnce(AiVideoGenerationTask $taskRecord, SubscribersSubscriptions $subscription): bool
     {
-        return DB::transaction(function () use ($logRecord, $subscription) {
-            /** @var AiRequestLog|null $lockedLog */
-            $lockedLog = AiRequestLog::lockForUpdate()->find($logRecord->id);
-            if (! $lockedLog) {
+        return DB::transaction(function () use ($taskRecord, $subscription) {
+            /** @var AiVideoGenerationTask|null $lockedTask */
+            $lockedTask = AiVideoGenerationTask::lockForUpdate()->find($taskRecord->id);
+            if (! $lockedTask) {
                 return false;
             }
 
-            if ($lockedLog->limit_consumed_at !== null) {
+            if ($lockedTask->limit_consumed_at !== null) {
                 return true;
             }
 
@@ -715,7 +728,7 @@ class GrokVideoController extends Controller
                 return false;
             }
 
-            $requiredVideoLimit = $this->extractVideoLimitCostFromRequestPayload($lockedLog->request_payload);
+            $requiredVideoLimit = $this->resolveVideoLimitCost($lockedTask->duration, $lockedTask->resolution);
 
             $available = (int) ($freshSubscription->getMonthLimit('ai_video_query') ?: 0);
             if ($available < $requiredVideoLimit) {
@@ -728,9 +741,8 @@ class GrokVideoController extends Controller
                 }
             }
 
-            $lockedLog->update([
+            $lockedTask->update([
                 'limit_consumed_at' => now(),
-                'updated_at' => now(),
             ]);
 
             return true;
@@ -812,18 +824,6 @@ class GrokVideoController extends Controller
         return $seconds * $qualityMultiplier;
     }
 
-    private function extractVideoLimitCostFromRequestPayload(mixed $requestPayload): int
-    {
-        if (! is_array($requestPayload)) {
-            return 1;
-        }
-
-        $duration = (int) data_get($requestPayload, 'duration', 1);
-        $resolution = $this->resolveResolution((string) data_get($requestPayload, 'resolution', '480p'));
-
-        return $this->resolveVideoLimitCost($duration, $resolution);
-    }
-
     private function resolvePublicErrorMessage(?string $providerMessage, ?int $statusCode = null): string
     {
         if ($this->isModerationError($providerMessage)) {
@@ -860,70 +860,6 @@ class GrokVideoController extends Controller
             || str_contains($message, 'filtered by moderation')
             || str_contains($message, 'content policy')
             || str_contains($message, 'safety');
-    }
-
-    private function sanitizePayload(array $payload): array
-    {
-        if (isset($payload['image']) && is_string($payload['image']) && $payload['image'] !== '') {
-            $payload['image'] = 'image_input_length:' . mb_strlen($payload['image']);
-        }
-
-        if (isset($payload['images']) && is_array($payload['images'])) {
-            $payload['images'] = array_map(function ($image) {
-                if (! is_string($image) || $image === '') {
-                    return $image;
-                }
-
-                return 'image_input_length:' . mb_strlen($image);
-            }, $payload['images']);
-        }
-
-        return $payload;
-    }
-
-    private function buildDbRequestPayload(array $requestPayload, array $response, ?array $sourceImageMeta = null, array $sourceImagesMeta = []): array
-    {
-        $payload = $this->sanitizePayload($requestPayload);
-        $providerOutboundPayload = data_get($response, 'request_payload');
-
-        if (is_array($providerOutboundPayload)) {
-            $payload['_grok_request_payload'] = $providerOutboundPayload;
-        }
-
-        if (is_array($sourceImageMeta)) {
-            $payload['_source_image'] = [
-                'path' => (string) ($sourceImageMeta['path'] ?? ''),
-                'url_preview' => (string) ($sourceImageMeta['url_preview'] ?? ''),
-                'mime_type' => (string) ($sourceImageMeta['mime_type'] ?? ''),
-                'size' => (int) ($sourceImageMeta['size'] ?? 0),
-            ];
-        }
-
-        if ($sourceImagesMeta !== []) {
-            $payload['_source_images'] = array_map(function (array $meta): array {
-                return [
-                    'path' => (string) ($meta['path'] ?? ''),
-                    'url_preview' => (string) ($meta['url_preview'] ?? ''),
-                    'mime_type' => (string) ($meta['mime_type'] ?? ''),
-                    'size' => (int) ($meta['size'] ?? 0),
-                ];
-            }, $sourceImagesMeta);
-        }
-
-        return $payload;
-    }
-
-    private function extractProviderResponsePayload(array $response): ?array
-    {
-        $providerResponsePayload = data_get($response, 'response_payload');
-
-        if (is_array($providerResponsePayload)) {
-            return $providerResponsePayload;
-        }
-
-        $data = data_get($response, 'data');
-
-        return is_array($data) ? $data : null;
     }
 
     private function validateInputImageSize(string $imageInput): ?string

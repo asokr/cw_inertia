@@ -21,12 +21,9 @@ class ProfileController extends Controller
         ExtraLimitPurchaseService $extraLimitService,
     ): Response {
         $user = $request->user();
-        $availablePlans = $profileService->getAvailablePlans($user);
 
         return Inertia::render('Subscriber/Profile/Index', [
             'subscriptionData' => $subscriptionService->getCurrent($user),
-            'availablePlans' => $availablePlans['plans'],
-            'nextActions' => $availablePlans['next'],
             'extraLimitsCatalog' => $extraLimitService->listCatalog(),
             'userExtraLimits' => $extraLimitService->getUserExtraLimits($user) ?? [],
         ]);

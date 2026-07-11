@@ -6,8 +6,8 @@ import CardsTable from "@/components/subscriber/wb/price-calc/CardsTable.vue";
 import SettingsDialog from "@/components/subscriber/wb/price-calc/SettingsDialog.vue";
 import WorkflowAlert from "@/components/subscriber/wb/price-calc/WorkflowAlert.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
-import Alert from "@/components/ui/Alert.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     cabinet: { type: Object, required: true },
@@ -27,6 +27,9 @@ const breadcrumbs = [
 const settingsOpen = ref(false);
 
 const baseUrl = `/panel/wb/price-calc/cabinets/${props.cabinet.id}`;
+
+const { watchPropToast } = useFlashToast();
+watchPropToast(() => props.cardsError);
 </script>
 
 <template>
@@ -47,8 +50,6 @@ const baseUrl = `/panel/wb/price-calc/cabinets/${props.cabinet.id}`;
             />
 
             <WorkflowAlert />
-
-            <Alert v-if="cardsError" variant="destructive">{{ cardsError }}</Alert>
 
             <CardsTable
                 :items="cards"

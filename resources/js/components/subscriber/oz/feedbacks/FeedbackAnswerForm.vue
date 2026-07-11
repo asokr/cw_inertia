@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { router } from "@inertiajs/vue3";
 import Button from "@/components/ui/Button.vue";
 import Textarea from "@/components/ui/Textarea.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     feedback: { type: Object, required: true },
@@ -16,6 +17,7 @@ const text = ref("");
 const sending = ref(false);
 const generating = ref(false);
 const sent = ref(false);
+const { showError } = useFlashToast();
 
 function toggle() {
     open.value = !open.value;
@@ -39,10 +41,10 @@ async function generate() {
             const generated = data.data ?? "";
             text.value = props.signature ? `${generated} ${props.signature}` : generated;
         } else {
-            window.alert(data.messages?.[0] ?? "Не удалось сгенерировать ответ");
+            showError(data.messages?.[0] ?? "Не удалось сгенерировать ответ");
         }
     } catch {
-        window.alert("Ошибка при обращении к ИИ");
+        showError("Ошибка при обращении к ИИ");
     } finally {
         generating.value = false;
     }

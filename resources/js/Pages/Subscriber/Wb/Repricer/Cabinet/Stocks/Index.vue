@@ -6,9 +6,9 @@ import RepricerSubnav from "@/components/subscriber/wb/repricer/RepricerSubnav.v
 import StockFormDialog from "@/components/subscriber/wb/repricer/Stocks/StockFormDialog.vue";
 import StocksTable from "@/components/subscriber/wb/repricer/Stocks/StocksTable.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
-import Alert from "@/components/ui/Alert.vue";
 import Button from "@/components/ui/Button.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     cabinet: { type: Object, required: true },
@@ -41,6 +41,9 @@ function openLogs(nmId) {
     logsNmId.value = nmId;
     logsOpen.value = true;
 }
+
+const { watchPropToast } = useFlashToast();
+watchPropToast(() => props.stocksError);
 </script>
 
 <template>
@@ -59,8 +62,6 @@ function openLogs(nmId) {
         <RepricerSubnav :cabinet-id="cabinet.id" />
 
         <div class="mt-4 space-y-4">
-            <Alert v-if="stocksError" variant="destructive">{{ stocksError }}</Alert>
-
             <StocksTable
                 :items="stocks"
                 :cabinet-id="cabinet.id"

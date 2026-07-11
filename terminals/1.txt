@@ -3,7 +3,7 @@ pid: 6548
 cwd: "C:\OSPanel\home\subs-back.local\cw_inertia"
 command: "cd \"C:\\OSPanel\\home\\subs-back.local\\cw_inertia\"; npm run build 2>&1"
 started_at: 2026-07-03T09:43:54.537Z
-running_for_ms: 9355012  
+running_for_ms: 9830007  
 ---
 
 > build

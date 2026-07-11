@@ -1,5 +1,6 @@
 <script setup>
 import { Link } from "@inertiajs/vue3";
+import FlashToasts from "@/components/admin/FlashToasts.vue";
 import Button from "@/components/ui/Button.vue";
 
 defineProps({
@@ -10,6 +11,8 @@ defineProps({
 </script>
 
 <template>
+    <FlashToasts />
+
     <div class="landing-page relative min-h-screen overflow-hidden bg-background text-foreground">
         <div class="landing-page__glow landing-page__glow--left" />
         <div class="landing-page__glow landing-page__glow--right" />

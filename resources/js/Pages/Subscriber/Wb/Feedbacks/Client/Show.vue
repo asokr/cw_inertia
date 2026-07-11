@@ -6,9 +6,9 @@ import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import AiAutoSettings from "@/components/subscriber/wb/feedbacks/AiAutoSettings.vue";
 import AnsweredReviewsWidget from "@/components/subscriber/wb/feedbacks/AnsweredReviewsWidget.vue";
 import FeedbackCard from "@/components/subscriber/wb/feedbacks/FeedbackCard.vue";
-import Alert from "@/components/ui/Alert.vue";
 import Button from "@/components/ui/Button.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     client: { type: Object, required: true },
@@ -49,6 +49,9 @@ function showAll() {
     perPage.value = props.feedbacks.length || 10;
     page.value = 1;
 }
+
+const { watchPropToast } = useFlashToast();
+watchPropToast(() => props.feedbacksError);
 </script>
 
 <template>
@@ -74,10 +77,6 @@ function showAll() {
             :update-url="updateAiUrl"
             @rating-type-change="localRatingType = $event"
         />
-
-        <Alert v-if="feedbacksError" variant="destructive" class="mb-4">
-            {{ feedbacksError }}
-        </Alert>
 
         <div v-if="feedbacks.length" class="space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-3">

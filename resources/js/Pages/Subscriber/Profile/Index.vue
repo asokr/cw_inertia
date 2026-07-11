@@ -2,20 +2,18 @@
 import { Head, Link, router, useForm, usePage } from "@inertiajs/vue3";
 import { Pencil, Shield } from "lucide-vue-next";
 import { computed, ref } from "vue";
-import NotificationBanner from "@/components/subscriber/NotificationBanner.vue";
 import Badge from "@/components/ui/Badge.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
+import ExtraLimitsShop from "@/components/subscriber/profile/ExtraLimitsShop.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useSubscriberContext } from "@/composables/useSubscriberContext";
 import { formatLimitLabel } from "@/utils/limitLabels";
 
 const props = defineProps({
     subscriptionData: { type: Object, default: null },
-    availablePlans: { type: Array, default: () => [] },
-    nextActions: { type: Array, default: () => [] },
     extraLimitsCatalog: { type: Array, default: () => [] },
     userExtraLimits: { type: Object, default: () => ({}) },
 });
@@ -28,15 +26,16 @@ const profileForm = useForm({
     name: page.props.auth?.user?.name ?? "",
 });
 
+const depositPresets = [500, 1000, 3000, 5000, 10000];
+
 const depositForm = useForm({
-    amount: "",
+    amount: "500",
 });
 
 const subscription = computed(() => props.subscriptionData?.subscription ?? null);
 const plan = computed(() => props.subscriptionData?.plan ?? null);
-const hasStopAction = computed(() =>
-    props.nextActions?.some((item) => item.action === "STOP")
-);
+const nextActions = computed(() => props.subscriptionData?.next ?? []);
+const hasStopAction = computed(() => nextActions.value?.some((item) => item.action === "STOP"));
 
 const formattedBalance = computed(() =>
     new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 }).format(
@@ -57,12 +56,12 @@ function deposit() {
     depositForm.post("/panel/payments/deposit", { preserveScroll: true });
 }
 
-function changePlan(planId, lower) {
-    if (!confirm(lower ? "Тариф сменится в конце текущего периода. Продолжить?" : "Перейти на выбранный тариф?")) {
-        return;
-    }
+function selectDepositAmount(amount) {
+    depositForm.amount = String(amount);
+}
 
-    router.post("/panel/user/change-plan", { plan_id: planId }, { preserveScroll: true });
+function isDepositPresetActive(amount) {
+    return Number(depositForm.amount) === amount;
 }
 
 function unsubscribe() {
@@ -73,10 +72,6 @@ function unsubscribe() {
 function resubscribe() {
     if (!subscription.value) return;
     router.post("/panel/user/resubscribe", { id: subscription.value.id }, { preserveScroll: true });
-}
-
-function buyExtraLimit(id) {
-    router.post("/panel/user/extra-limits", { id }, { preserveScroll: true });
 }
 
 function limitEntries(limits) {
@@ -92,8 +87,6 @@ function limitEntries(limits) {
         title="Профиль"
         :breadcrumbs="[{ label: 'Панель', href: '/panel' }, { label: 'Профиль' }]"
     >
-        <NotificationBanner />
-
         <div class="grid gap-4 lg:grid-cols-2">
             <Card class="p-6">
                 <h2 class="mb-4 text-base font-semibold">Данные аккаунта</h2>
@@ -119,16 +112,38 @@ function limitEntries(limits) {
                 </div>
             </Card>
 
-            <Card class="p-6">
+            <Card id="balance-section" class="p-6">
                 <h2 class="mb-4 text-base font-semibold">Баланс</h2>
                 <p class="mb-4 text-2xl font-semibold tabular-nums">{{ formattedBalance }}</p>
-                <form class="flex max-w-sm gap-2" @submit.prevent="deposit">
-                    <div class="flex-1 space-y-1">
+                <form class="max-w-sm space-y-3" @submit.prevent="deposit">
+                    <div class="space-y-2">
                         <Label for="amount">Сумма пополнения</Label>
-                        <Input id="amount" v-model="depositForm.amount" type="number" min="1" step="1" />
-                        <p v-if="depositForm.errors.amount" class="text-xs text-destructive">{{ depositForm.errors.amount }}</p>
+                        <div class="flex flex-wrap gap-2">
+                            <button
+                                v-for="preset in depositPresets"
+                                :key="preset"
+                                type="button"
+                                class="rounded-md border px-3 py-1.5 text-sm tabular-nums transition-colors"
+                                :class="
+                                    isDepositPresetActive(preset)
+                                        ? 'border-primary bg-primary/10 font-medium text-primary'
+                                        : 'border-border/70 text-muted-foreground hover:border-border hover:bg-muted/50'
+                                "
+                                @click="selectDepositAmount(preset)"
+                            >
+                                {{ preset.toLocaleString("ru-RU") }} ₽
+                            </button>
+                        </div>
                     </div>
-                    <Button type="submit" class="self-end" :disabled="depositForm.processing">Пополнить</Button>
+                    <div class="flex gap-2">
+                        <div class="flex-1 space-y-1">
+                            <Input id="amount" v-model="depositForm.amount" type="number" min="1" step="1" />
+                            <p v-if="depositForm.errors.amount" class="text-xs text-destructive">
+                                {{ depositForm.errors.amount }}
+                            </p>
+                        </div>
+                        <Button type="submit" class="self-start" :disabled="depositForm.processing">Пополнить</Button>
+                    </div>
                 </form>
                 <Link href="/panel/user/history" class="mt-4 inline-block text-sm text-primary hover:underline">
                     История платежей
@@ -137,9 +152,12 @@ function limitEntries(limits) {
         </div>
 
         <Card class="mt-6 p-6">
-            <div class="mb-4 flex items-center gap-2">
-                <Shield class="h-5 w-5 text-primary" />
-                <h2 class="text-base font-semibold">Текущая подписка</h2>
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <Shield class="h-5 w-5 text-primary" />
+                    <h2 class="text-base font-semibold">Текущая подписка</h2>
+                </div>
+                <Button href="/panel/plans" variant="outline" size="sm">Сменить тариф</Button>
             </div>
 
             <template v-if="subscription && plan">
@@ -168,12 +186,17 @@ function limitEntries(limits) {
                 </div>
 
                 <div v-if="limitEntries(subscription.extra_limits_month).length" class="mb-4">
-                    <p class="mb-1 text-xs text-muted-foreground">Дополнительные лимиты</p>
-                    <ul class="list-inside list-disc text-sm">
-                        <li v-for="[key, value] in limitEntries(subscription.extra_limits_month)" :key="key">
-                            {{ formatLimitLabel(key) }}: <strong>{{ value }}</strong>
-                        </li>
-                    </ul>
+                    <p class="mb-2 text-xs text-muted-foreground">Дополнительные лимиты</p>
+                    <div class="flex flex-wrap gap-2">
+                        <span
+                            v-for="[key, value] in limitEntries(subscription.extra_limits_month)"
+                            :key="key"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs"
+                        >
+                            <span class="text-muted-foreground">{{ formatLimitLabel(key) }}</span>
+                            <strong class="tabular-nums text-primary">+{{ value }}</strong>
+                        </span>
+                    </div>
                 </div>
 
                 <div class="max-w-xs">
@@ -184,38 +207,16 @@ function limitEntries(limits) {
                     </div>
                 </div>
             </template>
-            <p v-else class="text-sm text-muted-foreground">Активная подписка не найдена. Выберите тариф ниже.</p>
-        </Card>
-
-        <Card v-if="extraLimitsCatalog.length" class="mt-6 p-6">
-            <h2 class="mb-4 text-base font-semibold">Дополнительные лимиты</h2>
-            <div class="flex flex-wrap gap-2">
-                <Button
-                    v-for="item in extraLimitsCatalog"
-                    :key="item.id"
-                    variant="outline"
-                    size="sm"
-                    @click="buyExtraLimit(item.id)"
-                >
-                    {{ formatLimitLabel(item.limit_name) }} +{{ item.quantity }} — {{ item.price }} ₽
-                </Button>
+            <div v-else class="space-y-3">
+                <p class="text-sm text-muted-foreground">Активная подписка не найдена.</p>
+                <Button href="/panel/plans">Выбрать тариф</Button>
             </div>
         </Card>
 
-        <div v-if="availablePlans.length && !hasStopAction" class="mt-6">
-            <h2 class="mb-4 text-base font-semibold">Доступные тарифы</h2>
-            <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <Card v-for="item in availablePlans" :key="item.id" class="flex flex-col p-6">
-                    <div class="flex-1">
-                        <h3 class="text-lg font-semibold">{{ item.name }}</h3>
-                        <p class="text-sm text-muted-foreground">{{ item.duration }} дней</p>
-                        <p class="mt-4 text-2xl font-bold">{{ item.price }} ₽</p>
-                    </div>
-                    <Button class="mt-4 w-full" variant="outline" @click="changePlan(item.id, item.lower)">
-                        {{ item.lower ? "Понизить тариф" : "Перейти на тариф" }}
-                    </Button>
-                </Card>
-            </div>
-        </div>
+        <ExtraLimitsShop
+            :catalog="extraLimitsCatalog"
+            :user-extra-limits="userExtraLimits"
+            :balance="balance"
+        />
     </SubscriberLayout>
 </template>

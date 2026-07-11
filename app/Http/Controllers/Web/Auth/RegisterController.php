@@ -29,6 +29,9 @@ class RegisterController extends Controller
             ]);
         }
 
+        $authService->loginUser($result['user']);
+        $request->session()->regenerate();
+
         return redirect()
             ->route('verification.notice')
             ->with('messages', $result['messages'])

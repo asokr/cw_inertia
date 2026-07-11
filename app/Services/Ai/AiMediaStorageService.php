@@ -115,6 +115,68 @@ class AiMediaStorageService
         ];
     }
 
+    public function buildPanelMediaUrl(string $path): string
+    {
+        $normalized = trim($path, '/');
+        if (str_starts_with($normalized, 'ai/')) {
+            $normalized = substr($normalized, 3);
+        }
+
+        $segments = array_filter(explode('/', $normalized), static fn (string $segment): bool => $segment !== '');
+
+        return '/panel/ai/media/' . implode('/', array_map('rawurlencode', $segments));
+    }
+
+    public function resolvePanelMediaUrl(?string $url = null, ?string $path = null): ?string
+    {
+        $storagePath = trim((string) $path);
+        if ($storagePath !== '') {
+            return $this->buildPanelMediaUrl($storagePath);
+        }
+
+        $rawUrl = trim((string) $url);
+        if ($rawUrl === '') {
+            return null;
+        }
+
+        if (str_starts_with($rawUrl, '/panel/ai/media/')) {
+            return $rawUrl;
+        }
+
+        if (str_starts_with($rawUrl, '/api/subscriber/ai/media/')) {
+            $relative = substr($rawUrl, strlen('/api/subscriber/ai/media/'));
+            $decodedSegments = array_map(
+                static fn (string $segment): string => rawurldecode($segment),
+                array_filter(explode('/', $relative), static fn (string $segment): bool => $segment !== ''),
+            );
+
+            return $this->buildPanelMediaUrl(implode('/', $decodedSegments));
+        }
+
+        if (str_starts_with($rawUrl, 'http://') || str_starts_with($rawUrl, 'https://')) {
+            $parsedPath = (string) (parse_url($rawUrl, PHP_URL_PATH) ?? '');
+
+            return $this->resolvePanelMediaUrl($parsedPath);
+        }
+
+        if ($this->isStorageRelativeMediaPath($rawUrl)) {
+            return $this->buildPanelMediaUrl($rawUrl);
+        }
+
+        return $rawUrl;
+    }
+
+    private function isStorageRelativeMediaPath(string $path): bool
+    {
+        $normalized = ltrim($path, '/');
+        if (str_starts_with($normalized, 'ai/')) {
+            $normalized = substr($normalized, 3);
+        }
+
+        return str_starts_with($normalized, 'generated-videos/')
+            || str_starts_with($normalized, 'source-images/');
+    }
+
     private function buildSubscriberMediaUrl(string $path): string
     {
         return '/api/subscriber/ai/media/' . $this->encodePathForRoute($path);
@@ -246,6 +308,64 @@ class AiMediaStorageService
         }
 
         return false;
+    }
+
+    public function deleteFileByPath(?string $path): void
+    {
+        $normalizedPath = trim((string) $path);
+        if ($normalizedPath === '') {
+            return;
+        }
+
+        $diskName = (string) config('services.ai_media.disk', 'private');
+
+        try {
+            if (Storage::disk($diskName)->exists($normalizedPath)) {
+                Storage::disk($diskName)->delete($normalizedPath);
+            }
+        } catch (\Throwable $exception) {
+            Log::warning('AI media storage delete failed', [
+                'disk' => $diskName,
+                'path' => $normalizedPath,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    public function deleteTaskMedia(\App\Models\AiVideoGenerationTask $task): void
+    {
+        $resultVideo = is_array($task->result_video) ? $task->result_video : [];
+        $this->deleteFileByPath($resultVideo['path'] ?? null);
+
+        $this->deleteSourceImages(is_array($task->source_images) ? $task->source_images : []);
+    }
+
+    public function deleteImageTaskMedia(\App\Models\AiImageGenerationTask $task): void
+    {
+        $resultImages = is_array($task->result_images) ? $task->result_images : [];
+        foreach ($resultImages as $image) {
+            if (! is_array($image)) {
+                continue;
+            }
+
+            $this->deleteFileByPath($image['path'] ?? null);
+        }
+
+        $this->deleteSourceImages(is_array($task->source_images) ? $task->source_images : []);
+    }
+
+    /**
+     * @param  array<int, mixed>  $sourceImages
+     */
+    private function deleteSourceImages(array $sourceImages): void
+    {
+        foreach ($sourceImages as $image) {
+            if (! is_array($image)) {
+                continue;
+            }
+
+            $this->deleteFileByPath($image['path'] ?? null);
+        }
     }
 
     private function safePut(string $diskName, string $path, string $binary, array $options): bool

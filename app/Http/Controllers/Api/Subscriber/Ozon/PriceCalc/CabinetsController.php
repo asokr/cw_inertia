@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Subscriber\Ozon\PriceCalc;
 
 use App\Http\Controllers\Controller;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
+use App\Models\Subscribers\SubscribersSubscriptions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -38,6 +39,32 @@ class CabinetsController extends Controller
                 'success' => false,
                 'messages' => $validator->errors()->all(),
             ], 200);
+        }
+
+        $subscriber = $request->user()->subscriber;
+
+        if ($subscriber) {
+            $userSubscriptions = SubscribersSubscriptions::where([
+                'subscribers_id' => $subscriber->id,
+            ])->first();
+
+            $limits = $userSubscriptions?->limits_plan ?? [];
+
+            if (isset($limits['oz_price_calc_clients'])) {
+                if ((int) $limits['oz_price_calc_clients'] === 0) {
+                    return response()->json([
+                        'success' => false,
+                        'messages' => ['Вы исчерпали лимит на количество кабинетов.'],
+                    ], 200);
+                }
+
+                $limits['oz_price_calc_clients']--;
+                SubscribersSubscriptions::where([
+                    'subscribers_id' => $subscriber->id,
+                ])->update([
+                    'limits_plan' => $limits,
+                ]);
+            }
         }
 
         $cabinet = OzPriceCalcCabinet::create([
@@ -127,6 +154,25 @@ class CabinetsController extends Controller
         }
 
         $cabinet->delete();
+
+        $subscriber = $request->user()->subscriber;
+
+        if ($subscriber) {
+            $userSubscriptions = SubscribersSubscriptions::where([
+                'subscribers_id' => $subscriber->id,
+            ])->first();
+
+            $limits = $userSubscriptions?->limits_plan ?? [];
+
+            if (isset($limits['oz_price_calc_clients'])) {
+                $limits['oz_price_calc_clients']++;
+                SubscribersSubscriptions::where([
+                    'subscribers_id' => $subscriber->id,
+                ])->update([
+                    'limits_plan' => $limits,
+                ]);
+            }
+        }
 
         return response()->json([
             'success' => true,

@@ -33,6 +33,8 @@ class RegisterTest extends WebAuthTestCase
             'email' => 'new@example.com',
         ]);
 
+        $this->assertAuthenticated();
+
         Event::assertDispatched(Registered::class);
     }
 

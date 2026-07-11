@@ -7,6 +7,7 @@ import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
 import Select from "@/components/ui/Select.vue";
 import Switch from "@/components/ui/Switch.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     open: Boolean,
@@ -21,7 +22,7 @@ const emit = defineEmits(["update:open"]);
 
 const isEdit = computed(() => Boolean(props.stock?.id));
 const sizesLoading = ref(false);
-const sizesError = ref("");
+const { showError } = useFlashToast();
 
 const form = useForm({
     name: "",
@@ -38,7 +39,7 @@ watch(
     (isOpen) => {
         if (!isOpen) return;
 
-        sizesError.value = "";
+
 
         if (props.stock) {
             form.name = props.stock.name ?? "";
@@ -80,7 +81,6 @@ async function loadSizes(withSizes = true) {
     if (!form.nmID) return;
 
     sizesLoading.value = true;
-    sizesError.value = "";
 
     try {
         const token = document.querySelector('meta[name="csrf-token"]')?.content ?? "";
@@ -102,7 +102,7 @@ async function loadSizes(withSizes = true) {
         const payload = await response.json();
 
         if (!payload?.success) {
-            sizesError.value = Array.isArray(payload?.messages) ? payload.messages.join(" ") : "Ошибка загрузки";
+            showError(Array.isArray(payload?.messages) ? payload.messages.join(" ") : "Ошибка загрузки");
             return;
         }
 
@@ -127,7 +127,7 @@ async function loadSizes(withSizes = true) {
             }));
         }
     } catch {
-        sizesError.value = "Не удалось загрузить данные из WB";
+        showError("Не удалось загрузить данные из WB");
     } finally {
         sizesLoading.value = false;
     }
@@ -207,7 +207,7 @@ function submit() {
                     Цена: {{ form.base_value }} ₽
                 </span>
             </div>
-            <p v-if="sizesError" class="text-sm text-destructive">{{ sizesError }}</p>
+
 
             <template v-if="form.strategy === 1">
                 <div

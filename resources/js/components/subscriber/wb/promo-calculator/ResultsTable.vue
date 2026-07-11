@@ -1,5 +1,6 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, h, ref, watch } from "vue";
+import EditableDataTable from "@/components/subscriber/tools/EditableDataTable.vue";
 import Checkbox from "@/components/ui/Checkbox.vue";
 import Input from "@/components/ui/Input.vue";
 import {
@@ -67,6 +68,83 @@ const allVisibleSelected = computed(() => {
     if (!filteredItems.value.length) return false;
     return filteredItems.value.every((item) => selectedIds.value.has(item.nm_id));
 });
+
+const columns = computed(() => [
+    {
+        id: "select",
+        header: () => h(Checkbox, {
+            modelValue: allVisibleSelected.value,
+            "onUpdate:modelValue": toggleAll,
+        }),
+        enableSorting: false,
+        cell: ({ row }) => h(Checkbox, {
+            modelValue: selectedIds.value.has(row.original.nm_id),
+            "onUpdate:modelValue": (checked) => toggleRow(row.original.nm_id, checked),
+        }),
+    },
+    {
+        accessorKey: "vendor_art",
+        header: "Артикул поставщика",
+        enableSorting: true,
+        cell: ({ row }) => row.original.vendor_art || "—",
+    },
+    {
+        accessorKey: "nm_id",
+        header: "Артикул WB",
+        enableSorting: true,
+    },
+    {
+        accessorKey: "plan_price",
+        header: "Плановая цена",
+        enableSorting: true,
+        cell: ({ row }) => formatRub(row.original.plan_price),
+    },
+    {
+        accessorKey: "current_price",
+        header: "Текущая цена",
+        enableSorting: true,
+        cell: ({ row }) => formatRub(row.original.current_price),
+    },
+    {
+        accessorKey: "min_price",
+        header: "Мин. цена",
+        enableSorting: true,
+        cell: ({ row }) => formatRub(row.original.min_price),
+    },
+    {
+        id: "discount",
+        header: "Скидка",
+        enableSorting: false,
+        cell: ({ row }) => {
+            const item = row.original;
+            if (item.change_discount) {
+                return h("span", {}, [
+                    h("span", { class: "text-xs line-through text-muted-foreground" }, `${item.wb_discount} %`),
+                    h("span", { class: "ml-2 font-medium" }, `${item.change_discount} %`),
+                ]);
+            }
+            return `${item.wb_discount} %`;
+        },
+    },
+    {
+        accessorKey: "margin",
+        header: "Маржа",
+        enableSorting: true,
+        cell: ({ row }) => formatRub(row.original.margin),
+    },
+    {
+        accessorKey: "profit",
+        header: "Рентабельность",
+        enableSorting: true,
+        cell: ({ row }) => formatPercent(row.original.profit),
+    },
+    {
+        accessorKey: "stock",
+        header: "Остаток",
+        enableSorting: true,
+        cell: ({ row }) => formatCount(row.original.stock),
+    },
+]);
 </script>
 
 <template>
@@ -78,58 +156,11 @@ const allVisibleSelected = computed(() => {
 
         <Input v-model="search" placeholder="Найти по артикулу или NMID" class="max-w-sm" />
 
-        <div class="overflow-auto rounded-md border" style="max-height: 32rem">
-            <table class="w-full text-sm">
-                <thead class="sticky top-0 border-b bg-muted/90">
-                    <tr>
-                        <th class="px-3 py-2 text-left">
-                            <Checkbox
-                                :model-value="allVisibleSelected"
-                                @update:model-value="toggleAll"
-                            />
-                        </th>
-                        <th class="px-3 py-2 text-left">Артикул поставщика</th>
-                        <th class="px-3 py-2 text-left">Артикул WB</th>
-                        <th class="px-3 py-2 text-left">Плановая цена</th>
-                        <th class="px-3 py-2 text-left">Текущая цена</th>
-                        <th class="px-3 py-2 text-left">Мин. цена</th>
-                        <th class="px-3 py-2 text-left">Скидка</th>
-                        <th class="px-3 py-2 text-left">Маржа</th>
-                        <th class="px-3 py-2 text-left">Рентабельность</th>
-                        <th class="px-3 py-2 text-left">Остаток</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr
-                        v-for="item in filteredItems"
-                        :key="item.nm_id"
-                        class="border-b"
-                        :class="rowProfitClass(item.profit)"
-                    >
-                        <td class="px-3 py-2">
-                            <Checkbox
-                                :model-value="selectedIds.has(item.nm_id)"
-                                @update:model-value="toggleRow(item.nm_id, $event)"
-                            />
-                        </td>
-                        <td class="px-3 py-2">{{ item.vendor_art || "—" }}</td>
-                        <td class="px-3 py-2">{{ item.nm_id }}</td>
-                        <td class="px-3 py-2">{{ formatRub(item.plan_price) }}</td>
-                        <td class="px-3 py-2">{{ formatRub(item.current_price) }}</td>
-                        <td class="px-3 py-2">{{ formatRub(item.min_price) }}</td>
-                        <td class="px-3 py-2">
-                            <template v-if="item.change_discount">
-                                <span class="text-xs line-through text-muted-foreground">{{ item.wb_discount }} %</span>
-                                <span class="ml-2 font-medium">{{ item.change_discount }} %</span>
-                            </template>
-                            <template v-else>{{ item.wb_discount }} %</template>
-                        </td>
-                        <td class="px-3 py-2">{{ formatRub(item.margin) }}</td>
-                        <td class="px-3 py-2">{{ formatPercent(item.profit) }}</td>
-                        <td class="px-3 py-2">{{ formatCount(item.stock) }}</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
+        <EditableDataTable
+            :columns="columns"
+            :data="filteredItems"
+            max-height="32rem"
+            :get-row-class="(item) => rowProfitClass(item.profit)"
+        />
     </div>
 </template>

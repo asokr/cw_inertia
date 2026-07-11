@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { Head } from "@inertiajs/vue3";
 import LogisticsTable from "@/components/subscriber/wb/profitability/LogisticsTable.vue";
 import OtherOperationsTable from "@/components/subscriber/wb/profitability/OtherOperationsTable.vue";
@@ -9,10 +9,14 @@ import ReturnsTable from "@/components/subscriber/wb/profitability/ReturnsTable.
 import SalesTable from "@/components/subscriber/wb/profitability/SalesTable.vue";
 import UpdateDataForm from "@/components/subscriber/wb/profitability/UpdateDataForm.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
-import Alert from "@/components/ui/Alert.vue";
 import JobProgressPanel from "@/components/ui/JobProgressPanel.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
-import { buildProfitabilityProgressDetail, PROFITABILITY_JOB_STAGES } from "@/config/profitabilityJobStages";
+import {
+    buildProfitabilityProgressDetail,
+    PROFITABILITY_JOB_STAGES,
+    resolveProfitabilityProgressPercent,
+} from "@/config/profitabilityJobStages";
+import { useFlashToast } from "@/composables/useFlashToast";
 import { useProfitabilityPoll } from "@/composables/useProfitabilityPoll";
 
 const props = defineProps({
@@ -21,7 +25,6 @@ const props = defineProps({
     report: { type: Object, default: null },
     groups: { type: Array, default: () => [] },
     widget: { type: Object, default: null },
-    reportError: { type: String, default: null },
     exportUrl: { type: String, required: true },
 });
 
@@ -42,17 +45,18 @@ const OPERATIONS = {
     logistics_correction: "Коррекция логистики",
 };
 
-const pollError = ref("");
+const { showError } = useFlashToast();
 
 const poll = useProfitabilityPoll({
     onFailed: (message) => {
-        pollError.value = message;
+        showError(message);
     },
 });
 
 const isProcessing = computed(() => props.jobStatus?.status === "processing");
 const hasReport = computed(() => Boolean(props.report && Object.keys(props.report).length > 0));
 const progressDetail = computed(() => buildProfitabilityProgressDetail(props.jobStatus));
+const progressPercent = computed(() => resolveProfitabilityProgressPercent(props.jobStatus));
 
 function asItemList(items) {
     if (Array.isArray(items)) {
@@ -143,7 +147,6 @@ const hasLogisticsItems = computed(() => logistics.value.length > 0);
 const hasOtherItems = computed(() => allItems.value.length > 0);
 
 function onPollingStart() {
-    pollError.value = "";
     poll.start();
 }
 </script>
@@ -155,9 +158,6 @@ function onPollingStart() {
         <ToolPageHeader title="Рентабельность Wildberries" :description="cabinet.name" />
 
         <div class="space-y-6">
-            <Alert v-if="reportError" variant="destructive">{{ reportError }}</Alert>
-            <Alert v-if="pollError" variant="destructive">{{ pollError }}</Alert>
-
             <ProfitabilityWidget v-if="widget" :widget="widget" />
 
             <UpdateDataForm
@@ -171,7 +171,9 @@ function onPollingStart() {
                 v-if="isProcessing"
                 title="Формируем отчёт рентабельности"
                 :stages="PROFITABILITY_JOB_STAGES"
-                :current-stage="jobStatus.stage || 'preparing'"
+                :current-stage="jobStatus.stage || 'queued'"
+                :status-label="jobStatus.status_label"
+                :progress-percent="progressPercent"
                 :detail="progressDetail.detail"
                 :waiting-hint="progressDetail.waitingHint"
                 :started-at="jobStatus.started_at"

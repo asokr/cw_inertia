@@ -24,7 +24,7 @@ defineProps({
 const toolLinks = [
     { label: "Отзывы WB", href: "/panel/wb/feedbacks" },
     { label: "Репрайсер", href: "/panel/wb/repricer" },
-    { label: "ИИ-маркетплейс", href: "/panel/ai" },
+    { label: "ИИ — Текст", href: "/panel/ai/text" },
     { label: "Профиль", href: "/panel/user/profile" },
 ];
 </script>

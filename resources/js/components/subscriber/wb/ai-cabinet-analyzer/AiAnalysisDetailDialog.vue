@@ -25,6 +25,7 @@ import {
     priorityVariant,
 } from "@/utils/aiCabinetAnalysisDisplay";
 import { renderBlogMarkdown } from "@/utils/renderBlogMarkdown";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     open: Boolean,
@@ -38,6 +39,7 @@ const emit = defineEmits(["update:open", "loaded", "regenerate", "download"]);
 const loading = ref(false);
 const error = ref(null);
 const analysis = ref(null);
+const { showError } = useFlashToast();
 const activeTab = ref("insights");
 
 const displayAnalysis = computed(() => analysis.value ?? props.analysisSummary);
@@ -97,16 +99,29 @@ watch(
                 analysis.value = payload.data ?? null;
                 emit("loaded", analysis.value);
             } else {
-                error.value = Array.isArray(payload?.messages)
+                const message = Array.isArray(payload?.messages)
                     ? payload.messages.join(" ")
                     : "Не удалось загрузить анализ";
+                error.value = message;
+                showError(message);
             }
         } catch {
             error.value = "Не удалось загрузить анализ";
+            showError("Не удалось загрузить анализ");
         } finally {
             loading.value = false;
         }
     },
+);
+
+watch(
+    () => displayAnalysis.value?.status,
+    (status) => {
+        if (status === "failed") {
+            showError(displayAnalysis.value?.error_message || "Неизвестная ошибка при выполнении ИИ-анализа");
+        }
+    },
+    { immediate: true },
 );
 </script>
 
@@ -137,14 +152,10 @@ watch(
                 <Skeleton class="h-24 w-full" />
             </div>
 
-            <Alert v-else-if="error" variant="destructive">{{ error }}</Alert>
+            <p v-else-if="error" class="text-sm text-muted-foreground">Не удалось загрузить анализ</p>
 
             <template v-else-if="displayAnalysis">
-                <Alert v-if="displayAnalysis.status === 'failed'" variant="destructive">
-                    {{ displayAnalysis.error_message || "Неизвестная ошибка при выполнении ИИ-анализа" }}
-                </Alert>
-
-                <Alert v-else-if="displayAnalysis.status === 'processing'">
+                <Alert v-if="displayAnalysis.status === 'processing'">
                     Анализ выполняется. Результат появится после завершения обработки.
                 </Alert>
 

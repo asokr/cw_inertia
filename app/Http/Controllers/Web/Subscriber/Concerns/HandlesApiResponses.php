@@ -11,11 +11,29 @@ trait HandlesApiResponses
     /**
      * Build an internal API request with params available for both GET and POST handlers.
      *
+     * Uses merge() so params are visible to JSON Inertia requests (not only form/query bags).
+     *
      * @param  array<string, mixed>  $params
      */
     protected function apiRequestWith(Request $request, array $params): Request
     {
-        return $request->duplicate($params, $params);
+        $apiRequest = $request->duplicate();
+
+        $mergeParams = [];
+        foreach ($params as $key => $value) {
+            if ($value instanceof \Illuminate\Http\UploadedFile) {
+                $apiRequest->files->set($key, $value);
+                continue;
+            }
+
+            $mergeParams[$key] = $value;
+        }
+
+        if ($mergeParams !== []) {
+            $apiRequest->merge($mergeParams);
+        }
+
+        return $apiRequest;
     }
 
     /**

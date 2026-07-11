@@ -3,6 +3,7 @@
 namespace App\Services\Subscriber;
 
 use App\Models\PaymentsTransaction;
+use App\Models\Subscribers\SubscribersPlans;
 use App\Models\User;
 use App\Services\PaymentService;
 
@@ -16,13 +17,21 @@ class SubscriberPaymentService
     /**
      * @return array{success: bool, messages: array<int, string>, payment_url?: string}
      */
-    public function createDeposit(User $user, float $amount): array
+    public function createDeposit(User $user, float $amount, ?int $planId = null): array
     {
         $description = 'Пополнение баланса';
+
+        if ($planId) {
+            $plan = SubscribersPlans::query()->select(['name'])->find($planId);
+            if ($plan) {
+                $description = "Пополнение для тарифа «{$plan->name}»";
+            }
+        }
 
         $transaction = PaymentsTransaction::create([
             'user_id' => $user->id,
             'amount' => $amount,
+            'plan_id' => $planId,
             'description' => $description,
             'system' => 'YooKassa',
         ]);
@@ -31,10 +40,15 @@ class SubscriberPaymentService
             return ['success' => false, 'messages' => ['Не удалось создать платёж']];
         }
 
+        $returnUrl = $planId
+            ? url('/panel/plans?payment=success')
+            : url('/panel');
+
         $link = $this->paymentService->createPayment($amount, $description, [
             'transaction_id' => $transaction->id,
             'user_id' => $user->id,
-        ]);
+            'plan_id' => $planId,
+        ], $returnUrl);
 
         return [
             'success' => true,

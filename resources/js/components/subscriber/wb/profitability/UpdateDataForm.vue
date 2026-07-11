@@ -22,9 +22,6 @@ const { isActive: isRateLimitActive, start: startRateLimitCooldown } = useWbApiR
 );
 
 const today = new Date().toISOString().slice(0, 10);
-const alertMessage = ref("");
-const alertVariant = ref("default");
-const showAlert = ref(false);
 
 const form = useForm({
     date_from: "",
@@ -90,7 +87,6 @@ const maxDateTo = computed(() => {
 
 function submit() {
     normalizeDates();
-    showAlert.value = false;
 
     form.post(`/panel/wb/profitability/cabinets/${props.cabinetId}/report`, {
         preserveScroll: true,
@@ -193,9 +189,5 @@ const showRateLimitTooltip = computed(() => isRateLimitActive.value && !isBusy.v
 
         <p v-if="form.errors.date_from" class="text-sm text-destructive">{{ form.errors.date_from }}</p>
         <p v-if="form.errors.date_to" class="text-sm text-destructive">{{ form.errors.date_to }}</p>
-
-        <Alert v-if="showAlert" :variant="alertVariant === 'destructive' ? 'destructive' : 'default'">
-            {{ alertMessage }}
-        </Alert>
     </div>
 </template>

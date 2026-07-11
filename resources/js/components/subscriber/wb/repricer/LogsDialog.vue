@@ -2,6 +2,7 @@
 import { ref, watch } from "vue";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     open: Boolean,
@@ -15,6 +16,7 @@ const emit = defineEmits(["update:open"]);
 const loading = ref(false);
 const logs = ref([]);
 const error = ref(null);
+const { showError } = useFlashToast();
 
 watch(
     () => props.open,
@@ -47,10 +49,13 @@ watch(
             if (payload?.success) {
                 logs.value = payload.data ?? [];
             } else {
-                error.value = Array.isArray(payload?.messages) ? payload.messages.join(" ") : "Не удалось загрузить логи";
+                const message = Array.isArray(payload?.messages) ? payload.messages.join(" ") : "Не удалось загрузить логи";
+                error.value = message;
+                showError(message);
             }
         } catch {
             error.value = "Не удалось загрузить логи";
+            showError("Не удалось загрузить логи");
         } finally {
             loading.value = false;
         }
@@ -66,7 +71,7 @@ watch(
         @update:open="emit('update:open', $event)"
     >
         <div v-if="loading" class="py-6 text-center text-sm text-muted-foreground">Загрузка…</div>
-        <p v-else-if="error" class="text-sm text-destructive">{{ error }}</p>
+        <div v-else-if="error" class="py-4 text-sm text-muted-foreground">Не удалось загрузить логи</div>
         <div v-else-if="!logs.length" class="py-4 text-sm text-muted-foreground">Логов нет</div>
         <div v-else class="max-h-96 space-y-2 overflow-y-auto">
             <div

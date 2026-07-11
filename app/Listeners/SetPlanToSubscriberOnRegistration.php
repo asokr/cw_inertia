@@ -3,46 +3,40 @@
 namespace App\Listeners;
 
 use Carbon\Carbon;
-use App\Models\User;
-use App\Models\Coupon;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Services\Subscriber\RegistrationPlanService;
 
 class SetPlanToSubscriberOnRegistration
 {
-    /**
-     * Create the event listener.
-     */
-    public function __construct(User $user)
-    {
-        $this->user = $user;
+    public function __construct(
+        private readonly RegistrationPlanService $registrationPlanService,
+    ) {
     }
 
-    /**
-     * Handle the event.
-     */
     public function handle(object $event): void
     {
         $user = $event->user;
-        $plan_id = 2; // ID Тестового плана
+        $user->loadMissing('subscriber');
+        $planId = $this->registrationPlanService->resolveForUser($user);
 
-        if ($user->plan_id) {
-            $plan_id = $user->plan_id;
+        $model = SubscribersPlans::find($planId);
+
+        if (! $model || ! $user->subscriber) {
+            return;
         }
 
-        $model = SubscribersPlans::find($plan_id);
-        $end_date = Carbon::now()->addDays($model->duration);
+        $endDate = Carbon::now()->addDays($model->duration);
 
         $user->givePermissionTo($model->permissions);
+
         SubscribersSubscriptions::create([
             'subscribers_id' => $user->subscriber->id,
-            'plan_id' => $plan_id,
+            'plan_id' => $planId,
             'limits_month' => $model->limits_month,
             'limits_plan' => $model->limits_plan,
-            'end_date' => $end_date,
-            'status' => 1
+            'end_date' => $endDate,
+            'status' => 1,
         ]);
     }
 }

@@ -18,6 +18,7 @@ class DepositRequest extends FormRequest
     {
         return [
             'amount' => ['required', 'numeric', 'min:1'],
+            'plan_id' => ['nullable', 'integer', 'exists:subscribers_plans,id'],
         ];
     }
 

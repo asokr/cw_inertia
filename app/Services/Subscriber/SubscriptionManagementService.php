@@ -4,6 +4,7 @@ namespace App\Services\Subscriber;
 
 use App\Enums\SubscriptionsControlActionEnum;
 use App\Http\Traits\SubscriptionsTrait;
+use App\Support\SubscriberLimitLabels;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\SubscribersSubscriptionsControl;
@@ -116,7 +117,40 @@ class SubscriptionManagementService
     }
 
     /**
-     * @return array{success: bool, messages: array<int, string>, data?: array<string, mixed>}
+     * @return array{success: bool, messages: array<int, string>}
+     */
+    public function cancelScheduledDowngrade(User $user): array
+    {
+        $subscription = $user->getSubscriptions();
+
+        if (! $subscription) {
+            return ['success' => false, 'messages' => ['Подписка не найдена']];
+        }
+
+        if ($subscription->subscribers_id !== $user->subscriber->id) {
+            return ['success' => false, 'messages' => ['Это не ваша подписка']];
+        }
+
+        $deleted = SubscribersSubscriptionsControl::where([
+            'subscription_id' => $subscription->id,
+            'action' => SubscriptionsControlActionEnum::LOWER,
+        ])->delete();
+
+        if (! $deleted) {
+            return ['success' => false, 'messages' => ['Запланированный переход не найден']];
+        }
+
+        return ['success' => true, 'messages' => ['Переход на более низкий тариф отменён']];
+    }
+
+    /**
+     * @return array{
+     *     success: bool,
+     *     messages: array<int, string>,
+     *     data?: array<string, mixed>,
+     *     limit_violations?: array<int, array{key: string, label: string, used: int, allowed: int, deficit: int}>,
+     *     success_details?: array<string, mixed>
+     * }
      */
     public function changePlan(User $user, int $planId): array
     {
@@ -138,11 +172,28 @@ class SubscriptionManagementService
             return $this->reactivateSubscription($user, $subscription, $plan);
         }
 
-        if ($plan->price >= $subscription->plan->price) {
+        $currentPlan = $subscription->getPlan();
+
+        if (! $currentPlan) {
+            return ['success' => false, 'messages' => ['Не удалось определить текущий тариф']];
+        }
+
+        if ($plan->price >= $currentPlan->price) {
             return $this->upgradeSubscription($user, $subscription, $plan, $messages, $next);
         }
 
         return $this->scheduleDowngrade($user, $subscription, $plan, $next, $messages);
+    }
+
+    /**
+     * @param  array<string, mixed>  $planLimits
+     * @return array<int, array{key: string, label: string, used: int, allowed: int, deficit: int}>
+     */
+    public function previewPlanLimitOverages(int $subscriberId, array $planLimits): array
+    {
+        [, $limitViolations] = $this->resolveRemainingPlanLimits($subscriberId, $planLimits);
+
+        return $limitViolations;
     }
 
     /**
@@ -247,17 +298,17 @@ class SubscriptionManagementService
                 : (int) $value;
         }
 
-        $remainingPlanLimits = [];
-        foreach ($plan->limits_plan as $key => $value) {
-            $planCount = $this->getUsedLimits($user->subscriber->id, $key);
-            if ($planCount) {
-                $remainingPlanLimits[$key] = (int) $value - (int) $planCount;
-                if ($remainingPlanLimits[$key] < 0) {
-                    return ['success' => false, 'messages' => ['Не хватает лимита']];
-                }
-            } else {
-                $remainingPlanLimits[$key] = (int) $value;
-            }
+        [$remainingPlanLimits, $limitViolations] = $this->resolveRemainingPlanLimits(
+            $user->subscriber->id,
+            $plan->limits_plan,
+        );
+
+        if ($limitViolations !== []) {
+            return [
+                'success' => false,
+                'messages' => ['Невозможно перейти на этот тариф — превышены лимиты'],
+                'limit_violations' => $limitViolations,
+            ];
         }
 
         $subscription->plan_id = $plan->id;
@@ -282,6 +333,41 @@ class SubscriptionManagementService
     }
 
     /**
+     * @param  array<string, mixed>  $planLimits
+     * @return array{0: array<string, int>, 1: array<int, array<string, int|string>>}
+     */
+    private function resolveRemainingPlanLimits(int $subscriberId, array $planLimits): array
+    {
+        $remainingPlanLimits = [];
+        $limitViolations = [];
+
+        foreach ($planLimits as $key => $value) {
+            $allowed = (int) $value;
+            $usedCount = $this->getUsedLimits($subscriberId, $key);
+
+            if ($usedCount === false) {
+                $remainingPlanLimits[$key] = $allowed;
+                continue;
+            }
+
+            $remaining = $allowed - (int) $usedCount;
+            $remainingPlanLimits[$key] = $remaining;
+
+            if ($remaining < 0) {
+                $limitViolations[] = [
+                    'key' => (string) $key,
+                    'label' => SubscriberLimitLabels::label((string) $key),
+                    'used' => (int) $usedCount,
+                    'allowed' => $allowed,
+                    'deficit' => abs($remaining),
+                ];
+            }
+        }
+
+        return [$remainingPlanLimits, $limitViolations];
+    }
+
+    /**
      * @return array{success: bool, messages: array<int, string>, data?: array<string, mixed>}
      */
     private function scheduleDowngrade(
@@ -303,15 +389,23 @@ class SubscriptionManagementService
         ]);
 
         if (! $model) {
-            return ['success' => false, 'messages' => ['Не удалось отменить подписку']];
+            return ['success' => false, 'messages' => ['Не удалось запланировать понижение тарифа']];
         }
 
+        $endDate = Carbon::createFromDate($subscription->getRawOriginal('end_date'));
+        $limitOverages = $this->previewPlanLimitOverages($user->subscriber->id, $plan->limits_plan);
         $next = ['action' => SubscriptionsControlActionEnum::LOWER];
-        $messages = ['Тариф сменится на более низкий по окончании текущего перода'];
+        $messages = ["Запланирован переход на тариф «{$plan->name}»"];
 
         return [
             'success' => true,
             'messages' => $messages,
+            'success_details' => [
+                'type' => 'downgrade_scheduled',
+                'pending_plan_name' => $plan->name,
+                'period_end' => $endDate->format('d.m.Y'),
+                'limit_overages' => $limitOverages,
+            ],
             'data' => [
                 'subscription' => $subscription,
                 'plan' => $plan,

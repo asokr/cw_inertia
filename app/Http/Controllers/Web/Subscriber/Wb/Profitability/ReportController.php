@@ -37,7 +37,6 @@ class ReportController extends SubscriberToolController
 
         $report = null;
         $groups = [];
-        $reportError = null;
 
         if (($reportPayload['success'] ?? false) === true) {
             $reportData = $reportPayload['data'] ?? null;
@@ -53,6 +52,9 @@ class ReportController extends SubscriberToolController
                         'rows_loaded' => $reportData['rows_loaded'] ?? null,
                         'waiting_for_api' => $reportData['waiting_for_api'] ?? null,
                         'started_at' => $reportData['started_at'] ?? null,
+                        'progress_percent' => $reportData['progress_percent'] ?? null,
+                        'status_label' => $reportData['status_label'] ?? null,
+                        'status_detail' => $reportData['status_detail'] ?? null,
                     ], fn ($value) => $value !== null));
 
                     if (isset($reportData['status'])) {
@@ -65,7 +67,7 @@ class ReportController extends SubscriberToolController
                 }
             }
         } else {
-            $reportError = $this->apiMessage($reportPayload, 'Не удалось загрузить отчёт');
+            session()->flash('error', $this->apiMessage($reportPayload, 'Не удалось загрузить отчёт'));
         }
 
         $widgetPayload = $this->decodeApiResponse(
@@ -84,7 +86,6 @@ class ReportController extends SubscriberToolController
             'report' => $report,
             'groups' => $groups,
             'widget' => $widget,
-            'reportError' => $reportError,
             'exportUrl' => route('subscriber.wb.profitability.cabinets.export', $cabinet),
         ]);
     }
@@ -186,6 +187,9 @@ class ReportController extends SubscriberToolController
                 'rows_loaded' => isset($data['rows_loaded']) ? (int) $data['rows_loaded'] : null,
                 'waiting_for_api' => (bool) ($data['waiting_for_api'] ?? false),
                 'started_at' => $data['started_at'] ?? null,
+                'progress_percent' => isset($data['progress_percent']) ? (int) $data['progress_percent'] : null,
+                'status_label' => $data['status_label'] ?? null,
+                'status_detail' => $data['status_detail'] ?? null,
             ];
         }
 
@@ -197,6 +201,9 @@ class ReportController extends SubscriberToolController
             'rows_loaded' => null,
             'waiting_for_api' => false,
             'started_at' => null,
+            'progress_percent' => null,
+            'status_label' => null,
+            'status_detail' => null,
         ];
     }
 }

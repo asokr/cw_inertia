@@ -1,5 +1,6 @@
 <script setup>
 import { Loader2, Video } from "lucide-vue-next";
+import { normalizeVideoItem } from "@/composables/useAiMediaUrl";
 
 defineProps({
     tasks: { type: Array, default: () => [] },
@@ -7,12 +8,16 @@ defineProps({
 });
 
 const emit = defineEmits(["select"]);
+
+function taskVideoUrl(task) {
+    return normalizeVideoItem(task?.video)?.url || "";
+}
 </script>
 
 <template>
     <aside class="rounded-2xl border bg-card p-4">
-        <h3 class="text-center text-sm font-semibold">История текущей сессии</h3>
-        <p class="mb-4 text-center text-xs text-muted-foreground">История будет недоступна после перезагрузки страницы</p>
+        <h3 class="text-center text-sm font-semibold">Запросы в генерации</h3>
+        <p class="mb-4 text-center text-xs text-muted-foreground">Выберите запрос, чтобы посмотреть результат и настройки</p>
 
         <button
             v-for="task in tasks"
@@ -24,9 +29,12 @@ const emit = defineEmits(["select"]);
         >
             <div class="relative mb-2 flex h-24 items-center justify-center overflow-hidden rounded-lg bg-muted">
                 <video
-                    v-if="task.status === 'done' && task.video?.url"
-                    :src="task.video.url"
+                    v-if="task.status === 'done' && taskVideoUrl(task)"
+                    :key="task.request_id"
+                    :src="taskVideoUrl(task)"
                     muted
+                    playsinline
+                    preload="metadata"
                     class="h-full w-full object-cover"
                 />
                 <img v-else-if="task.image" :src="task.image" alt="" class="h-full w-full object-contain" />

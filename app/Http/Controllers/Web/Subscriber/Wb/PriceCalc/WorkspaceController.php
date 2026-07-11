@@ -10,6 +10,7 @@ use App\Http\Requests\Web\Subscriber\ImportWbPriceCalcExcelRequest;
 use App\Http\Requests\Web\Subscriber\ImportWbPriceCalcVolumeRequest;
 use App\Http\Requests\Web\Subscriber\SaveWbPriceCalcSettingsRequest;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
+use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -53,7 +54,7 @@ class WorkspaceController extends SubscriberToolController
             'cardsError' => ($cardsPayload['success'] ?? false) ? null : $this->apiMessage($cardsPayload, 'Не удалось загрузить номенклатуру'),
             'filters' => [
                 'page' => (int) $request->input('page', 1),
-                'per_page' => (int) $request->input('per_page', 25),
+                'per_page' => (int) $request->input('per_page', 250),
                 'sort_key' => $request->input('sort_key'),
                 'sort_dir' => $request->input('sort_dir', 'asc'),
                 'search' => $request->input('search', ''),
@@ -66,7 +67,7 @@ class WorkspaceController extends SubscriberToolController
         $this->ensureCabinetOwnership($cabinet);
 
         $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->syncCards(
-            $request->duplicate(null, ['cabinet_id' => $cabinet->id])
+            $this->apiRequestWith($request, ['cabinet_id' => $cabinet->id])
         ));
         $payload = $this->decodeApiResponse($response);
 
@@ -74,7 +75,19 @@ class WorkspaceController extends SubscriberToolController
             return back()->with('error', $this->apiMessage($payload, 'Не удалось загрузить номенклатуру'));
         }
 
-        return back()->with('success', $this->apiMessage($payload, 'Номенклатура загружена'));
+        $total = PriceCalculationV3Data::query()
+            ->where('cabinet_id', $cabinet->id)
+            ->count();
+
+        $message = $this->apiMessage($payload, 'Номенклатура загружена');
+
+        if ($total > 0) {
+            $message .= " В таблице {$total} ".($total === 1 ? 'позиция' : ($total < 5 ? 'позиции' : 'позиций')).'.';
+        } else {
+            $message .= ' Товары не найдены — проверьте API-ключ кабинета.';
+        }
+
+        return back()->with('success', $message);
     }
 
     public function saveSettings(SaveWbPriceCalcSettingsRequest $request, PriceCalculationCabinets $cabinet): RedirectResponse
@@ -82,7 +95,7 @@ class WorkspaceController extends SubscriberToolController
         $this->ensureCabinetOwnership($cabinet);
 
         $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->saveSettings(
-            $request->duplicate(null, array_merge(
+            $this->apiRequestWith($request, array_merge(
                 $request->validated(),
                 ['cabinet_id' => $cabinet->id]
             ))
@@ -106,7 +119,7 @@ class WorkspaceController extends SubscriberToolController
         $this->ensureCabinetOwnership($cabinet);
 
         $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->importVolumes(
-            $request->duplicate(null, [
+            $this->apiRequestWith($request, [
                 'cabinet_id' => $cabinet->id,
                 'file' => $request->file('file'),
             ])
@@ -125,7 +138,7 @@ class WorkspaceController extends SubscriberToolController
         $this->ensureCabinetOwnership($cabinet);
 
         $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->importExcel(
-            $request->duplicate(null, [
+            $this->apiRequestWith($request, [
                 'cabinet_id' => $cabinet->id,
                 'file' => $request->file('file'),
             ])
@@ -144,7 +157,7 @@ class WorkspaceController extends SubscriberToolController
         $this->ensureCabinetOwnership($cabinet);
 
         $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->exportExcel(
-            $request->duplicate(null, ['cabinet_id' => $cabinet->id])
+            $this->apiRequestWith($request, ['cabinet_id' => $cabinet->id])
         ));
         $payload = $this->decodeApiResponse($response);
 
@@ -172,7 +185,7 @@ class WorkspaceController extends SubscriberToolController
     {
         return [
             'current_page' => (int) ($cardsData['current_page'] ?? $request->input('page', 1)),
-            'per_page' => (int) ($cardsData['per_page'] ?? $request->input('per_page', 25)),
+            'per_page' => (int) ($cardsData['per_page'] ?? $request->input('per_page', 250)),
             'total' => (int) ($cardsData['total'] ?? 0),
             'last_page' => (int) ($cardsData['last_page'] ?? 1),
         ];

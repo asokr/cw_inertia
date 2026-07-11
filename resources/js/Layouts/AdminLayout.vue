@@ -1,6 +1,6 @@
 <script setup>
 import { Link, router, usePage } from "@inertiajs/vue3";
-import { useDark, useToggle } from "@vueuse/core";
+import { toggleAppColorMode, useAppColorMode } from "@/composables/useAppColorMode";
 import {
     ChevronDown,
     LogOut,
@@ -25,8 +25,7 @@ const page = usePage();
 const { can, hasRole } = usePermissions();
 const mobileOpen = ref(false);
 const expandedGroups = ref({});
-const isDark = useDark();
-const toggleDark = useToggle(isDark);
+const isDark = useAppColorMode();
 
 const user = computed(() => page.props.auth?.user);
 const navGroups = computed(() => getAdminNav({ can, hasRole }));
@@ -119,7 +118,7 @@ function isActive(href) {
                     </div>
                     <div class="flex items-center gap-2">
                         <AiCostsWidget v-if="isSuperAdmin" />
-                        <Button variant="ghost" size="icon" @click="toggleDark()">
+                        <Button variant="ghost" size="icon" @click="toggleAppColorMode">
                             <Sun v-if="isDark" class="h-4 w-4" />
                             <Moon v-else class="h-4 w-4" />
                         </Button>

@@ -9,6 +9,7 @@ use App\Enums\PaymentStatusEnum;
 use App\Services\PaymentService;
 use App\Models\PaymentsTransaction;
 use App\Http\Controllers\Controller;
+use App\Services\Subscriber\SubscriptionManagementService;
 use Illuminate\Support\Facades\Validator;
 use YooKassa\Model\Notification\NotificationCanceled;
 use YooKassa\Model\Notification\NotificationEventType;
@@ -50,7 +51,7 @@ class PaymentController extends Controller
         }
     }
 
-    public function callback(Request $request, PaymentService $service)
+    public function callback(Request $request, PaymentService $service, SubscriptionManagementService $subscriptionService)
     {
 
         $source = file_get_contents('php://input');
@@ -87,6 +88,18 @@ class PaymentController extends Controller
                             'description' => $transaction->description,
                         ])
                         ->commit();
+
+                    if ($transaction->plan_id) {
+                        $planResult = $subscriptionService->changePlan($user, (int) $transaction->plan_id);
+
+                        if (! $planResult['success']) {
+                            Log::warning('Auto plan activation failed after deposit', [
+                                'user_id' => $user_id,
+                                'plan_id' => $transaction->plan_id,
+                                'message' => $planResult['messages'][0] ?? null,
+                            ]);
+                        }
+                    }
                 }
             }
         } else if (isset($payment->status) && $payment->status === 'canceled') {

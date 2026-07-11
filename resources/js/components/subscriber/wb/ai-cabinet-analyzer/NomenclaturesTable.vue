@@ -85,9 +85,12 @@ const hasFilters = computed(() => Boolean(String(nmidInput.value).trim() || Stri
             </label>
         </div>
 
-        <div class="overflow-auto rounded-md border" style="max-height: 32rem">
-            <EditableDataTable :columns="columns" :data="items" empty-text="В отчёте нет данных по номенклатурам." />
-        </div>
+        <EditableDataTable
+            :columns="columns"
+            :data="items"
+            max-height="32rem"
+            empty-text="В отчёте нет данных по номенклатурам."
+        />
 
         <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
             <span>

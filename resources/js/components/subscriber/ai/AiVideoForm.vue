@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive } from "vue";
+import { computed, reactive, watch } from "vue";
 import { Clapperboard } from "lucide-vue-next";
 import AiImageUploader from "@/components/subscriber/ai/AiImageUploader.vue";
 import Button from "@/components/ui/Button.vue";
@@ -9,19 +9,78 @@ import Textarea from "@/components/ui/Textarea.vue";
 const props = defineProps({
     loading: { type: Boolean, default: false },
     disabled: { type: Boolean, default: false },
+    selectedTask: { type: Object, default: null },
 });
 
 const emit = defineEmits(["submit", "error"]);
 
-const form = reactive({
-    task_type: "generate_video",
-    prompt: "",
-    image: "",
-    images: [],
-    duration: 5,
-    resolution: "480p",
-    aspect_ratio: "16:9",
-});
+function createDefaultForm() {
+    return {
+        task_type: "generate_video",
+        prompt: "",
+        image: "",
+        images: [],
+        duration: 5,
+        resolution: "480p",
+        aspect_ratio: "16:9",
+    };
+}
+
+const form = reactive(createDefaultForm());
+
+const MIN_DURATION = 3;
+const MAX_DURATION = 15;
+
+const maxDuration = computed(() => (
+    form.task_type === "generate_video_from_scene" ? 10 : MAX_DURATION
+));
+
+const durationOptions = computed(() => (
+    Array.from({ length: maxDuration.value - MIN_DURATION + 1 }, (_, index) => MIN_DURATION + index)
+));
+
+function clampDuration(taskType = form.task_type, duration = form.duration) {
+    const max = taskType === "generate_video_from_scene" ? 10 : MAX_DURATION;
+    const parsed = Number(duration);
+
+    if (!Number.isFinite(parsed) || parsed < MIN_DURATION) {
+        return MIN_DURATION;
+    }
+
+    return Math.min(parsed, max);
+}
+
+function applyTaskToForm(task) {
+    const defaults = createDefaultForm();
+
+    if (!task) {
+        Object.assign(form, defaults);
+        return;
+    }
+
+    const taskType = task.task_type || defaults.task_type;
+
+    form.task_type = taskType;
+    form.prompt = task.prompt || "";
+    form.duration = clampDuration(taskType, task.duration || defaults.duration);
+    form.resolution = task.resolution || defaults.resolution;
+    form.aspect_ratio = task.aspect_ratio || defaults.aspect_ratio;
+    form.image = task.image || "";
+    form.images = Array.isArray(task.images) ? [...task.images] : [];
+}
+
+watch(
+    () => props.selectedTask,
+    (task) => applyTaskToForm(task),
+    { immediate: true },
+);
+
+watch(
+    () => form.task_type,
+    () => {
+        form.duration = clampDuration();
+    },
+);
 
 const resolutions = [
     { value: "480p", label: "480p", multiplier: 1 },
@@ -74,7 +133,6 @@ const isValid = computed(() => {
     if (form.task_type === "generate_video_from_image" && !form.image) return false;
     if (form.task_type === "generate_video_from_scene") {
         if (!form.images?.length || form.images.length > 7) return false;
-        if (form.duration > 10) return false;
     }
     return true;
 });
@@ -175,15 +233,16 @@ function handleImageError(type) {
 
             <div class="grid gap-4 sm:grid-cols-3">
                 <div class="space-y-2">
-                    <Label>Длительность (сек)</Label>
-                    <input
+                    <Label>Длительность</Label>
+                    <select
                         v-model.number="form.duration"
-                        type="number"
-                        min="1"
-                        :max="form.task_type === 'generate_video_from_scene' ? 10 : 15"
                         :disabled="disabled"
                         class="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    />
+                    >
+                        <option v-for="seconds in durationOptions" :key="seconds" :value="seconds">
+                            {{ seconds }} сек
+                        </option>
+                    </select>
                 </div>
                 <div class="space-y-2">
                     <Label>Разрешение</Label>

@@ -19,10 +19,10 @@ const props = defineProps({
 
 const fullscreen = ref(false);
 const searchInput = ref(props.filters.search ?? "");
-const perPageOptions = [10, 25, 50, 100];
+const perPageOptions = [25, 50, 100, 250];
 
 const tableColumns = computed(() => buildTanStackColumns(props.columns));
-const pinnedColumns = { left: ["ozon_article", "barcode"] };
+const pinnedColumns = { left: ["ozon_article"] };
 
 const modeTitle = computed(() => (props.mode === "fbs" ? "Номенклатура FBS" : "Номенклатура FBO"));
 
@@ -43,7 +43,7 @@ function reload(overrides = {}) {
         {
             mode: props.mode,
             page: overrides.page ?? props.filters.page ?? 1,
-            per_page: overrides.per_page ?? props.filters.per_page ?? 25,
+            per_page: overrides.per_page ?? props.filters.per_page ?? 250,
             sort_key: overrides.sort_key ?? props.filters.sort_key ?? undefined,
             sort_dir: overrides.sort_dir ?? props.filters.sort_dir ?? "asc",
             search: overrides.search ?? props.filters.search ?? "",
@@ -100,6 +100,7 @@ function changePerPage(perPage) {
             :columns="tableColumns"
             :data="items"
             :pinned-columns="pinnedColumns"
+            max-height="calc(100dvh - 14rem)"
             manual-sorting
             :sorting="sorting"
             empty-text="Номенклатура ещё не загружена. Нажмите «Обновить номенклатуру»."
@@ -143,6 +144,7 @@ function changePerPage(perPage) {
                 :columns="tableColumns"
                 :data="items"
                 :pinned-columns="pinnedColumns"
+                max-height="calc(100dvh - 8rem)"
                 manual-sorting
                 :sorting="sorting"
                 empty-text="Номенклатура ещё не загружена."

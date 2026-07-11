@@ -135,12 +135,10 @@ class VkAuthService
 
         Subscribers::create(['user_id' => $user->id]);
         $user->assignRole('Подписчик');
-        $user->plan_id = 2;
 
         if ($couponCode) {
             try {
                 $coupon = $this->couponService->validateCoupon($couponCode);
-                $user->plan_id = $coupon->value;
                 $this->couponService->minusCouponLimit($coupon);
                 $this->couponService->recordCouponUsage($user, $coupon, [
                     'source' => 'vk_registration',
@@ -149,8 +147,6 @@ class VkAuthService
             } catch (\Throwable) {
             }
         }
-
-        $user->save();
 
         event(new Registered($user));
 

@@ -1,11 +1,11 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { router, useForm } from "@inertiajs/vue3";
 import { RefreshCw } from "lucide-vue-next";
-import Alert from "@/components/ui/Alert.vue";
 import Badge from "@/components/ui/Badge.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     cabinetId: { type: Number, required: true },
@@ -100,6 +100,28 @@ function formatDateTime(value) {
     if (!value) return "—";
     return new Date(value).toLocaleString("ru-RU");
 }
+
+const { showError, showMessage } = useFlashToast();
+
+watch(
+    () => props.report?.status,
+    (status) => {
+        if (status === "failed") {
+            showError(props.report?.error || "Ошибка обработки отчёта");
+        }
+    },
+    { immediate: true },
+);
+
+watch(
+    () => props.timedOut,
+    (timedOut) => {
+        if (timedOut) {
+            showMessage("Время ожидания истекло. Обновите статус вручную или перезапустите сбор данных.");
+        }
+    },
+    { immediate: true },
+);
 </script>
 
 <template>
@@ -143,12 +165,6 @@ function formatDateTime(value) {
                 </div>
             </div>
 
-            <Alert v-if="report?.status === 'failed'" variant="destructive">
-                {{ report.error || "Ошибка обработки отчёта" }}
-            </Alert>
-            <Alert v-if="timedOut">
-                Время ожидания истекло. Обновите статус вручную или перезапустите сбор данных.
-            </Alert>
         </div>
     </Card>
 </template>

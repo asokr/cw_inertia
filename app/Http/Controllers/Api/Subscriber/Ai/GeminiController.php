@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\Schema;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Validator;
 use App\Services\Gemini\GeminiApiClient;
-use App\Services\Grok\GrokImageApiClient;
 use App\Services\Ai\AiMediaStorageService;
 use App\Services\OpenAi\OpenAiTextFallbackClient;
 use App\Models\Subscribers\SubscribersSubscriptions;
@@ -28,7 +27,6 @@ class GeminiController extends Controller
         private readonly GeminiApiClient $geminiApiClient,
         private readonly AiMediaStorageService $aiMediaStorageService,
         private readonly OpenAiTextFallbackClient $openAiTextFallbackClient,
-        private readonly GrokImageApiClient $grokImageApiClient,
     ) {}
 
     public function marketplace(Request $request): JsonResponse
@@ -42,8 +40,6 @@ class GeminiController extends Controller
             AiTaskType::ADAPT_OZON->value,
             AiTaskType::GENERATE_OZON_RICH->value,
             AiTaskType::RICH_DESCRIPTION->value,
-            AiTaskType::GENERATE_IMAGE->value,
-            AiTaskType::EDIT_IMAGE->value,
         ];
 
         $validator = Validator::make($request->all(), [
@@ -53,19 +49,10 @@ class GeminiController extends Controller
             'description' => 'nullable|string|max:10000',
             'features' => 'nullable|string|max:10000',
             'image' => 'nullable|string',
-            'images' => 'nullable|array|max:5',
-            'images.*' => 'nullable|string',
-            'image_prompt' => 'nullable|string|max:4000',
-            'image_variants' => 'nullable|integer|min:1|max:4',
-            'aspectRatio' => 'nullable|string|regex:/^\d{1,2}:\d{1,2}$/',
-            'resolution' => 'nullable|string',
         ], [
             'task_type.required' => 'Не указан тип задачи',
             'task_type.in' => 'Указан недопустимый тип задачи',
             'marketplace.in' => 'Поддерживаются только wb и ozon',
-            'image_variants.min' => 'Минимум 1 изображение',
-            'image_variants.max' => 'Максимум 4 изображения',
-            'aspectRatio.regex' => 'aspectRatio должен быть в формате W:H, например 3:4',
         ]);
 
         $validator->after(function ($validator) use ($request) {
@@ -99,49 +86,6 @@ class GeminiController extends Controller
                 }
             }
 
-            if ($taskType === AiTaskType::GENERATE_IMAGE->value) {
-                $prompt = $this->resolveImagePrompt($request);
-                if ($prompt === '') {
-                    $validator->errors()->add('image_prompt', 'Для генерации изображения нужен image_prompt или описание товара');
-                }
-            }
-
-            if ($taskType === AiTaskType::EDIT_IMAGE->value) {
-                if (trim((string) $request->input('image', '')) === '') {
-                    $validator->errors()->add('image', 'Для редактирования изображения нужно передать image');
-                }
-
-                $singleImageError = $this->validateInputImageSize((string) $request->input('image', ''));
-                if ($singleImageError !== null) {
-                    $validator->errors()->add('image', $singleImageError);
-                }
-
-                if (trim((string) $request->input('image_prompt', '')) === '') {
-                    $validator->errors()->add('image_prompt', 'Для редактирования изображения нужно передать image_prompt');
-                }
-            }
-
-            if (in_array($taskType, [
-                AiTaskType::GENERATE_IMAGE->value,
-                AiTaskType::EDIT_IMAGE->value,
-            ], true)) {
-                $resolution = $this->resolveResolution((string) $request->input('resolution', 'default'));
-
-                if (! in_array($resolution, ['default', '1k', '2k', '4k'], true)) {
-                    $validator->errors()->add('resolution', 'Допустимые resolution: default, 1K, 2K, 4K');
-                }
-
-                foreach ((array) $request->input('images', []) as $index => $image) {
-                    if (! is_string($image)) {
-                        continue;
-                    }
-
-                    $imageError = $this->validateInputImageSize($image);
-                    if ($imageError !== null) {
-                        $validator->errors()->add('images.' . $index, $imageError);
-                    }
-                }
-            }
         });
 
         if ($validator->fails()) {
@@ -169,14 +113,6 @@ class GeminiController extends Controller
 
         $taskType = (string) $request->input('task_type');
         $requiredTextLimit = $this->requiresTextLimit($taskType) ? 1 : 0;
-        $requiredImageLimit = in_array($taskType, [
-            AiTaskType::GENERATE_IMAGE->value,
-            AiTaskType::EDIT_IMAGE->value,
-        ], true)
-            ? ((int) $request->input('image_variants', 1) * $this->resolveImageLimitCost(
-                $this->resolveResolution((string) $request->input('resolution', 'default'))
-            ))
-            : 0;
 
         if (! $this->hasEnoughLimit($subscription, 'ai_text_query', $requiredTextLimit)) {
             return response()->json([
@@ -185,21 +121,7 @@ class GeminiController extends Controller
             ], 402);
         }
 
-        if (! $this->hasEnoughLimit($subscription, 'ai_image_query', $requiredImageLimit)) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Недостаточно лимита AI_IMAGE_QUERY'],
-            ], 402);
-        }
-
         try {
-            if (in_array($taskType, [
-                AiTaskType::GENERATE_IMAGE->value,
-                AiTaskType::EDIT_IMAGE->value,
-            ], true)) {
-                return $this->handleImageTask($request, $subscription, $user?->id, $subscriberId);
-            }
-
             return $this->handleTextTask($request, $subscription, $user?->id, $subscriberId);
         } catch (Throwable $exception) {
             $publicMessage = $this->resolvePublicErrorMessage($exception->getMessage(), 500);
@@ -343,212 +265,6 @@ class GeminiController extends Controller
         ], 200);
     }
 
-    private function handleImageTask(Request $request, SubscribersSubscriptions $subscription, ?int $userId, int $subscriberId): JsonResponse
-    {
-        $taskType = (string) $request->input('task_type');
-        $marketplace = $request->input('marketplace');
-        $provider = 'gemini';
-        $variants = (int) $request->input('image_variants', 1);
-        $rawResolution = trim((string) $request->input('resolution', 'default'));
-        $resolution = $this->resolveResolution($rawResolution);
-        $resolutionLimitCost = $this->resolveImageLimitCost($resolution);
-        $geminiImageSize = $this->resolveGeminiImageSize($resolution);
-        $aspectRatio = $this->resolveAspectRatio((string) $request->input('aspectRatio', '3:4'));
-        $prompt = $this->resolveImagePrompt($request);
-
-        $options = $this->geminiApiClient->buildImageOptions([
-            'responseModalities' => ['IMAGE', 'TEXT'],
-            'aspectRatio' => $aspectRatio,
-            'imageSize' => $geminiImageSize,
-        ]);
-
-        if ($taskType === AiTaskType::EDIT_IMAGE->value) {
-            $response = $this->geminiApiClient->editImage(
-                image: (string) $request->input('image', ''),
-                prompt: $prompt,
-                options: $options
-            );
-        } else {
-            $inputImages = $this->resolveInputImages($request);
-            $response = empty($inputImages)
-                ? $this->geminiApiClient->generateImage($prompt, $options)
-                : $this->geminiApiClient->generateImageWithImages($prompt, $inputImages, $options);
-        }
-
-        $images = [];
-        if ($response['success'] ?? false) {
-            $images = $this->geminiApiClient->extractImages((array) ($response['data'] ?? []));
-        }
-
-        if (count($images) < $variants) {
-            $missing = $variants - count($images);
-
-            for ($i = 0; $i < $missing; $i++) {
-                if ($taskType === AiTaskType::EDIT_IMAGE->value) {
-                    $singleResponse = $this->geminiApiClient->editImage(
-                        image: (string) $request->input('image', ''),
-                        prompt: $prompt,
-                        options: $options
-                    );
-                } else {
-                    $inputImages = $this->resolveInputImages($request);
-                    $singleResponse = empty($inputImages)
-                        ? $this->geminiApiClient->generateImage($prompt, $options)
-                        : $this->geminiApiClient->generateImageWithImages($prompt, $inputImages, $options);
-                }
-
-                if (! ($singleResponse['success'] ?? false)) {
-                    Log::warning('Gemini image fallback request failed', [
-                        'task_type' => $taskType,
-                        'marketplace' => $marketplace,
-                        'aspect_ratio' => $aspectRatio,
-                        'image_size' => $geminiImageSize,
-                        'status' => $singleResponse['status'] ?? null,
-                        'messages' => $singleResponse['messages'] ?? [],
-                        'usage' => data_get($singleResponse, 'data.usageMetadata'),
-                        'request_payload' => data_get($singleResponse, 'request_payload'),
-                    ]);
-                    continue;
-                }
-
-                $singleImages = $this->geminiApiClient->extractImages((array) ($singleResponse['data'] ?? []));
-                if (! empty($singleImages)) {
-                    $images[] = $singleImages[0];
-                }
-            }
-        }
-
-        if (count($images) < $variants) {
-            $missing = $variants - count($images);
-            $geminiImagesCount = count($images);
-            $fallbackImages = $this->generateImagesByGrokFallback($request, $taskType, $prompt, $aspectRatio, $missing);
-
-            if ($fallbackImages !== []) {
-                if ($geminiImagesCount === 0) {
-                    $provider = 'grok';
-                    $response['provider'] = 'grok';
-                    $response['model'] = (string) config('services.grok.image_model', 'grok-imagine-image-quality');
-                }
-
-                $images = array_merge($images, $fallbackImages);
-            }
-        }
-
-        if (empty($images)) {
-            $message = $this->resolveImageFailureMessage($response);
-            $statusCode = (int) ($response['status'] ?? 503);
-            $publicMessage = $this->resolvePublicErrorMessage($message, $statusCode);
-
-            $this->logRequest(
-                userId: $userId,
-                subscriberId: $subscriberId,
-                taskType: $taskType,
-                marketplace: $marketplace,
-                requestPayload: $this->buildDbRequestPayload($request->all(), $response),
-                responseType: 'image',
-                imagesCount: 0,
-                usage: $this->extractUsageForProvider($response, $provider),
-                model: $this->resolveModelFromResponse($response),
-                statusCode: $statusCode,
-                errorMessage: $message,
-                provider: $provider,
-            );
-
-            return response()->json([
-                'success' => false,
-                'messages' => [$publicMessage],
-            ], 200);
-        }
-
-        $generatedCount = min($variants, count($images));
-        $imagesForResponse = array_slice($images, 0, $generatedCount);
-        $storedImages = $this->prepareResponseImagesForLog($imagesForResponse, (int) $userId);
-
-        if ($storedImages === []) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Не удалось сохранить изображения в хранилище'],
-            ], 200);
-        }
-
-        $generatedCount = count($storedImages);
-        $consumptionCount = $generatedCount * $resolutionLimitCost;
-
-        if (! $this->consumeLimit($subscription, 'ai_image_query', $consumptionCount)) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Не удалось списать лимит AI_IMAGE_QUERY'],
-            ], 200);
-        }
-
-        $limits = $this->getLimits($subscription->fresh());
-
-        $this->logRequest(
-            userId: $userId,
-            subscriberId: $subscriberId,
-            taskType: $taskType,
-            marketplace: $marketplace,
-            requestPayload: $this->buildDbRequestPayload($request->all(), $response),
-            responseType: 'image',
-            imagesCount: $generatedCount,
-            usage: $this->extractUsageForProvider($response, $provider),
-            model: $this->resolveModelFromResponse($response),
-            statusCode: 200,
-            errorMessage: null,
-            responseImages: $storedImages,
-            provider: $provider,
-        );
-
-        $imageUrls = array_values(array_filter(
-            array_map(static fn(array $item): string => (string) ($item['url'] ?? $item['url_preview'] ?? ''), $storedImages),
-            static fn(string $item): bool => $item !== ''
-        ));
-
-        return response()->json([
-            'success' => true,
-            'type' => 'image',
-            'images' => $imageUrls,
-            'limits' => $limits,
-        ], 200);
-    }
-
-    private function resolveImageFailureMessage(array $response): string
-    {
-        $message = trim((string) data_get($response, 'messages.0', ''));
-        if ($message !== '') {
-            return $message;
-        }
-
-        $blockReason = trim((string) data_get($response, 'data.promptFeedback.blockReason', ''));
-        $finishReason = trim((string) data_get($response, 'data.candidates.0.finishReason', ''));
-        $blockedSafetyCategories = collect((array) data_get($response, 'data.candidates.0.safetyRatings', []))
-            ->filter(static fn(array $rating) => (bool) ($rating['blocked'] ?? false))
-            ->map(static fn(array $rating) => (string) ($rating['category'] ?? 'unknown'))
-            ->filter(static fn(string $category) => $category !== '')
-            ->values()
-            ->all();
-
-        $details = [];
-
-        if ($blockReason !== '') {
-            $details[] = 'prompt_block_reason=' . $blockReason;
-        }
-
-        if ($finishReason !== '') {
-            $details[] = 'finish_reason=' . $finishReason;
-        }
-
-        if (! empty($blockedSafetyCategories)) {
-            $details[] = 'blocked_safety=' . implode(',', $blockedSafetyCategories);
-        }
-
-        if (! empty($details)) {
-            return 'Gemini не вернул изображения: ' . implode('; ', $details);
-        }
-
-        return 'Gemini не вернул изображения';
-    }
-
     private function resolveSystemInstruction(string $taskType, ?string $marketplace): string
     {
         return match ($taskType) {
@@ -596,20 +312,6 @@ class GeminiController extends Controller
             ]))),
             default => $description,
         };
-    }
-
-    private function resolveImagePrompt(Request $request): string
-    {
-        $explicitPrompt = trim((string) $request->input('image_prompt', ''));
-        if ($explicitPrompt !== '') {
-            return $explicitPrompt;
-        }
-
-        $title = trim((string) $request->input('title', ''));
-        $description = trim((string) $request->input('description', ''));
-        $features = trim((string) $request->input('features', ''));
-
-        return trim(implode('. ', array_filter([$title, $description, $features])));
     }
 
     private function sanitizeTextTaskContent(string $content, string $taskType): string
@@ -726,45 +428,6 @@ class GeminiController extends Controller
         return max(0, (int) ($extraLimits[$limitKey] ?? 0));
     }
 
-    private function resolveResolution(string $resolution): string
-    {
-        $normalized = mb_strtolower(trim($resolution));
-
-        return match ($normalized) {
-            '', 'default', 'standart', 'standard' => 'default',
-            '1k' => '1k',
-            '2k' => '2k',
-            '4k' => '4k',
-            default => $normalized,
-        };
-    }
-
-    private function resolveImageLimitCost(string $resolution): int
-    {
-        return match ($resolution) {
-            '1k' => 2,
-            '2k', '4k' => 3,
-            default => 1,
-        };
-    }
-
-    private function resolveGeminiImageSize(string $resolution): string
-    {
-        return match ($resolution) {
-            '1k' => '1K',
-            '2k' => '2K',
-            '4k' => '4K',
-            default => 'default',
-        };
-    }
-
-    private function resolveAspectRatio(string $aspectRatio): string
-    {
-        $normalized = trim($aspectRatio);
-
-        return $normalized !== '' ? $normalized : '3:4';
-    }
-
     private function sanitizePayload(array $payload): array
     {
         if (isset($payload['image']) && is_string($payload['image'])) {
@@ -779,24 +442,6 @@ class GeminiController extends Controller
         }
 
         return $payload;
-    }
-
-    private function resolveInputImages(Request $request): array
-    {
-        $images = [];
-
-        foreach ((array) $request->input('images', []) as $image) {
-            if (! is_string($image)) {
-                continue;
-            }
-
-            $normalized = trim($image);
-            if ($normalized !== '') {
-                $images[] = $normalized;
-            }
-        }
-
-        return array_values(array_unique($images));
     }
 
     private function buildDbRequestPayload(array $requestPayload, array $response): array
@@ -870,54 +515,6 @@ class GeminiController extends Controller
             || str_contains($message, 'timeout')
             || str_contains($message, 'network')
             || str_contains($message, 'unavailable');
-    }
-
-    private function generateImagesByGrokFallback(Request $request, string $taskType, string $prompt, string $aspectRatio, int $count): array
-    {
-        if ($count <= 0) {
-            return [];
-        }
-
-        $inputImages = [];
-
-        if ($taskType === AiTaskType::EDIT_IMAGE->value) {
-            $primaryImage = trim((string) $request->input('image', ''));
-            if ($primaryImage !== '') {
-                $inputImages[] = $primaryImage;
-            }
-        }
-
-        $inputImages = array_values(array_unique(array_merge($inputImages, $this->resolveInputImages($request))));
-
-        $result = [];
-
-        for ($i = 0; $i < $count; $i++) {
-            $fallbackResponse = $this->grokImageApiClient->generateOrEditImage(
-                prompt: $prompt,
-                images: $inputImages,
-                options: [
-                    'aspect_ratio' => $aspectRatio,
-                ]
-            );
-
-            if (! ($fallbackResponse['success'] ?? false)) {
-                Log::warning('Grok image fallback request failed', [
-                    'task_type' => $taskType,
-                    'status' => $fallbackResponse['status'] ?? null,
-                    'messages' => $fallbackResponse['messages'] ?? [],
-                    'request_payload' => data_get($fallbackResponse, 'request_payload'),
-                ]);
-                continue;
-            }
-
-            $extracted = $this->grokImageApiClient->extractImages((array) ($fallbackResponse['data'] ?? []));
-
-            if ($extracted !== []) {
-                $result[] = $extracted[0];
-            }
-        }
-
-        return $result;
     }
 
     private function resolvePublicErrorMessage(?string $providerMessage, ?int $statusCode = null): string
@@ -1083,44 +680,6 @@ class GeminiController extends Controller
         }
 
         return max(1, (int) ceil(mb_strlen($trimmed) / 4));
-    }
-
-    private function prepareResponseImagesForLog(array $images, int $userId): array
-    {
-        $prepared = [];
-
-        if ($userId <= 0) {
-            return $prepared;
-        }
-
-        foreach ($images as $item) {
-            $base64 = (string) ($item['base64'] ?? '');
-            if ($base64 === '') {
-                continue;
-            }
-
-            $mimeType = (string) ($item['mime_type'] ?? 'image/png');
-            $imageInput = 'data:' . $mimeType . ';base64,' . $base64;
-
-            try {
-                $storedImage = $this->aiMediaStorageService->storeImageAndGetSignedUrl($imageInput, $userId);
-
-                $prepared[] = [
-                    'mime_type' => (string) ($storedImage['mime_type'] ?? $mimeType),
-                    'path' => (string) ($storedImage['path'] ?? ''),
-                    'url' => (string) ($storedImage['signed_url'] ?? $storedImage['url_preview'] ?? ''),
-                    'url_preview' => (string) ($storedImage['url_preview'] ?? ''),
-                    'size' => (int) ($storedImage['size'] ?? 0),
-                ];
-            } catch (Throwable $exception) {
-                Log::warning('AI marketplace generated image log storage failed', [
-                    'user_id' => $userId,
-                    'error' => $exception->getMessage(),
-                ]);
-            }
-        }
-
-        return array_values(array_filter($prepared, static fn(array $item): bool => ($item['path'] ?? '') !== ''));
     }
 
     private function validateInputImageSize(string $imageInput): ?string

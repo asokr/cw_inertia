@@ -8,6 +8,7 @@ use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 use App\Models\Subscribers\Oz\Feedbacks\FeedbacksClients as OzFeedbacksClients;
+use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
 
 trait SubscriptionsTrait
@@ -29,6 +30,10 @@ trait SubscriptionsTrait
             case 'price_calc_clients':
                 $clients = PriceCalculationCabinets::where('user_id', $user->id)->get();
                 $this->updateLimits('price_calc_clients', $clients->count(), $subscriber_id);
+                break;
+            case 'oz_price_calc_clients':
+                $clients = OzPriceCalcCabinet::where('user_id', $user->id)->get();
+                $this->updateLimits('oz_price_calc_clients', $clients->count(), $subscriber_id);
                 break;
             case 'repricer_nmid':
                 $cabinets = RepricerCabinets::where('user_id', $user->id)->get();
@@ -62,6 +67,10 @@ trait SubscriptionsTrait
                 break;
             case 'price_calc_clients':
                 $clients = PriceCalculationCabinets::where('user_id', $user->id)->get();
+                return $clients->count();
+                break;
+            case 'oz_price_calc_clients':
+                $clients = OzPriceCalcCabinet::where('user_id', $user->id)->get();
                 return $clients->count();
                 break;
             case 'repricer_nmid':
@@ -127,6 +136,16 @@ trait SubscriptionsTrait
                 break;
             case 'price_calc_clients':
                 $clients = PriceCalculationCabinets::where('user_id', $user->id)->get();
+                $i = 0;
+                foreach ($clients as $client) {
+                    $client->delete();
+                    $i++;
+                    if ($i >= $to_delete)
+                        return;
+                }
+                break;
+            case 'oz_price_calc_clients':
+                $clients = OzPriceCalcCabinet::where('user_id', $user->id)->get();
                 $i = 0;
                 foreach ($clients as $client) {
                     $client->delete();

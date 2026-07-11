@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Validator;
 use App\Exports\ProfitabilityReportExport;
 use App\Models\Subscribers\Wb\Profitability\Report;
 use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
+use App\Support\ProfitabilityJobStatusPresenter;
 
 
 class ProfitabilityController extends Controller
@@ -43,6 +44,13 @@ class ProfitabilityController extends Controller
 
         $cabinet = ProfitabilityCabinet::findOrFail($request->cabinet_id);
 
+        if ($this->hasActiveReportJob($cabinet->id)) {
+            return response()->json([
+                'success' => false,
+                'messages' => ['Отчёт уже формируется. Дождитесь завершения — прогресс отображается под формой.'],
+            ], 200);
+        }
+
         ProcessProfitabilityReport::dispatch(
             $cabinet->id,
             $request->date_from,
@@ -51,6 +59,8 @@ class ProfitabilityController extends Controller
             (float) $request->input('dop_rashod', 0),
             (float) $request->input('nalog_percent', 0)
         )->onQueue('profitability');
+
+        $this->markReportQueued($cabinet->id, (int) $request->user()->id);
 
         return response()->json([
             'success'  => true,
@@ -246,17 +256,45 @@ class ProfitabilityController extends Controller
      */
     private function formatJobStatusPayload(JobStatus $record): array
     {
-        $data = $record->data ?? [];
+        if (ProfitabilityJobStatusPresenter::isBenignDuplicateFailure($record)) {
+            ProfitabilityJobStatusPresenter::clearBenignDuplicateFailure($record);
+            $record->refresh();
+        }
 
-        return [
-            'status' => $record->status,
-            'error' => $record->error,
-            'stage' => $data['stage'] ?? null,
-            'batch' => isset($data['batch']) ? (int) $data['batch'] : null,
-            'rows_loaded' => isset($data['rows_loaded']) ? (int) $data['rows_loaded'] : null,
-            'waiting_for_api' => (bool) ($data['waiting_for_api'] ?? false),
-            'started_at' => $data['started_at'] ?? null,
+        return ProfitabilityJobStatusPresenter::fromRecord($record);
+    }
+
+    private function hasActiveReportJob(int $cabinetId): bool
+    {
+        return JobStatus::where('job_name', ProcessProfitabilityReport::class)
+            ->where('data->cabinet_id', $cabinetId)
+            ->where('status', 'processing')
+            ->exists();
+    }
+
+    private function markReportQueued(int $cabinetId, int $userId): void
+    {
+        $existing = JobStatus::where('job_name', ProcessProfitabilityReport::class)
+            ->where('data->cabinet_id', $cabinetId)
+            ->latest()
+            ->first();
+
+        $payload = [
+            'data' => ProfitabilityJobStatusPresenter::initialQueuedData($cabinetId, $userId),
+            'status' => 'processing',
+            'error' => null,
+            'updated_at' => now(),
         ];
+
+        if ($existing) {
+            $existing->update($payload);
+
+            return;
+        }
+
+        JobStatus::create(array_merge($payload, [
+            'job_name' => ProcessProfitabilityReport::class,
+        ]));
     }
 
 

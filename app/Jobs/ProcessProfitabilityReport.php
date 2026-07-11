@@ -18,6 +18,7 @@ use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
 use App\Notifications\WbCabinetAuthorizationNotification;
+use App\Support\ProfitabilityJobStatusPresenter;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Carbon;
 
@@ -347,14 +348,9 @@ class ProcessProfitabilityReport implements ShouldQueue
                 }
             }
 
-            $penaltiesByBarcode = [];
             $storageTotal = 0;
             $salesItemsCount = 0;
             foreach ($itemsData as $item) {
-                if ($item->supplier_oper_name === $operations['penalty'] && $item->barcode) {
-                    $penaltiesByBarcode[$item->barcode] = ($penaltiesByBarcode[$item->barcode] ?? 0) + $item->sum_to_transfer;
-                }
-
                 if ($item->supplier_oper_name === $operations['storage']) {
                     $storageTotal += $item->sum_to_transfer;
                 }
@@ -363,6 +359,10 @@ class ProcessProfitabilityReport implements ShouldQueue
                     $salesItemsCount++;
                 }
             }
+
+            $penaltySharePerSale = $salesItemsCount > 0
+                ? $this->safeDivide($totals['penalties'], $salesItemsCount)
+                : 0.0;
 
             $salesTransferTotal = 0;
 
@@ -383,7 +383,7 @@ class ProcessProfitabilityReport implements ShouldQueue
                         $storageShare = $storageTotal * $this->safeDivide($revenue, $salesTransferTotal);
                     }
 
-                    $item->cost_adjustments = ($penaltiesByBarcode[$item->barcode] ?? 0) + $storageShare;
+                    $item->cost_adjustments = $penaltySharePerSale + $storageShare;
                 }
             }
 
@@ -517,8 +517,15 @@ class ProcessProfitabilityReport implements ShouldQueue
             ->first();
 
         if ($existing) {
+            $data = $this->initialStatusData();
+            $existingStartedAt = $existing->data['started_at'] ?? null;
+
+            if (is_string($existingStartedAt) && $existingStartedAt !== '') {
+                $data['started_at'] = $existingStartedAt;
+            }
+
             $existing->update([
-                'data' => $this->initialStatusData(),
+                'data' => $data,
                 'status' => 'processing',
                 'error' => null,
                 'updated_at' => now(),
@@ -540,15 +547,7 @@ class ProcessProfitabilityReport implements ShouldQueue
      */
     private function initialStatusData(): array
     {
-        return [
-            'cabinet_id' => $this->cabinetId,
-            'user_id' => $this->userId,
-            'stage' => 'preparing',
-            'batch' => 0,
-            'rows_loaded' => 0,
-            'waiting_for_api' => false,
-            'started_at' => now()->toIso8601String(),
-        ];
+        return ProfitabilityJobStatusPresenter::initialQueuedData($this->cabinetId, $this->userId);
     }
 
     /**
@@ -594,19 +593,21 @@ class ProcessProfitabilityReport implements ShouldQueue
         $processing = JobStatus::where('job_name', self::class)
             ->where('data->cabinet_id', $this->cabinetId)
             ->where('status', 'processing')
-            ->get();
+            ->get()
+            ->filter(function (JobStatus $record): bool {
+                $stage = $record->data['stage'] ?? null;
+
+                return $stage !== ProfitabilityJobStatusPresenter::STAGE_QUEUED;
+            });
 
         if ($processing->isEmpty()) {
             return false;
         }
 
-        foreach ($processing as $record) {
-            $record->update([
-                'status' => 'failed',
-                'error' => 'Отчёт уже выполняется, повторный запрос отклонён.',
-                'updated_at' => now(),
-            ]);
-        }
+        Log::info('[ProfitabilityReport] Повторная джоба пропущена — отчёт уже выполняется', [
+            'cabinet_id' => $this->cabinetId,
+            'active_status_ids' => $processing->pluck('id')->all(),
+        ]);
 
         return true;
     }

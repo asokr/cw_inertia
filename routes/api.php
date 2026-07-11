@@ -95,8 +95,8 @@ Route::post('auth/yandex', [\App\Http\Controllers\Api\YandexAuthController::clas
 Route::get('get-permissions', [AuthController::class, "getPermissions"]);
 Route::post('forgot-password', [ForgotPasswordController::class, "sendResetLinkMail"]);
 Route::post('reset-password', [ResetPasswordController::class, "reset"]);
-Route::get('email/verify/{id}', [VerificationController::class, "verify"])->name('verification.verify');
-Route::post('email/resend', [VerificationController::class, "resend"])->name('verification.resend');
+Route::get('email/verify/{id}', [VerificationController::class, "verify"])->name('api.verification.verify');
+Route::post('email/resend', [VerificationController::class, "resend"])->name('api.verification.resend');
 Route::post('check-coupon', [SubscriberCouponController::class, "checkCoupon"]);
 
 
@@ -223,14 +223,22 @@ Route::middleware(['auth:api', 'verified', 'role:Подписчик'])->group(fu
         'permission:subscriber oz feedbacks|subscriber wb feedbacks|subscriber wb ai',
     ])->group(function () {
 
-        // Единый контроллер для text/image AI: GeminiController.
-        // Legacy алиас оставлен для обратной совместимости со старым фронтом.
-        Route::post('subscriber/ai/image-gen', [GeminiController::class, 'marketplace']);
+        // Текстовые задачи маркетплейса: GeminiController.
         Route::post('subscriber/ai/marketplace', [GeminiController::class, 'marketplace']);
         Route::get('subscriber/ai/media/{path}', [AiMediaController::class, 'show'])->where('path', '.*');
+        Route::post('subscriber/ai/image/start', [\App\Http\Controllers\Api\Subscriber\Ai\AiImageController::class, 'start']);
+        Route::post('subscriber/ai/image-gen', [\App\Http\Controllers\Api\Subscriber\Ai\AiImageController::class, 'start']);
+        Route::get('subscriber/ai/image/generations', [\App\Http\Controllers\Api\Subscriber\Ai\AiImageGenerationController::class, 'index']);
+        Route::post('subscriber/ai/image/generations', [\App\Http\Controllers\Api\Subscriber\Ai\AiImageGenerationController::class, 'store']);
+        Route::get('subscriber/ai/image/generations/{id}', [\App\Http\Controllers\Api\Subscriber\Ai\AiImageGenerationController::class, 'show']);
+        Route::delete('subscriber/ai/image/generations/{id}', [\App\Http\Controllers\Api\Subscriber\Ai\AiImageGenerationController::class, 'destroy']);
         Route::post('subscriber/ai/video/start', [GrokVideoController::class, 'start']);
         Route::post('subscriber/ai/video/reference/start', [GrokVideoController::class, 'referenceStart']);
         Route::get('subscriber/ai/video/status/{request_id}', [GrokVideoController::class, 'status'])->withoutMiddleware('throttle:api');
+        Route::get('subscriber/ai/video/generations', [\App\Http\Controllers\Api\Subscriber\Ai\AiVideoGenerationController::class, 'index']);
+        Route::post('subscriber/ai/video/generations', [\App\Http\Controllers\Api\Subscriber\Ai\AiVideoGenerationController::class, 'store']);
+        Route::get('subscriber/ai/video/generations/{id}', [\App\Http\Controllers\Api\Subscriber\Ai\AiVideoGenerationController::class, 'show']);
+        Route::delete('subscriber/ai/video/generations/{id}', [\App\Http\Controllers\Api\Subscriber\Ai\AiVideoGenerationController::class, 'destroy']);
     });
 
 

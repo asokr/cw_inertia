@@ -31,7 +31,7 @@ class PriceCalculationV3Controller extends Controller
             return response()->json(['success' => false, 'messages' => ['Такого кабинета не существует']], 200);
         }
 
-        $perPage = max(1, min(100, $request->integer('per_page', 25)));
+        $perPage = max(1, min(250, $request->integer('per_page', 250)));
 
         $settings = PriceCalculationV2Settings::firstOrCreate(['cabinet_id' => $cabinet->id]);
 

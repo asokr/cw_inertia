@@ -5,9 +5,9 @@ import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-vue-next";
 import AiAutoSettings from "@/components/subscriber/oz/feedbacks/AiAutoSettings.vue";
 import FeedbackCard from "@/components/subscriber/oz/feedbacks/FeedbackCard.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
-import Alert from "@/components/ui/Alert.vue";
 import Button from "@/components/ui/Button.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     cabinet: { type: Object, required: true },
@@ -48,6 +48,9 @@ function showAll() {
     perPage.value = props.reviews.length || 10;
     page.value = 1;
 }
+
+const { watchPropToast } = useFlashToast();
+watchPropToast(() => props.reviewsError);
 </script>
 
 <template>
@@ -69,10 +72,6 @@ function showAll() {
             :update-url="updateAiUrl"
             @signature-change="signature = $event"
         />
-
-        <Alert v-if="reviewsError" variant="destructive" class="mb-4">
-            {{ reviewsError }}
-        </Alert>
 
         <div v-if="reviews.length" class="space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-3">

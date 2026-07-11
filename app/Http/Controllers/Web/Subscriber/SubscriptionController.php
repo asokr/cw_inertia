@@ -20,10 +20,16 @@ class SubscriptionController extends Controller
         );
 
         if (! $result['success']) {
-            return back()->with('error', $result['messages'][0] ?? 'Ошибка смены тарифа');
+            return back()
+                ->with('error', $result['messages'][0] ?? 'Ошибка смены тарифа')
+                ->with('error_details', isset($result['limit_violations'])
+                    ? ['limit_violations' => $result['limit_violations']]
+                    : null);
         }
 
-        return back()->with('success', $result['messages'][0] ?? 'Тариф изменён');
+        return back()
+            ->with('success', $result['messages'][0] ?? 'Тариф изменён')
+            ->with('success_details', $result['success_details'] ?? null);
     }
 
     public function unsubscribe(Request $request, SubscriptionManagementService $service): RedirectResponse
@@ -48,6 +54,17 @@ class SubscriptionController extends Controller
         ]);
 
         $result = $service->resubscribe($request->user(), (int) $request->input('id'));
+
+        if (! $result['success']) {
+            return back()->with('error', $result['messages'][0] ?? 'Ошибка');
+        }
+
+        return back()->with('success', $result['messages'][0]);
+    }
+
+    public function cancelDowngrade(SubscriptionManagementService $service): RedirectResponse
+    {
+        $result = $service->cancelScheduledDowngrade(request()->user());
 
         if (! $result['success']) {
             return back()->with('error', $result['messages'][0] ?? 'Ошибка');

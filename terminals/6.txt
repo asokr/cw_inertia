@@ -1,0 +1,26 @@
+---
+pid: 10116
+cwd: "C:\OSPanel\home\subs-back.local\cw_inertia"
+command: "cd \"C:\\OSPanel\\home\\subs-back.local\\cw_inertia\"; php artisan test --filter=PublicBlogTest 2>&1"
+started_at: 2026-07-06T06:20:36.803Z
+running_for_ms: 109202131
+---
+
+   PASS  Tests\Feature\Web\Blog\PublicBlogTest
+  ✓ blog index renders inertia page                                                                              2.27s  
+  ✓ blog show renders published post                                                                             0.16s  
+  ✓ blog show returns 404 for missing post                                                                       0.20s  
+  ✓ blog show returns 404 for draft post                                                                         0.11s  
+  ✓ blog view increment endpoint works                                                                           0.21s  
+  ✓ blog sitemap returns xml                                                                                     0.14s  
+  ✓ blog media rejects invalid prefix                                                                            0.12s  
+
+  Tests:    7 passed (35 assertions)
+  Duration: 16.06s
+
+
+---
+exit_code: -1
+elapsed_ms: 109202131
+ended_at: 2026-07-07T12:40:50.601Z
+---

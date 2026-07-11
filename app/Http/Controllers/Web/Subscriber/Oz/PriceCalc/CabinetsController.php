@@ -8,6 +8,7 @@ use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreOzPriceCalcCabinetRequest;
 use App\Http\Requests\Web\Subscriber\UpdateOzPriceCalcCabinetRequest;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
+use App\Models\Subscribers\SubscribersSubscriptions;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -42,8 +43,18 @@ class CabinetsController extends SubscriberToolController
             }
         }
 
+        $limits = ['oz_price_calc_clients' => null];
+        $subscription = SubscribersSubscriptions::query()
+            ->where('subscribers_id', $request->user()->subscriber?->id)
+            ->first();
+
+        if ($subscription && isset($subscription->limits_plan['oz_price_calc_clients'])) {
+            $limits['oz_price_calc_clients'] = (int) $subscription->limits_plan['oz_price_calc_clients'];
+        }
+
         return Inertia::render('Subscriber/Oz/PriceCalc/Index', [
             'cabinets' => $cabinets,
+            'limits' => $limits,
         ]);
     }
 

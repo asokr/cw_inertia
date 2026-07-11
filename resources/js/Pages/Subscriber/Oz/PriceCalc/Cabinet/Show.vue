@@ -2,13 +2,14 @@
 import { computed, ref, watch } from "vue";
 import { Head, router } from "@inertiajs/vue3";
 import ItemsTable from "@/components/subscriber/oz/price-calc/ItemsTable.vue";
+import WorkflowAlert from "@/components/subscriber/oz/price-calc/WorkflowAlert.vue";
 import JobProgress from "@/components/subscriber/oz/price-calc/JobProgress.vue";
 import ModeToggle from "@/components/subscriber/oz/price-calc/ModeToggle.vue";
 import ModeToolbar from "@/components/subscriber/oz/price-calc/ModeToolbar.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
-import Alert from "@/components/ui/Alert.vue";
 import Card from "@/components/ui/Card.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 import { useOzPriceCalcPoll } from "@/composables/useOzPriceCalcPoll";
 
 const props = defineProps({
@@ -39,6 +40,9 @@ const exportDownloadUrl = computed(() => (
 
 useOzPriceCalcPoll(activeMode, exportDownloadUrl);
 
+const { watchPropToast } = useFlashToast();
+watchPropToast(() => props.rowsError);
+
 const isBusy = computed(() => Boolean(
     props.jobStatus.is_syncing
     || props.jobStatus.is_calculating
@@ -52,7 +56,7 @@ watch(activeMode, (mode) => {
         {
             mode,
             page: 1,
-            per_page: props.filters.per_page ?? 25,
+            per_page: props.filters.per_page ?? 250,
             search: props.filters.search ?? "",
         },
         {
@@ -92,7 +96,7 @@ watch(activeMode, (mode) => {
 
             <JobProgress :job-status="jobStatus" />
 
-            <Alert v-if="rowsError" variant="destructive">{{ rowsError }}</Alert>
+            <WorkflowAlert />
 
             <ItemsTable
                 :mode="activeMode"

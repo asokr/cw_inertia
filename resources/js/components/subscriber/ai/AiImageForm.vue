@@ -1,9 +1,11 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
-import { ImageIcon, Lightbulb, Plus, X } from "lucide-vue-next";
+import { Sparkles } from "lucide-vue-next";
+import AiImageUploader from "@/components/subscriber/ai/AiImageUploader.vue";
 import Button from "@/components/ui/Button.vue";
 import Label from "@/components/ui/Label.vue";
 import Textarea from "@/components/ui/Textarea.vue";
+import { toAiMediaUrl } from "@/composables/useAiMediaUrl";
 
 const props = defineProps({
     loading: { type: Boolean, default: false },
@@ -12,25 +14,21 @@ const props = defineProps({
 
 const emit = defineEmits(["submit", "error"]);
 
-const showTips = ref(false);
-const refFileInput = ref(null);
-
 const form = reactive({
     image_prompt: "",
-    image_variants: 1,
     images: [],
     aspectRatio: "3:4",
     resolution: "default",
 });
 
-const variants = [1, 2, 3, 4];
+const sourcePrompt = ref("");
 
 const aspectRatios = [
-    { value: "1:1", label: "1:1", desc: "Квадрат" },
-    { value: "3:4", label: "3:4", desc: "Портрет" },
-    { value: "4:3", label: "4:3", desc: "Пейзаж" },
-    { value: "9:16", label: "9:16", desc: "Stories" },
-    { value: "16:9", label: "16:9", desc: "Широкий" },
+    { value: "1:1", label: "1:1" },
+    { value: "3:4", label: "3:4" },
+    { value: "4:3", label: "4:3" },
+    { value: "9:16", label: "9:16" },
+    { value: "16:9", label: "16:9" },
 ];
 
 const resolutions = [
@@ -40,14 +38,30 @@ const resolutions = [
     { value: "4K", label: "4K", cost: 3 },
 ];
 
-const canGenerate = computed(() => Boolean(form.image_prompt.trim()) && Number(form.image_variants) >= 1);
+const hasReferenceContext = computed(() =>
+    Boolean(sourcePrompt.value.trim()) || form.images.length > 0,
+);
+
+const inputPlaceholder = computed(() =>
+    hasReferenceContext.value
+        ? "Опишите правки для этого кадра..."
+        : "Опишите, что создать...",
+);
+
+const canGenerate = computed(() => Boolean(form.image_prompt.trim()));
 
 const resolutionMultiplier = computed(() => {
     const found = resolutions.find((r) => r.value === form.resolution);
     return found ? found.cost : 1;
 });
 
-const totalCost = computed(() => Number(form.image_variants) * resolutionMultiplier.value);
+const totalCost = computed(() => resolutionMultiplier.value);
+
+const referencePreviews = computed(() =>
+    form.images
+        .map((img) => toAiMediaUrl(img, { allowDataUrl: true }))
+        .filter(Boolean),
+);
 
 function pluralCredits(n) {
     if (n === 1) return "лимит";
@@ -55,198 +69,218 @@ function pluralCredits(n) {
     return "лимитов";
 }
 
+function insertSourcePrompt() {
+    if (!sourcePrompt.value.trim() || props.disabled) {
+        return;
+    }
+
+    form.image_prompt = sourcePrompt.value;
+    sourcePrompt.value = "";
+}
+
 function submit() {
     const payload = {
         task_type: "generate_image",
         image_prompt: form.image_prompt.trim(),
-        image_variants: Number(form.image_variants),
         aspectRatio: form.aspectRatio,
         resolution: form.resolution,
     };
+
     if (form.images.length > 0) {
         payload.images = [...form.images];
     }
+
     emit("submit", payload);
 }
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-const ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
-
-function isAllowedFile(file) {
-    if (!file) return false;
-    if (file.type && ALLOWED_TYPES.has(file.type)) return true;
-    const ext = file.name?.split(".").pop()?.toLowerCase() || "";
-    return ALLOWED_EXTENSIONS.has(ext);
+function handleImageError(type) {
+    const messages = {
+        "size-exceeded": "Размер файла не должен превышать 10 МБ",
+        "format-not-allowed": "Формат не поддерживается. Загрузите PNG, JPG, JPEG, WEBP или статичный GIF.",
+        "animated-gif": "Анимированные GIF не поддерживаются.",
+    };
+    emit("error", messages[type] || "Ошибка загрузки изображения");
 }
 
-async function readFileAsDataUrl(file) {
-    return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-        reader.readAsDataURL(file);
-    });
-}
-
-async function handleFilesChange(event) {
-    const files = Array.from(event.target?.files || []);
-    for (const file of files) {
-        if (form.images.length >= 7) break;
-        if (!isAllowedFile(file)) {
-            emit("error", "Формат не поддерживается. Загрузите PNG, JPG, JPEG, WEBP или GIF.");
-            continue;
+function onFilesAdded(results) {
+    for (const res of results) {
+        if (form.images.length < 7) {
+            form.images.push(res);
         }
-        if (file.size > MAX_FILE_SIZE) {
-            emit("error", "Размер файла не должен превышать 10 МБ");
-            continue;
-        }
-        const dataUrl = await readFileAsDataUrl(file);
-        if (dataUrl) form.images.push(dataUrl);
     }
-    if (refFileInput.value) refFileInput.value.value = "";
 }
 
-function removeImage(idx) {
-    form.images.splice(idx, 1);
+function updateImage(idx, imgBase64) {
+    if (imgBase64) {
+        form.images[idx] = imgBase64;
+    } else {
+        form.images.splice(idx, 1);
+    }
 }
+
+function resetForm() {
+    form.image_prompt = "";
+    form.images = [];
+    form.aspectRatio = "3:4";
+    form.resolution = "default";
+    sourcePrompt.value = "";
+}
+
+function applySeed(seed = {}) {
+    applySnapshot(seed);
+}
+
+function getSnapshot() {
+    return {
+        prompt: form.image_prompt,
+        sourcePrompt: sourcePrompt.value,
+        aspectRatio: form.aspectRatio,
+        resolution: form.resolution,
+        images: [...form.images],
+    };
+}
+
+function applySnapshot(snapshot = {}) {
+    if (typeof snapshot.prompt === "string") {
+        form.image_prompt = snapshot.prompt;
+    }
+
+    if (typeof snapshot.sourcePrompt === "string") {
+        sourcePrompt.value = snapshot.sourcePrompt;
+    } else if ("prompt" in snapshot && !("sourcePrompt" in snapshot) && typeof snapshot.prompt === "string") {
+        sourcePrompt.value = snapshot.prompt;
+        form.image_prompt = "";
+    }
+
+    if (snapshot.aspectRatio) {
+        form.aspectRatio = snapshot.aspectRatio;
+    }
+
+    if (snapshot.resolution) {
+        const normalized = String(snapshot.resolution).toLowerCase();
+        const map = { default: "default", "1k": "1K", "2k": "2K", "4k": "4K" };
+        form.resolution = map[normalized] || snapshot.resolution;
+    }
+
+    if (Array.isArray(snapshot.images)) {
+        form.images = [...snapshot.images];
+    }
+}
+
+defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm });
 </script>
 
 <template>
-    <div class="space-y-5">
-        <div class="flex items-start gap-3">
-            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
-                <ImageIcon class="h-5 w-5" />
+    <div class="space-y-3">
+        <div v-if="referencePreviews.length > 0" class="flex flex-wrap items-center gap-2">
+            <div
+                v-for="(preview, idx) in referencePreviews"
+                :key="idx"
+                class="relative h-12 w-12 overflow-hidden rounded-lg border bg-muted"
+            >
+                <img :src="preview" alt="" class="h-full w-full object-cover" />
+                <button
+                    v-if="!disabled"
+                    type="button"
+                    class="absolute inset-0 bg-black/0 text-[10px] text-white opacity-0 transition-opacity hover:bg-black/40 hover:opacity-100"
+                    @click="updateImage(idx, '')"
+                >
+                    ×
+                </button>
             </div>
-            <div>
-                <h3 class="font-semibold">Генерация изображений</h3>
-                <p class="text-sm text-muted-foreground">Опишите, что должно быть на изображении — ИИ создаст варианты</p>
-            </div>
+            <AiImageUploader
+                v-if="form.images.length < 7"
+                model-value=""
+                :multiple="true"
+                :compact="true"
+                :disabled="disabled"
+                @files-added="onFilesAdded"
+                @error="handleImageError"
+            />
         </div>
 
-        <div class="space-y-4">
-            <div>
-                <Label class="mb-2 block">
-                    Изображения <span class="font-normal text-muted-foreground">— до 7 шт. (необязательно)</span>
-                </Label>
-                <input
-                    ref="refFileInput"
-                    type="file"
-                    accept=".png,.jpg,.jpeg,.webp,.gif"
-                    multiple
-                    class="hidden"
-                    :disabled="disabled"
-                    @change="handleFilesChange"
-                />
-                <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                    <div
-                        v-for="(img, idx) in form.images"
-                        :key="idx"
-                        class="relative overflow-hidden rounded-xl border bg-muted/30"
-                    >
-                        <img :src="img" alt="Референс" class="h-28 w-full object-contain" />
-                        <button
-                            v-if="!disabled"
-                            type="button"
-                            class="absolute right-1 top-1 rounded-md bg-background/90 p-1 text-muted-foreground hover:text-destructive"
-                            @click="removeImage(idx)"
-                        >
-                            <X class="h-4 w-4" />
-                        </button>
-                    </div>
-                    <button
-                        v-if="form.images.length < 7"
-                        type="button"
-                        class="flex h-28 flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-muted-foreground hover:border-primary hover:text-primary"
-                        :disabled="disabled"
-                        @click="refFileInput?.click()"
-                    >
-                        <Plus class="h-5 w-5" />
-                        <span class="text-xs">{{ form.images.length ? "Добавить ещё" : "Загрузить" }}</span>
-                    </button>
-                </div>
-            </div>
+        <div class="overflow-hidden rounded-2xl border border-border/80 bg-muted/25 shadow-sm">
+            <button
+                v-if="sourcePrompt.trim()"
+                type="button"
+                class="block w-full border-b border-border/50 px-4 py-2.5 text-left transition-colors hover:bg-muted/40"
+                :disabled="disabled"
+                :title="disabled ? undefined : 'Вставить в поле ввода'"
+                @click="insertSourcePrompt"
+            >
+                <span class="line-clamp-2 text-sm leading-snug text-muted-foreground">
+                    {{ sourcePrompt }}
+                </span>
+            </button>
 
-            <div class="space-y-2">
-                <Label>Описание изображения</Label>
+            <div class="relative">
                 <Textarea
                     v-model="form.image_prompt"
                     :disabled="disabled"
-                    :rows="3"
-                    placeholder="Например: Сделай продающий баннер товара в чистом минималистичном стиле"
+                    :rows="sourcePrompt.trim() ? 2 : 3"
+                    class="min-h-[72px] resize-none rounded-none border-0 bg-transparent px-4 py-3 pr-24 text-sm shadow-none focus-visible:ring-0"
+                    :placeholder="inputPlaceholder"
                 />
+                <Button
+                    size="sm"
+                    class="absolute bottom-2.5 right-2.5 h-8 gap-1.5 px-3"
+                    :disabled="disabled || loading || !canGenerate"
+                    @click="submit"
+                >
+                    <Sparkles class="h-3.5 w-3.5" />
+                    <span class="hidden sm:inline">Создать</span>
+                    <span class="text-[10px] opacity-80">· {{ totalCost }}</span>
+                </Button>
             </div>
+        </div>
 
-            <div>
-                <Label class="mb-2 block">Соотношение сторон</Label>
-                <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            <div class="flex items-center gap-1.5">
+                <Label class="text-[11px]">Формат</Label>
+                <div class="flex gap-1">
                     <button
                         v-for="ar in aspectRatios"
                         :key="ar.value"
                         type="button"
-                        class="rounded-lg border px-3 py-2 text-left text-sm transition-colors"
+                        class="rounded-md border px-1.5 py-0.5 transition-colors"
                         :class="form.aspectRatio === ar.value ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-muted/50'"
                         :disabled="disabled"
                         @click="form.aspectRatio = ar.value"
                     >
-                        <div class="font-medium">{{ ar.label }}</div>
-                        <div class="text-xs text-muted-foreground">{{ ar.desc }}</div>
+                        {{ ar.label }}
                     </button>
                 </div>
             </div>
 
-            <div>
-                <Label class="mb-2 block">Разрешение</Label>
-                <div class="flex flex-wrap gap-2">
+            <div class="flex items-center gap-1.5">
+                <Label class="text-[11px]">Размер</Label>
+                <div class="flex gap-1">
                     <button
                         v-for="res in resolutions"
                         :key="res.value"
                         type="button"
-                        class="rounded-lg border px-3 py-2 text-sm transition-colors"
+                        class="rounded-md border px-1.5 py-0.5 transition-colors"
                         :class="form.resolution === res.value ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-muted/50'"
                         :disabled="disabled"
                         @click="form.resolution = res.value"
                     >
-                        <span class="font-medium">{{ res.label }}</span>
-                        <span class="ml-2 text-xs text-muted-foreground">{{ res.cost }} {{ pluralCredits(res.cost) }}</span>
+                        {{ res.label }}
                     </button>
                 </div>
             </div>
 
-            <div class="flex flex-wrap items-center gap-4">
-                <div class="space-y-2">
-                    <Label>Количество вариантов</Label>
-                    <select
-                        v-model="form.image_variants"
-                        :disabled="disabled"
-                        class="flex h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                        <option v-for="v in variants" :key="v" :value="v">{{ v }}</option>
-                    </select>
-                </div>
-                <p v-if="form.image_variants > 0" class="text-sm text-muted-foreground">
-                    Стоимость: <strong>{{ totalCost }}</strong> {{ pluralCredits(totalCost) }}
-                </p>
-            </div>
+            <span class="text-[11px]">{{ totalCost }} {{ pluralCredits(totalCost) }}</span>
+        </div>
 
-            <Button class="w-full sm:w-auto" :disabled="disabled || loading || !canGenerate" @click="submit">
-                Сгенерировать изображения
-            </Button>
-
-            <div class="rounded-xl border">
-                <button
-                    type="button"
-                    class="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium"
-                    @click="showTips = !showTips"
-                >
-                    <Lightbulb class="h-4 w-4 text-amber-500" />
-                    Советы для лучшего результата
-                </button>
-                <div v-show="showTips" class="space-y-3 border-t px-4 py-3 text-sm text-muted-foreground">
-                    <p><strong>Товары:</strong> укажите ракурс, фон, освещение. Добавьте «фотореалистично, высокая детализация».</p>
-                    <p><strong>Люди:</strong> опишите позу, выражение, одежду, окружение.</p>
-                    <p><strong>Редактирование:</strong> одна задача за раз — «убери фон», «добавь тень».</p>
-                </div>
-            </div>
+        <div v-if="form.images.length === 0" class="flex items-center gap-2">
+            <AiImageUploader
+                model-value=""
+                :multiple="true"
+                :disabled="disabled"
+                class="flex-1 [&>div]:py-3"
+                @files-added="onFilesAdded"
+                @error="handleImageError"
+            />
         </div>
     </div>
 </template>

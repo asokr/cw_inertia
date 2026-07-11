@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { Head, router, useForm } from "@inertiajs/vue3";
 import { Pencil, Trash2 } from "lucide-vue-next";
+import PriceCalcFaq from "@/components/subscriber/oz/price-calc/PriceCalcFaq.vue";
 import CabinetForm from "@/components/subscriber/tools/CabinetForm.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import Button from "@/components/ui/Button.vue";
@@ -11,6 +12,7 @@ import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 
 defineProps({
     cabinets: { type: Array, default: () => [] },
+    limits: { type: Object, default: () => ({}) },
 });
 
 const breadcrumbs = [
@@ -77,13 +79,17 @@ function confirmDelete() {
     <Head title="Ценообразование Ozon" />
 
     <SubscriberLayout title="Ценообразование Ozon" :breadcrumbs="breadcrumbs">
-        <ToolPageHeader title="Ценообразование Ozon">
+        <ToolPageHeader
+            title="Ценообразование Ozon"
+            :description="limits.oz_price_calc_clients !== null && limits.oz_price_calc_clients !== undefined ? `Доступно кабинетов по тарифу: ${limits.oz_price_calc_clients}` : ''"
+        >
             <template #actions>
                 <Button @click="openAdd">Добавить кабинет</Button>
             </template>
         </ToolPageHeader>
 
         <div class="space-y-4">
+            <PriceCalcFaq />
             <p v-if="!cabinets.length" class="text-sm text-muted-foreground">Кабинеты не добавлены</p>
 
             <div v-if="cabinets.length" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

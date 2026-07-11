@@ -1,11 +1,12 @@
 <script setup>
 import { ref } from "vue";
-import { CloudUpload, X } from "lucide-vue-next";
+import { CloudUpload, Plus, X } from "lucide-vue-next";
 
 const props = defineProps({
     modelValue: { type: String, default: "" },
     disabled: { type: Boolean, default: false },
     multiple: { type: Boolean, default: false },
+    compact: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["update:modelValue", "error", "files-added"]);
@@ -135,20 +136,32 @@ function clearImage() {
 
         <div
             v-if="!modelValue"
-            class="flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors"
-            :class="isDragging ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/60 hover:bg-muted/30'"
+            :class="[
+                'transition-colors',
+                compact
+                    ? 'flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg border border-dashed bg-muted/30 hover:border-primary/50 hover:bg-muted/50'
+                    : [
+                        'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-5 text-center',
+                        isDragging ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/60 hover:bg-muted/30',
+                    ],
+            ]"
             @click="openFilePicker"
             @dragover.prevent="isDragging = true"
             @dragleave.prevent="isDragging = false"
             @drop.prevent="handleDrop"
         >
-            <div class="mb-1 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <CloudUpload class="h-5 w-5" />
-            </div>
-            <p class="text-sm text-muted-foreground">
-                Перетащите или <span class="font-semibold text-primary underline decoration-dotted underline-offset-2">выберите файл</span>
-            </p>
-            <p class="text-xs text-muted-foreground/80">PNG, JPG, WEBP, GIF — до 10 МБ</p>
+            <template v-if="compact">
+                <Plus class="h-4 w-4 text-muted-foreground" />
+            </template>
+            <template v-else>
+                <div class="mb-1 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <CloudUpload class="h-5 w-5" />
+                </div>
+                <p class="text-sm text-muted-foreground">
+                    Перетащите или <span class="font-semibold text-primary underline decoration-dotted underline-offset-2">выберите файл</span>
+                </p>
+                <p class="text-xs text-muted-foreground/80">PNG, JPG, WEBP, GIF — до 10 МБ</p>
+            </template>
         </div>
 
         <div v-else class="relative overflow-hidden rounded-xl border">

@@ -15,6 +15,7 @@ const props = defineProps({
 
 const previewOpen = ref(false);
 const previewImage = ref("");
+const downloadingIndex = ref(null);
 
 const normalizedImages = computed(() =>
     props.images
@@ -33,16 +34,24 @@ function openPreview(image) {
 }
 
 async function downloadImage(image, index) {
-    const response = await fetch(image);
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `ai-image-${index + 1}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    if (downloadingIndex.value !== null) return;
+
+    downloadingIndex.value = index;
+    try {
+        const response = await fetch(image);
+        if (!response.ok) throw new Error("Download failed");
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `ai-image-${index + 1}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } finally {
+        downloadingIndex.value = null;
+    }
 }
 </script>
 
@@ -81,33 +90,62 @@ async function downloadImage(image, index) {
             <ImageIcon class="h-4 w-4 text-primary" />
             Сгенерированные изображения
         </div>
-        <div
-            class="grid gap-4"
-            :class="normalizedImages.length === 1 ? 'grid-cols-1' : 'sm:grid-cols-2'"
-        >
+        <div class="flex flex-wrap gap-4">
             <div
                 v-for="(image, index) in normalizedImages"
                 :key="index"
-                class="group relative overflow-hidden rounded-xl border bg-muted/30"
+                class="group relative w-full max-w-[400px] overflow-hidden rounded-xl border bg-muted/30"
             >
-                <img
-                    :src="image"
-                    alt="ИИ изображение"
-                    class="min-h-[400px] w-full cursor-pointer object-contain sm:min-h-[480px]"
+                <button
+                    type="button"
+                    class="block w-full cursor-zoom-in text-left"
                     @click="openPreview(image)"
+                >
+                    <img
+                        :src="image"
+                        alt="ИИ изображение"
+                        class="h-auto w-full object-contain transition-transform duration-200 group-hover:scale-[1.02]"
+                    />
+                </button>
+                <div
+                    class="pointer-events-none absolute inset-0 bg-black/0 transition-colors duration-200 group-hover:bg-black/10"
                 />
-                <div class="absolute bottom-2 right-2 opacity-0 transition-opacity group-hover:opacity-100">
-                    <Button size="sm" variant="secondary" @click="downloadImage(image, index)">
-                        <Download class="h-4 w-4" />
-                    </Button>
-                </div>
+                <button
+                    type="button"
+                    class="absolute right-2.5 top-2.5 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-background/95 text-foreground opacity-0 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-background group-hover:opacity-100"
+                    :aria-label="`Скачать изображение ${index + 1}`"
+                    :disabled="downloadingIndex === index"
+                    @click.stop="downloadImage(image, index)"
+                >
+                    <Loader2 v-if="downloadingIndex === index" class="h-4 w-4 animate-spin" />
+                    <Download v-else class="h-4 w-4" />
+                </button>
             </div>
         </div>
     </div>
 
-    <Dialog v-model:open="previewOpen">
-        <div class="flex max-h-[80vh] items-center justify-center p-2">
-            <img :src="previewImage" alt="Просмотр" class="max-h-[75vh] max-w-full object-contain" />
+    <Dialog
+        v-model:open="previewOpen"
+        title="Просмотр изображения"
+        class="max-w-[min(95vw,1400px)]"
+    >
+        <div class="flex items-center justify-center">
+            <img
+                :src="previewImage"
+                alt="Просмотр"
+                class="max-h-[min(85vh,1200px)] max-w-full rounded-lg object-contain"
+            />
         </div>
+        <template #footer>
+            <Button
+                variant="outline"
+                size="sm"
+                :disabled="downloadingIndex !== null"
+                @click="downloadImage(previewImage, normalizedImages.indexOf(previewImage))"
+            >
+                <Download class="mr-1.5 h-4 w-4" />
+                Скачать
+            </Button>
+        </template>
     </Dialog>
 </template>

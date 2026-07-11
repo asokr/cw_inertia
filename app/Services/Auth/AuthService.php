@@ -39,8 +39,6 @@ class AuthService
         $user = Auth::user();
 
         if (! $user->hasVerifiedEmail()) {
-            Auth::logout();
-
             return [
                 'success' => false,
                 'user' => $user,
@@ -84,12 +82,10 @@ class AuthService
         ]);
 
         $user->assignRole('Подписчик');
-        $user->plan_id = 2;
 
         if (! empty($data['coupon_code'])) {
             try {
                 $coupon = $this->couponService->validateCoupon($data['coupon_code']);
-                $user->plan_id = $coupon->value;
                 $this->couponService->minusCouponLimit($coupon);
                 $this->couponService->recordCouponUsage($user, $coupon, [
                     'source' => 'registration',
@@ -99,15 +95,13 @@ class AuthService
             }
         }
 
-        $user->save();
-
         event(new Registered($user));
 
         return [
             'success' => true,
             'user' => $user,
             'errors' => [],
-            'messages' => ['Регистрация успешна. Подтвердите email и войдите в аккаунт.'],
+            'messages' => ['Регистрация успешна. Подтвердите email, чтобы начать работу.'],
         ];
     }
 

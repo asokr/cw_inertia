@@ -3,13 +3,15 @@
 namespace App\Http\Controllers\Api\Subscriber\Ai;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Response;
+use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AiMediaController extends Controller
 {
-    public function show(string $path): Response|StreamedResponse
+    public function show(Request $request, string $path): BinaryFileResponse|StreamedResponse
     {
         $userId = (int) (auth()->id() ?? 0);
         if ($userId <= 0) {
@@ -28,37 +30,121 @@ class AiMediaController extends Controller
             abort(404);
         }
 
-        $stream = $disk->readStream($normalizedPath);
-        if (! is_resource($stream)) {
-            abort(404);
+        $mimeType = (string) ($disk->mimeType($normalizedPath) ?: 'application/octet-stream');
+        $size = (int) $disk->size($normalizedPath);
+        $filename = basename($normalizedPath);
+
+        if ($this->usesLocalDisk($diskName)) {
+            return $this->respondWithLocalFile($request, $disk, $normalizedPath, $mimeType, $filename);
         }
 
-        $mimeType = (string) ($disk->mimeType($normalizedPath) ?: 'application/octet-stream');
-        $size = $disk->size($normalizedPath);
-        $filename = basename($normalizedPath);
+        return $this->respondWithStream($request, $disk, $normalizedPath, $mimeType, $filename, $size);
+    }
+
+    private function usesLocalDisk(string $diskName): bool
+    {
+        return (string) config("filesystems.disks.{$diskName}.driver") === 'local';
+    }
+
+    private function respondWithLocalFile(
+        Request $request,
+        Filesystem $disk,
+        string $normalizedPath,
+        string $mimeType,
+        string $filename,
+    ): BinaryFileResponse {
+        $response = new BinaryFileResponse(
+            $disk->path($normalizedPath),
+            200,
+            [
+                'Content-Type' => $mimeType,
+                'Content-Disposition' => 'inline; filename="' . $filename . '"',
+            ],
+            true,
+            null,
+            false,
+            true,
+        );
+
+        $response->setAutoEtag();
+
+        return $response->prepare($request);
+    }
+
+    private function respondWithStream(
+        Request $request,
+        Filesystem $disk,
+        string $normalizedPath,
+        string $mimeType,
+        string $filename,
+        int $size,
+    ): StreamedResponse {
+        [$start, $end, $status] = $this->resolveByteRange($request, $size);
 
         $headers = [
             'Content-Type' => $mimeType,
+            'Accept-Ranges' => 'bytes',
             'Content-Disposition' => 'inline; filename="' . $filename . '"',
+            'Content-Length' => (string) ($end - $start + 1),
         ];
 
-        if (is_int($size) && $size >= 0) {
-            $headers['Content-Length'] = (string) $size;
+        if ($status === 206) {
+            $headers['Content-Range'] = "bytes {$start}-{$end}/{$size}";
         }
 
-        return response()->stream(function () use ($stream): void {
+        $length = $end - $start + 1;
+
+        return response()->stream(function () use ($disk, $normalizedPath, $start, $length): void {
+            $stream = $disk->readStream($normalizedPath);
+            if (! is_resource($stream)) {
+                return;
+            }
+
             try {
-                fpassthru($stream);
+                if ($start > 0) {
+                    fseek($stream, $start);
+                }
+
+                $remaining = $length;
+                while ($remaining > 0 && ! feof($stream)) {
+                    $chunk = fread($stream, min(8192, $remaining));
+                    if ($chunk === false) {
+                        break;
+                    }
+
+                    echo $chunk;
+                    $remaining -= strlen($chunk);
+                }
             } finally {
                 fclose($stream);
             }
-        }, 200, $headers);
+        }, $status, $headers);
+    }
+
+    /**
+     * @return array{0:int,1:int,2:int}
+     */
+    private function resolveByteRange(Request $request, int $size): array
+    {
+        $rangeHeader = (string) $request->header('Range', '');
+        if ($rangeHeader === '' || ! preg_match('/bytes=(\d*)-(\d*)/', $rangeHeader, $matches)) {
+            return [0, max(0, $size - 1), 200];
+        }
+
+        $start = $matches[1] !== '' ? (int) $matches[1] : 0;
+        $end = $matches[2] !== '' ? (int) $matches[2] : max(0, $size - 1);
+
+        if ($size <= 0 || $start > $end || $start >= $size) {
+            abort(416);
+        }
+
+        return [$start, min($end, $size - 1), 206];
     }
 
     private function normalizePath(string $path): ?string
     {
         $decodedSegments = array_map(
-            static fn(string $segment): string => rawurldecode($segment),
+            static fn (string $segment): string => rawurldecode($segment),
             explode('/', $path)
         );
 

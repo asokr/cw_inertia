@@ -95,24 +95,13 @@ class AuthController extends Controller
         ]);
         $user->assignRole('Подписчик');
 
-        $user->plan_id = 2; //ID тестового тарифа
-
-
         if ($request->coupon_code) {
-            // Мы проверили купон отдельно,
-            // Ещё раз проверяем тут, и переназначаем тестовый тариф, на тариф по купону
-            // Если проверка выбросит исключение, ничего не делаем,
-            // продолжаем регистрацию с тестовым тарифом
             try {
                 $coupon = $couponService->validateCoupon($request->coupon_code);
-
-                $user->plan_id = $coupon->value;
-
                 $couponService->minusCouponLimit($coupon);
-
                 $couponService->recordCouponUsage($user, $coupon, [
                     'source' => 'registration',
-                    'ip' => $request->ip()
+                    'ip' => $request->ip(),
                 ]);
             } catch (\Throwable $th) {
             }

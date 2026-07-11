@@ -1,5 +1,10 @@
 export const PROFITABILITY_JOB_STAGES = [
     {
+        key: "queued",
+        label: "В очереди",
+        description: "Запрос принят, ожидаем запуск обработки",
+    },
+    {
         key: "preparing",
         label: "Подготовка",
         description: "Проверяем кабинет и данные себестоимости",
@@ -44,6 +49,15 @@ export function buildProfitabilityProgressDetail(jobStatus = {}) {
         return { detail: null, waitingHint: null };
     }
 
+    if (jobStatus.status_detail) {
+        return {
+            detail: jobStatus.status_detail,
+            waitingHint: jobStatus.waiting_for_api
+                ? "Ожидаем лимит API Wildberries (~1 мин). Для больших кабинетов это нормально — сервис продолжает работу."
+                : null,
+        };
+    }
+
     const parts = [];
 
     if (jobStatus.batch) {
@@ -61,4 +75,17 @@ export function buildProfitabilityProgressDetail(jobStatus = {}) {
         : null;
 
     return { detail, waitingHint };
+}
+
+export function resolveProfitabilityProgressPercent(jobStatus = {}) {
+    if (typeof jobStatus.progress_percent === "number") {
+        return Math.min(100, Math.max(0, jobStatus.progress_percent));
+    }
+
+    const stageIndex = PROFITABILITY_JOB_STAGES.findIndex((stage) => stage.key === jobStatus.stage);
+    if (stageIndex < 0) {
+        return jobStatus.status === "processing" ? 8 : 0;
+    }
+
+    return Math.round(((stageIndex + 1) / PROFITABILITY_JOB_STAGES.length) * 100);
 }

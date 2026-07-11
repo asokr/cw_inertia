@@ -18,7 +18,6 @@ const emit = defineEmits(["success", "error"]);
 const { sendToRepricer } = usePromoCalculatorApi();
 const repricerCabinetId = ref(null);
 const submitting = ref(false);
-const bigError = ref("");
 
 const dates = reactive({
     start: "",
@@ -42,7 +41,6 @@ async function submit() {
     }
 
     submitting.value = true;
-    bigError.value = "";
 
     try {
         await sendToRepricer({
@@ -55,9 +53,6 @@ async function submit() {
         });
         emit("success", "Номенклатуры переданы в репрайсер");
     } catch (err) {
-        if (err?.type === "bigError") {
-            bigError.value = err.message;
-        }
         emit("error", err?.message ?? "Не удалось отправить в репрайсер");
     } finally {
         submitting.value = false;
@@ -102,8 +97,6 @@ async function submit() {
                     <Input id="promo-end" v-model="dates.end" type="datetime-local" required />
                 </div>
             </div>
-
-            <Alert v-if="bigError" variant="destructive">{{ bigError }}</Alert>
 
             <Button :disabled="submitting || !selected.length" @click="submit">
                 {{ submitting ? "Отправка…" : "Отправить" }}

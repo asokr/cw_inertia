@@ -157,6 +157,39 @@ class WbProfitabilityTest extends WebAuthTestCase
         Queue::assertPushed(ProcessProfitabilityReport::class);
     }
 
+    public function test_store_report_rejects_while_already_processing(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Busy Cabinet');
+
+        JobStatus::query()->create([
+            'job_name' => ProcessProfitabilityReport::class,
+            'data' => [
+                'cabinet_id' => $cabinet->id,
+                'user_id' => $user->id,
+                'stage' => 'fetching',
+                'batch' => 1,
+                'rows_loaded' => 1000,
+                'waiting_for_api' => false,
+                'started_at' => now()->toIso8601String(),
+            ],
+            'status' => 'processing',
+            'error' => null,
+        ]);
+
+        $this->actingAs($user)
+            ->post("/panel/wb/profitability/cabinets/{$cabinet->id}/report", [
+                'date_from' => '2026-01-01',
+                'date_to' => '2026-01-15',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('error');
+
+        Queue::assertNothingPushed();
+    }
+
     public function test_store_report_accepts_empty_optional_fields_from_form(): void
     {
         Queue::fake();
@@ -176,6 +209,18 @@ class WbProfitabilityTest extends WebAuthTestCase
             ->assertSessionDoesntHaveErrors();
 
         Queue::assertPushed(ProcessProfitabilityReport::class);
+
+        $this->assertDatabaseHas('job_statuses', [
+            'job_name' => ProcessProfitabilityReport::class,
+            'status' => 'processing',
+        ]);
+
+        $status = JobStatus::query()
+            ->where('job_name', ProcessProfitabilityReport::class)
+            ->latest()
+            ->first();
+
+        $this->assertSame('queued', $status->data['stage'] ?? null);
     }
 
     public function test_cabinet_show_returns_groups_as_list_when_report_exists(): void
@@ -286,6 +331,40 @@ class WbProfitabilityTest extends WebAuthTestCase
                 ->has('report'));
     }
 
+    public function test_cabinet_show_clears_stale_duplicate_rejection_failure(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Stale Failure Cabinet');
+
+        JobStatus::query()->create([
+            'job_name' => ProcessProfitabilityReport::class,
+            'data' => [
+                'cabinet_id' => $cabinet->id,
+                'user_id' => $user->id,
+                'stage' => 'fetching',
+                'batch' => 1,
+                'rows_loaded' => 0,
+                'waiting_for_api' => false,
+                'started_at' => now()->subHour()->toIso8601String(),
+            ],
+            'status' => 'failed',
+            'error' => 'Отчёт уже выполняется, повторный запрос отклонён.',
+        ]);
+
+        $this->actingAs($user)
+            ->get("/panel/wb/profitability/cabinets/{$cabinet->id}")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('jobStatus.status', 'done')
+                ->where('jobStatus.error', null));
+
+        $this->assertDatabaseHas('job_statuses', [
+            'job_name' => ProcessProfitabilityReport::class,
+            'status' => 'done',
+            'error' => null,
+        ]);
+    }
+
     public function test_cabinet_show_exposes_job_progress_while_processing(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
@@ -316,7 +395,10 @@ class WbProfitabilityTest extends WebAuthTestCase
                 ->where('jobStatus.batch', 2)
                 ->where('jobStatus.rows_loaded', 150000)
                 ->where('jobStatus.waiting_for_api', true)
-                ->has('jobStatus.started_at'));
+                ->has('jobStatus.started_at')
+                ->where('jobStatus.progress_percent', 28)
+                ->where('jobStatus.status_label', 'Ожидание ответа Wildberries')
+                ->has('jobStatus.status_detail'));
     }
 
     public function test_store_report_forbidden_for_foreign_cabinet(): void

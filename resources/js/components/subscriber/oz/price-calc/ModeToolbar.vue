@@ -59,6 +59,7 @@ function onFileChange(event) {
     <div class="flex flex-wrap gap-2">
         <Button
             variant="outline"
+            title="Загружает актуальную номенклатуру из Ozon"
             :disabled="isBusy()"
             @click="postAction('sync')"
         >
@@ -67,6 +68,7 @@ function onFileChange(event) {
         </Button>
 
         <Button
+            title="Пересчитывает цены по данным в таблице"
             :disabled="isBusy()"
             @click="postAction('calculate')"
         >
@@ -76,6 +78,7 @@ function onFileChange(event) {
 
         <Button
             variant="secondary"
+            title="Загружает заполненный Excel-файл и запускает расчёт"
             :disabled="isBusy()"
             @click="triggerImport"
         >
@@ -85,6 +88,7 @@ function onFileChange(event) {
 
         <Button
             variant="secondary"
+            title="Скачивает шаблон Excel для заполнения вручную"
             :disabled="isBusy()"
             @click="postAction('export')"
         >

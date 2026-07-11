@@ -1,0 +1,17 @@
+---
+pid: 18668
+cwd: "C:\OSPanel\home\subs-back.local\cw_inertia"
+command: "cd \"C:\\OSPanel\\home\\subs-back.local\\cw_inertia\"; php artisan test --filter=PlansTest 2>&1"
+started_at: 2026-07-10T11:02:25.676Z
+running_for_ms: 84955000 
+---
+
+   PASS  Tests\Feature\Web\Subscriber\PlansTest
+  ✓ subscriber can open plans page with visible plans only                                                       1.91s  
+  ✓ trial user gets promo banner in shared props                                                                 0.07s  
+  ✓ expired paid subscription gets subscription expired banner                                                   0.06s  
+  ✓ deposit with plan id stores plan on transaction                                                              0.44s  
+
+  Tests:    4 passed (42 assertions)
+  Duration: 16.86s
+

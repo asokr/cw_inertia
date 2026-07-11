@@ -27,12 +27,11 @@ const filteredItems = computed(() => {
             <Input v-model="search" placeholder="Найти" class="max-w-xs" />
         </div>
 
-        <div class="overflow-auto rounded-md border" :style="{ maxHeight }">
-            <EditableDataTable
-                :columns="columns"
-                :data="filteredItems"
-                empty-text="Нет данных"
-            />
-        </div>
+        <EditableDataTable
+            :columns="columns"
+            :data="filteredItems"
+            :max-height="maxHeight"
+            empty-text="Нет данных"
+        />
     </div>
 </template>

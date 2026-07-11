@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web\Subscriber\Oz\PriceCalc;
 
 use App\Http\Controllers\Api\Subscriber\Ozon\PriceCalc\FboController as ApiFboController;
 use App\Http\Controllers\Api\Subscriber\Ozon\PriceCalc\FbsController as ApiFbsController;
+use App\Http\Controllers\Web\Subscriber\Concerns\DelegatesToApiGuard;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresOzPriceCalcCabinetOwnership;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\ImportOzPriceCalcExcelRequest;
@@ -17,6 +18,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WorkspaceController extends SubscriberToolController
 {
+    use DelegatesToApiGuard;
     use EnsuresOzPriceCalcCabinetOwnership;
 
     public function __construct(
@@ -30,7 +32,11 @@ class WorkspaceController extends SubscriberToolController
         $this->ensureCabinetOwnership($cabinet);
 
         $mode = $this->resolveMode($request);
-        $rowsPayload = $this->decodeApiResponse($this->indexResponse($request, $cabinet->id, $mode));
+
+        $rowsPayload = $this->withApiGuard($request, fn () => $this->decodeApiResponse(
+            $this->indexResponse($request, $cabinet->id, $mode)
+        ));
+
         $rowsData = ($rowsPayload['success'] ?? false) ? ($rowsPayload['data'] ?? []) : [];
 
         return Inertia::render('Subscriber/Oz/PriceCalc/Cabinet/Show', [
@@ -47,7 +53,7 @@ class WorkspaceController extends SubscriberToolController
             'jobStatus' => $this->buildJobStatus($request, $cabinet->id, $mode),
             'filters' => [
                 'page' => (int) $request->input('page', 1),
-                'per_page' => (int) $request->input('per_page', 25),
+                'per_page' => (int) $request->input('per_page', 250),
                 'sort_key' => $request->input('sort_key'),
                 'sort_dir' => $request->input('sort_dir', 'asc'),
                 'search' => $request->input('search', ''),
@@ -58,6 +64,7 @@ class WorkspaceController extends SubscriberToolController
     public function syncFbo(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
     {
         return $this->dispatchAction(
+            $request,
             $cabinet,
             fn () => $this->apiFboController->sync($request, $cabinet->id),
             'Синхронизация запущена',
@@ -68,6 +75,7 @@ class WorkspaceController extends SubscriberToolController
     public function syncFbs(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
     {
         return $this->dispatchAction(
+            $request,
             $cabinet,
             fn () => $this->apiFbsController->sync($request, $cabinet->id),
             'Синхронизация запущена',
@@ -78,6 +86,7 @@ class WorkspaceController extends SubscriberToolController
     public function calculateFbo(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
     {
         return $this->dispatchAction(
+            $request,
             $cabinet,
             fn () => $this->apiFboController->calculate($request, $cabinet->id),
             'Калькуляция запущена',
@@ -88,6 +97,7 @@ class WorkspaceController extends SubscriberToolController
     public function calculateFbs(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
     {
         return $this->dispatchAction(
+            $request,
             $cabinet,
             fn () => $this->apiFbsController->calculate($request, $cabinet->id),
             'Калькуляция запущена',
@@ -98,6 +108,7 @@ class WorkspaceController extends SubscriberToolController
     public function importFbo(ImportOzPriceCalcExcelRequest $request, OzPriceCalcCabinet $cabinet): RedirectResponse
     {
         return $this->dispatchAction(
+            $request,
             $cabinet,
             fn () => $this->apiFboController->import($request, $cabinet->id),
             'Импорт запущен',
@@ -108,6 +119,7 @@ class WorkspaceController extends SubscriberToolController
     public function importFbs(ImportOzPriceCalcExcelRequest $request, OzPriceCalcCabinet $cabinet): RedirectResponse
     {
         return $this->dispatchAction(
+            $request,
             $cabinet,
             fn () => $this->apiFbsController->import($request, $cabinet->id),
             'Импорт запущен',
@@ -118,6 +130,7 @@ class WorkspaceController extends SubscriberToolController
     public function exportFbo(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
     {
         return $this->dispatchAction(
+            $request,
             $cabinet,
             fn () => $this->apiFboController->export($request, $cabinet->id),
             'Экспорт запущен',
@@ -128,6 +141,7 @@ class WorkspaceController extends SubscriberToolController
     public function exportFbs(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
     {
         return $this->dispatchAction(
+            $request,
             $cabinet,
             fn () => $this->apiFbsController->export($request, $cabinet->id),
             'Экспорт запущен',
@@ -153,7 +167,7 @@ class WorkspaceController extends SubscriberToolController
     {
         return [
             'current_page' => (int) ($rowsData['current_page'] ?? $request->input('page', 1)),
-            'per_page' => (int) ($rowsData['per_page'] ?? $request->input('per_page', 25)),
+            'per_page' => (int) ($rowsData['per_page'] ?? $request->input('per_page', 250)),
             'total' => (int) ($rowsData['total'] ?? 0),
             'last_page' => (int) ($rowsData['last_page'] ?? 1),
         ];
@@ -164,26 +178,28 @@ class WorkspaceController extends SubscriberToolController
      */
     private function buildJobStatus(Request $request, int $cabinetId, string $mode): array
     {
-        if ($mode === 'fbs') {
-            $syncPayload = $this->decodeApiResponse($this->apiFbsController->status($request, $cabinetId));
-            $calcPayload = $this->decodeApiResponse($this->apiFbsController->calculateStatus($request, $cabinetId));
-            $importPayload = $this->decodeApiResponse($this->apiFbsController->importStatus($request, $cabinetId));
-            $exportPayload = $this->decodeApiResponse($this->apiFbsController->exportStatus($request, $cabinetId));
-        } else {
-            $syncPayload = $this->decodeApiResponse($this->apiFboController->status($request, $cabinetId));
-            $calcPayload = $this->decodeApiResponse($this->apiFboController->calculateStatus($request, $cabinetId));
-            $importPayload = $this->decodeApiResponse($this->apiFboController->importStatus($request, $cabinetId));
-            $exportPayload = $this->decodeApiResponse($this->apiFboController->exportStatus($request, $cabinetId));
-        }
+        return $this->withApiGuard($request, function () use ($request, $cabinetId, $mode) {
+            if ($mode === 'fbs') {
+                $syncPayload = $this->decodeApiResponse($this->apiFbsController->status($request, $cabinetId));
+                $calcPayload = $this->decodeApiResponse($this->apiFbsController->calculateStatus($request, $cabinetId));
+                $importPayload = $this->decodeApiResponse($this->apiFbsController->importStatus($request, $cabinetId));
+                $exportPayload = $this->decodeApiResponse($this->apiFbsController->exportStatus($request, $cabinetId));
+            } else {
+                $syncPayload = $this->decodeApiResponse($this->apiFboController->status($request, $cabinetId));
+                $calcPayload = $this->decodeApiResponse($this->apiFboController->calculateStatus($request, $cabinetId));
+                $importPayload = $this->decodeApiResponse($this->apiFboController->importStatus($request, $cabinetId));
+                $exportPayload = $this->decodeApiResponse($this->apiFboController->exportStatus($request, $cabinetId));
+            }
 
-        return [
-            'is_syncing' => (bool) ($syncPayload['data']['is_syncing'] ?? false),
-            'is_calculating' => (bool) ($calcPayload['data']['is_calculating'] ?? false),
-            'is_importing' => (bool) ($importPayload['data']['is_importing'] ?? false),
-            'is_exporting' => (bool) ($exportPayload['data']['is_exporting'] ?? false),
-            'last_error' => $syncPayload['data']['last_error'] ?? null,
-            'export_file_url' => $exportPayload['data']['file_url'] ?? null,
-        ];
+            return [
+                'is_syncing' => (bool) ($syncPayload['data']['is_syncing'] ?? false),
+                'is_calculating' => (bool) ($calcPayload['data']['is_calculating'] ?? false),
+                'is_importing' => (bool) ($importPayload['data']['is_importing'] ?? false),
+                'is_exporting' => (bool) ($exportPayload['data']['is_exporting'] ?? false),
+                'last_error' => $syncPayload['data']['last_error'] ?? null,
+                'export_file_url' => $exportPayload['data']['file_url'] ?? null,
+            ];
+        });
     }
 
     private function resolveMode(Request $request): string
@@ -203,6 +219,7 @@ class WorkspaceController extends SubscriberToolController
     }
 
     private function dispatchAction(
+        Request $request,
         OzPriceCalcCabinet $cabinet,
         callable $action,
         string $successFallback,
@@ -210,7 +227,7 @@ class WorkspaceController extends SubscriberToolController
     ): RedirectResponse {
         $this->ensureCabinetOwnership($cabinet);
 
-        $payload = $this->decodeApiResponse($action());
+        $payload = $this->withApiGuard($request, fn () => $this->decodeApiResponse($action()));
 
         if (($payload['success'] ?? false) !== true) {
             return back()->with('error', $this->apiMessage($payload, $errorFallback));

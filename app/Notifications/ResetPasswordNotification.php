@@ -7,6 +7,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Support\Facades\URL;
 
 class ResetPasswordNotification extends Notification
 {
@@ -41,7 +42,10 @@ class ResetPasswordNotification extends Notification
      */
     public function toMail($notifiable)
     {
-        $link = "https://cwplatform.ru/auth/reset-password/" . $this->token;
+        $link = URL::route('password.reset', [
+            'token' => $this->token,
+            'email' => $notifiable->getEmailForPasswordReset(),
+        ]);
 
         $recipientEmail = $notifiable->email;
         $recipientName = $notifiable->name;

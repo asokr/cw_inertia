@@ -1,26 +1,20 @@
-@component('mail::layout')
+@include('emails.partials.header')
 
-    @slot('header')
-        @component('mail::header', ['url' => config('app.url')])
+@include('emails.partials.heading', [
+    'text' => 'Подтвердите почту',
+    'subtitle' => 'Остался один шаг до начала работы с CW Platform',
+])
 
-        @endcomponent
-    @endslot
+<p style="margin: 0 0 16px 0;">Здравствуйте, {{ $user->name }}!</p>
 
-![CWplatform](https://cwplatform.ru/pwa-192x192.png "CWplatform")
+<p style="margin: 0 0 8px 0;">Нажмите кнопку ниже, чтобы подтвердить адрес электронной почты и активировать аккаунт.</p>
 
-Здравствуйте, {{ $user->name }}.
+@include('emails.partials.button', ['url' => $url, 'text' => 'Подтвердить почту'])
 
-Нажмите на кнопку ниже, чтобы подтвердить почту.
+@include('emails.partials.fallback-link', ['url' => $url])
 
-<x-mail::button :url="$url">
-    Подтвердить почту
-</x-mail::button>
+<p style="margin: 24px 0 0 0; font-size: 14px; line-height: 1.5; color: #888888;">
+    Если вы не регистрировались на CW Platform, просто проигнорируйте это письмо.
+</p>
 
-Если кнопа не работает, перейдите [по ссылке]({{ $url }})
-
-    @slot('footer')
-        @component('mail::footer')
-            {{ $year }}. CW Platform
-        @endcomponent
-    @endslot
-@endcomponent
+@include('emails.partials.footer')

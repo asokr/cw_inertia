@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from "vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     jobStatus: {
@@ -26,6 +27,9 @@ const activeJobs = computed(() => {
 
     return jobs;
 });
+
+const { watchPropToast } = useFlashToast();
+watchPropToast(() => props.jobStatus.last_error);
 </script>
 
 <template>
@@ -36,9 +40,6 @@ const activeJobs = computed(() => {
             class="text-sm text-primary"
         >
             {{ job }}
-        </p>
-        <p v-if="jobStatus.last_error" class="text-sm text-destructive">
-            {{ jobStatus.last_error }}
         </p>
     </div>
 </template>

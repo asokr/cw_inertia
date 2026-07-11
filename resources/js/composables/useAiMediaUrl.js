@@ -83,6 +83,26 @@ export function toAiMediaUrl(rawSrc, options = {}) {
     return "";
 }
 
+export function normalizeVideoItem(video) {
+    if (!video || typeof video !== "object") {
+        return null;
+    }
+
+    const source = video.url || video.url_preview || video.signed_url || video.path || "";
+    const normalizedUrl = toAiMediaUrl(source);
+
+    if (!normalizedUrl) {
+        return null;
+    }
+
+    return {
+        ...video,
+        url: normalizedUrl,
+        url_preview: normalizedUrl,
+        signed_url: normalizedUrl,
+    };
+}
+
 export function mapAiImageItem(item) {
     if (!item) {
         return "";
@@ -104,5 +124,6 @@ export function useAiMediaUrl() {
     return {
         toAiMediaUrl,
         mapAiImageItem,
+        normalizeVideoItem,
     };
 }

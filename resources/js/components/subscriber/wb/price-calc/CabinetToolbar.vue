@@ -1,6 +1,7 @@
 <script setup>
 import { onUnmounted, ref } from "vue";
 import { router } from "@inertiajs/vue3";
+import { useFlashToast } from "@/composables/useFlashToast";
 import {
     FileDown,
     FileUp,
@@ -22,6 +23,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["open-settings"]);
+
+const { showError } = useFlashToast();
 
 const syncing = ref(false);
 const importingVolume = ref(false);
@@ -48,6 +51,10 @@ function startRateLimit(seconds = 60) {
     }, 1000);
 }
 
+function wasSuccessfulVisit(visit) {
+    return !visit?.props?.flash?.error;
+}
+
 function sync() {
     syncing.value = true;
     router.post(props.syncUrl, {}, {
@@ -55,14 +62,19 @@ function sync() {
         onFinish: () => {
             syncing.value = false;
         },
-        onSuccess: () => {
-            if (props.cardsMeta.total > 0 || true) {
-                highlightVolume.value = true;
-                if (highlightTimeout) clearTimeout(highlightTimeout);
-                highlightTimeout = setTimeout(() => {
-                    highlightVolume.value = false;
-                }, 6000);
+        onSuccess: (visit) => {
+            if (!wasSuccessfulVisit(visit)) {
+                return;
             }
+
+            highlightVolume.value = true;
+            if (highlightTimeout) clearTimeout(highlightTimeout);
+            highlightTimeout = setTimeout(() => {
+                highlightVolume.value = false;
+            }, 6000);
+        },
+        onError: () => {
+            showError("Не удалось обновить список товаров. Попробуйте ещё раз.");
         },
     });
 }
@@ -80,7 +92,7 @@ async function handleExport() {
     try {
         await downloadPost(props.exportExcelUrl, `price-calc-${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch {
-        window.alert("Не удалось экспортировать XLSX");
+        showError("Не удалось экспортировать XLSX");
     }
 }
 
@@ -100,6 +112,7 @@ function uploadVolume(event) {
             onFinish: () => {
                 importingVolume.value = false;
             },
+            onError: () => showError("Не удалось импортировать объёмы."),
         },
     );
 }
@@ -119,7 +132,12 @@ function uploadExcel(event) {
             onFinish: () => {
                 importingExcel.value = false;
             },
-            onSuccess: () => startRateLimit(60),
+            onSuccess: (visit) => {
+                if (wasSuccessfulVisit(visit)) {
+                    startRateLimit(60);
+                }
+            },
+            onError: () => showError("Не удалось импортировать Excel."),
         },
     );
 }
@@ -134,7 +152,7 @@ onUnmounted(() => {
     <Card class="p-4">
         <div class="flex flex-wrap gap-3">
             <Button :disabled="syncing" @click="sync">
-                <RefreshCw class="mr-2 h-4 w-4" />
+                <RefreshCw class="mr-2 h-4 w-4" :class="{ 'animate-spin': syncing }" />
                 {{ syncing ? "Обновление…" : "Обновить список товаров" }}
             </Button>
 
