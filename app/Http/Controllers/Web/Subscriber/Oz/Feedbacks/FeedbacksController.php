@@ -129,7 +129,8 @@ class FeedbacksController extends SubscriberToolController
         ]);
 
         if (! empty($validated['prompt'])) {
-            $aiRequest = $request->duplicate(null, [
+            $aiRequest = $request->duplicate();
+            $aiRequest->merge([
                 'prompt' => $validated['prompt'],
                 'type' => $validated['type'] ?? 'копирайтер, задача которого отвечать на отзывы покупателей маркетплейса',
                 'for' => 'feedbacks',
@@ -143,7 +144,8 @@ class FeedbacksController extends SubscriberToolController
                 $feedback['text'] ?? '',
             );
 
-            $aiRequest = $request->duplicate(null, [
+            $aiRequest = $request->duplicate();
+            $aiRequest->merge([
                 'prompt' => $prompt,
                 'type' => 'копирайтер, задача которого отвечать на отзывы покупателей маркетплейса',
                 'for' => 'feedbacks',

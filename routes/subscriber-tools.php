@@ -207,7 +207,7 @@ Route::prefix('ai')
     ->group(function () {
         Route::get('/media/{path}', [AiMediaController::class, 'show'])
             ->where('path', '.*')
-            ->withoutMiddleware(['auth', 'verified', 'panel.access'])
+            ->withoutMiddleware(['verified', 'panel.access'])
             ->name('media');
 
         Route::middleware(['permission:subscriber ai'])->group(function () {

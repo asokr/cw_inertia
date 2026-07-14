@@ -3,12 +3,17 @@
 namespace App\Http\Controllers\Web\Admin\Ai;
 
 use App\Http\Controllers\Controller;
+use App\Services\Ai\AiMediaStorageService;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MediaController extends Controller
 {
+    public function __construct(private readonly AiMediaStorageService $aiMediaStorageService)
+    {
+    }
+
     public function show(string $path): Response|StreamedResponse
     {
         $normalizedPath = $this->normalizePath($path);
@@ -16,21 +21,22 @@ class MediaController extends Controller
             abort(404);
         }
 
-        $diskName = (string) config('services.ai_media.disk', 'private');
-        $disk = Storage::disk($diskName);
-
-        if (! $disk->exists($normalizedPath)) {
+        $resolvedDisk = $this->aiMediaStorageService->resolveDiskForPath($normalizedPath);
+        if ($resolvedDisk === null) {
             abort(404);
         }
 
-        $stream = $disk->readStream($normalizedPath);
+        $disk = $resolvedDisk['disk'];
+        $resolvedPath = (string) ($resolvedDisk['path'] ?? $normalizedPath);
+
+        $stream = $disk->readStream($resolvedPath);
         if (! is_resource($stream)) {
             abort(404);
         }
 
-        $mimeType = (string) ($disk->mimeType($normalizedPath) ?: 'application/octet-stream');
-        $size = $disk->size($normalizedPath);
-        $filename = basename($normalizedPath);
+        $mimeType = (string) ($disk->mimeType($resolvedPath) ?: 'application/octet-stream');
+        $size = $disk->size($resolvedPath);
+        $filename = basename($resolvedPath);
 
         $headers = [
             'Content-Type' => $mimeType,
@@ -75,7 +81,10 @@ class MediaController extends Controller
             return null;
         }
 
-        $normalizedPath = implode('/', $segments);
+        $normalizedPath = $this->aiMediaStorageService->normalizeStoragePath(implode('/', $segments));
+        if ($normalizedPath === '') {
+            return null;
+        }
 
         $imagePrefix = trim((string) config('services.ai_media.image_prefix', 'ai/source-images'), '/');
         $videoPrefix = trim((string) config('services.ai_media.video_prefix', 'ai/generated-videos'), '/');

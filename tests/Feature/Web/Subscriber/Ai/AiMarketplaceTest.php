@@ -100,7 +100,7 @@ class AiMarketplaceTest extends WebAuthTestCase
     public function test_media_endpoint_requires_auth(): void
     {
         $this->get('/panel/ai/media/generated-videos/user-1/test.mp4')
-            ->assertForbidden();
+            ->assertRedirect();
     }
 
     public function test_media_endpoint_rejects_foreign_user_path(): void

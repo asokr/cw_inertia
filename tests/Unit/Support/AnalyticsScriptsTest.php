@@ -38,4 +38,21 @@ class AnalyticsScriptsTest extends TestCase
 
         $this->assertTrue(AnalyticsScripts::shouldLoad());
     }
+
+    public function test_jivo_disabled_on_subscriber_panel_in_production(): void
+    {
+        $this->app['env'] = 'production';
+        $this->app->instance('request', Request::create('/panel/ai/image', 'GET'));
+
+        $this->assertTrue(AnalyticsScripts::shouldLoad());
+        $this->assertFalse(AnalyticsScripts::shouldLoadJivo());
+    }
+
+    public function test_jivo_enabled_on_public_pages_in_production(): void
+    {
+        $this->app['env'] = 'production';
+        $this->app->instance('request', Request::create('/', 'GET'));
+
+        $this->assertTrue(AnalyticsScripts::shouldLoadJivo());
+    }
 }

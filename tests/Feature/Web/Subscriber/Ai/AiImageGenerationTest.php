@@ -7,6 +7,7 @@ use App\Models\AiImageGenerationTask;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
+use App\Services\Ai\AiImageGenerationService;
 use App\Services\Ai\AiMediaStorageService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
@@ -304,6 +305,86 @@ class AiImageGenerationTest extends WebAuthTestCase
         $this->assertNotSame('', (string) ($stored['path'] ?? ''));
         $this->assertNotSame($existingPath, (string) ($stored['path'] ?? ''));
         Storage::disk('private')->assertExists((string) $stored['path']);
+    }
+
+    public function test_resolve_image_inline_data_accepts_panel_media_url(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $existingPath = 'ai/source-images/user-' . $user->id . '/2026/reference.png';
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+        Storage::disk('private')->put($existingPath, $png);
+
+        $panelUrl = '/panel/ai/media/source-images/user-' . $user->id . '/2026/reference.png';
+        [$mimeType, $base64] = app(AiMediaStorageService::class)->resolveImageInlineData($panelUrl);
+
+        $this->assertSame('image/png', $mimeType);
+        $this->assertSame(base64_encode($png), $base64);
+    }
+
+    public function test_is_stored_media_reference_detects_panel_media_url(): void
+    {
+        $service = app(AiMediaStorageService::class);
+
+        $this->assertTrue($service->isStoredMediaReference('/panel/ai/media/source-images/user-1/2026/demo.png'));
+        $this->assertTrue($service->isStoredMediaReference('https://example.com/panel/ai/media/source-images/user-1/2026/demo.png'));
+        $this->assertFalse($service->isStoredMediaReference('data:image/png;base64,iVBORw0KGgo='));
+    }
+
+    public function test_has_stored_source_images_returns_true_only_when_generation_has_sources(): void
+    {
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $subscriberId = (int) $user->subscriber->id;
+        $service = app(AiImageGenerationService::class);
+
+        $emptyGeneration = AiImageGeneration::query()->create([
+            'subscriber_id' => $subscriberId,
+            'user_id' => $user->id,
+            'title' => 'Пустая',
+        ]);
+
+        $this->assertFalse($service->hasStoredSourceImages($emptyGeneration));
+
+        AiImageGenerationTask::query()->create([
+            'image_generation_id' => $emptyGeneration->id,
+            'subscriber_id' => $subscriberId,
+            'user_id' => $user->id,
+            'task_type' => 'generate_image',
+            'prompt' => 'Prompt',
+            'image_variants' => 1,
+            'resolution' => 'default',
+            'status' => AiImageGenerationTask::STATUS_DONE,
+            'result_images' => [[
+                'path' => 'ai/source-images/user-' . $user->id . '/2026/result.png',
+            ]],
+        ]);
+
+        $generationWithResultOnly = $emptyGeneration->fresh();
+        $generationWithResultOnly->load('tasks');
+        $this->assertFalse($service->hasStoredSourceImages($generationWithResultOnly));
+
+        $withSourceGeneration = AiImageGeneration::query()->create([
+            'subscriber_id' => $subscriberId,
+            'user_id' => $user->id,
+            'title' => 'С исходником',
+        ]);
+
+        AiImageGenerationTask::query()->create([
+            'image_generation_id' => $withSourceGeneration->id,
+            'subscriber_id' => $subscriberId,
+            'user_id' => $user->id,
+            'task_type' => 'generate_image',
+            'prompt' => 'Prompt',
+            'image_variants' => 1,
+            'resolution' => 'default',
+            'status' => AiImageGenerationTask::STATUS_DONE,
+            'source_images' => [[
+                'path' => 'ai/source-images/user-' . $user->id . '/2026/source.png',
+            ]],
+        ]);
+
+        $this->assertTrue($service->hasStoredSourceImages($withSourceGeneration->fresh()));
     }
 
     private function createSubscriberUser(bool $withAiPermission = false): User

@@ -14,7 +14,7 @@ class AiMediaStorageService
     /**
      * @return array{path:string,signed_url:string,url_preview:string,mime_type:string,size:int}
      */
-    public function storeImageAndGetSignedUrl(string $imageInput, ?int $userId = null): array
+    public function storeImageAndGetSignedUrl(string $imageInput, ?int $userId = null, ?string $prefixOverride = null): array
     {
         [$binary, $mimeType] = $this->resolveImageBinaryAndMime($imageInput);
 
@@ -33,7 +33,7 @@ class AiMediaStorageService
         }
 
         $extension = $this->resolveExtensionByMime($mimeType);
-        $prefix = trim((string) config('services.ai_media.image_prefix', 'ai/source-images'), '/');
+        $prefix = trim((string) ($prefixOverride ?? config('services.ai_media.image_prefix', 'ai/source-images')), '/');
         $datePath = now()->format('Y');
         $userPart = 'user-' . $userId . '/';
         $path = $prefix . '/' . $userPart . $datePath . '/' . Str::uuid() . '.' . $extension;
@@ -124,7 +124,11 @@ class AiMediaStorageService
 
     public function buildAccessibleMediaUrl(string $path): string
     {
-        return $this->buildPanelMediaUrl($path);
+        $normalizedPath = $this->normalizeStoragePath($path);
+
+        return $normalizedPath !== ''
+            ? $this->buildPanelMediaUrl($normalizedPath)
+            : '';
     }
 
     /**
@@ -132,7 +136,7 @@ class AiMediaStorageService
      */
     public function resolveDiskForPath(string $path): ?array
     {
-        $normalizedPath = trim($path, '/');
+        $normalizedPath = $this->normalizeStoragePath($path);
         if ($normalizedPath === '') {
             return null;
         }
@@ -141,11 +145,14 @@ class AiMediaStorageService
 
         try {
             $disk = Storage::disk($diskName);
-            if ($disk->exists($normalizedPath)) {
-                return [
-                    'disk' => $disk,
-                    'disk_name' => $diskName,
-                ];
+            foreach ($this->storagePathCandidates($normalizedPath) as $candidate) {
+                if ($disk->exists($candidate)) {
+                    return [
+                        'disk' => $disk,
+                        'disk_name' => $diskName,
+                        'path' => $candidate,
+                    ];
+                }
             }
         } catch (\Throwable $exception) {
             Log::warning('AI media storage disk lookup failed', [
@@ -197,18 +204,11 @@ class AiMediaStorageService
                 array_filter(explode('/', $relative), static fn (string $segment): bool => $segment !== ''),
             );
 
-            $storagePath = implode('/', $decodedSegments);
-            if (
-                ! str_starts_with($storagePath, 'ai/')
-                && (
-                    str_starts_with($storagePath, 'source-images/')
-                    || str_starts_with($storagePath, 'generated-videos/')
-                )
-            ) {
-                $storagePath = 'ai/' . $storagePath;
-            }
+            $storagePath = $this->normalizeStoragePath(implode('/', $decodedSegments));
 
-            return $this->buildAccessibleMediaUrl($storagePath);
+            return $storagePath !== ''
+                ? $this->buildAccessibleMediaUrl($storagePath)
+                : null;
         }
 
         if (str_starts_with($rawUrl, 'http://') || str_starts_with($rawUrl, 'https://')) {
@@ -238,6 +238,16 @@ class AiMediaStorageService
 
         return str_starts_with($normalized, 'generated-videos/')
             || str_starts_with($normalized, 'source-images/');
+    }
+
+    /**
+     * @return array{0:string,1:string}
+     */
+    public function resolveImageInlineData(string $imageInput): array
+    {
+        [$binary, $mimeType] = $this->resolveImageBinaryAndMime($imageInput);
+
+        return [$mimeType, base64_encode($binary)];
     }
 
     /**
@@ -300,6 +310,24 @@ class AiMediaStorageService
         throw new RuntimeException('Неподдерживаемый формат изображения');
     }
 
+    public function isStoredMediaReference(string $imageInput): bool
+    {
+        $trimmed = trim($imageInput);
+        if ($trimmed === '') {
+            return false;
+        }
+
+        if ($this->resolveStoragePathFromMediaUrl($trimmed) !== null) {
+            return true;
+        }
+
+        if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
+            return true;
+        }
+
+        return false;
+    }
+
     private function resolveStoragePathFromMediaUrl(string $url): ?string
     {
         $trimmed = trim($url);
@@ -333,6 +361,16 @@ class AiMediaStorageService
 
         $normalizedPath = implode('/', $segments);
 
+        return $this->normalizeStoragePath($normalizedPath);
+    }
+
+    public function normalizeStoragePath(string $path): string
+    {
+        $normalizedPath = trim(str_replace('\\', '/', $path), '/');
+        if ($normalizedPath === '') {
+            return '';
+        }
+
         if (
             ! str_starts_with($normalizedPath, 'ai/')
             && (
@@ -347,6 +385,23 @@ class AiMediaStorageService
     }
 
     /**
+     * @return array<int, string>
+     */
+    private function storagePathCandidates(string $path): array
+    {
+        $normalized = $this->normalizeStoragePath($path);
+        $candidates = [$normalized];
+
+        if (str_starts_with($normalized, 'ai/')) {
+            $candidates[] = substr($normalized, 3);
+        } else {
+            $candidates[] = 'ai/' . $normalized;
+        }
+
+        return array_values(array_unique(array_filter($candidates)));
+    }
+
+    /**
      * @return array{0:string,1:string}
      */
     private function readBinaryFromStoragePath(string $path): array
@@ -357,15 +412,16 @@ class AiMediaStorageService
         }
 
         $disk = $resolvedDisk['disk'];
+        $resolvedPath = (string) ($resolvedDisk['path'] ?? $path);
 
-        $binary = $disk->get($path);
+        $binary = $disk->get($resolvedPath);
         if (! is_string($binary) || $binary === '') {
             throw new RuntimeException('Изображение пустое');
         }
 
-        $mimeType = $this->normalizeMime((string) ($disk->mimeType($path) ?: ''));
+        $mimeType = $this->normalizeMime((string) ($disk->mimeType($resolvedPath) ?: ''));
         if ($mimeType === null) {
-            $mimeType = match (mb_strtolower((string) pathinfo($path, PATHINFO_EXTENSION))) {
+            $mimeType = match (mb_strtolower((string) pathinfo($resolvedPath, PATHINFO_EXTENSION))) {
                 'png' => 'image/png',
                 'webp' => 'image/webp',
                 default => 'image/jpeg',

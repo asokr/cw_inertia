@@ -34,16 +34,17 @@ class MediaController extends Controller
         }
 
         $disk = $resolvedDisk['disk'];
+        $resolvedPath = (string) ($resolvedDisk['path'] ?? $normalizedPath);
 
-        $mimeType = (string) ($disk->mimeType($normalizedPath) ?: 'application/octet-stream');
-        $size = (int) $disk->size($normalizedPath);
-        $filename = basename($normalizedPath);
+        $mimeType = (string) ($disk->mimeType($resolvedPath) ?: 'application/octet-stream');
+        $size = (int) $disk->size($resolvedPath);
+        $filename = basename($resolvedPath);
 
-        if ($this->isVideoPath($normalizedPath)) {
-            return $this->respondWithStream($request, $disk, $normalizedPath, $mimeType, $filename, $size);
+        if ($this->isVideoPath($resolvedPath)) {
+            return $this->respondWithStream($request, $disk, $resolvedPath, $mimeType, $filename, $size);
         }
 
-        return $this->respondWithBinary($disk, $normalizedPath, $mimeType, $filename);
+        return $this->respondWithBinary($disk, $resolvedPath, $mimeType, $filename);
     }
 
     private function isVideoPath(string $normalizedPath): bool
@@ -177,14 +178,9 @@ class MediaController extends Controller
 
         $normalizedPath = implode('/', $segments);
 
-        if (
-            ! str_starts_with($normalizedPath, 'ai/')
-            && (
-                str_starts_with($normalizedPath, 'source-images/')
-                || str_starts_with($normalizedPath, 'generated-videos/')
-            )
-        ) {
-            $normalizedPath = 'ai/' . $normalizedPath;
+        $normalizedPath = $this->aiMediaStorageService->normalizeStoragePath($normalizedPath);
+        if ($normalizedPath === '') {
+            return null;
         }
 
         $imagePrefix = trim((string) config('services.ai_media.image_prefix', 'ai/source-images'), '/');

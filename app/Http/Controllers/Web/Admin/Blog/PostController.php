@@ -76,8 +76,12 @@ class PostController extends Controller
     {
         $post->load(['categories', 'tags'])->loadCount(['categories', 'tags']);
 
+        $postData = (new PostResource($post))->resolve();
+        $postData['categories'] = CategoryResource::collection($post->categories)->resolve();
+        $postData['tags'] = TagResource::collection($post->tags)->resolve();
+
         return Inertia::render('Admin/Blog/Posts/Form', [
-            'post' => (new PostResource($post))->resolve(),
+            'post' => $postData,
             'categories' => CategoryResource::collection(Category::orderBy('name')->get())->resolve(),
             'tags' => TagResource::collection(Tag::orderBy('name')->get())->resolve(),
         ]);

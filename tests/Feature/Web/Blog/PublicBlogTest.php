@@ -40,6 +40,26 @@ class PublicBlogTest extends TestCase
                 ->where('post.title', 'My Title'));
     }
 
+    public function test_blog_show_includes_cover_image_url_for_frontend_media_proxy(): void
+    {
+        Post::query()->create([
+            'title' => 'Image Post',
+            'slug' => 'image-post',
+            'content' => '![inline](blog/images/2026/07/inline.jpg)',
+            'excerpt' => 'Excerpt',
+            'cover_image' => 'blog/images/2026/07/cover.jpg',
+            'status' => 'published',
+            'published_at' => now()->subDay(),
+            'views_count' => 0,
+        ]);
+
+        $this->get('/blog/image-post')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('post.cover_image', 'blog/images/2026/07/cover.jpg')
+                ->where('post.cover_image_url', '/media/blog/images/2026/07/cover.jpg'));
+    }
+
     public function test_blog_show_returns_404_for_missing_post(): void
     {
         $this->get('/blog/missing-slug')->assertNotFound();

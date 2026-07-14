@@ -2,6 +2,9 @@
 
 namespace Tests\Feature\Web\Admin;
 
+use App\Models\Category;
+use App\Models\Post;
+use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
@@ -18,10 +21,12 @@ class BlogPostTest extends WebAuthTestCase
 
         $this->setupBlogSchema();
 
-        Permission::firstOrCreate([
-            'name' => 'blog.view',
-            'guard_name' => 'web',
-        ]);
+        foreach (['blog.view', 'blog.update'] as $permission) {
+            Permission::firstOrCreate([
+                'name' => $permission,
+                'guard_name' => 'web',
+            ]);
+        }
 
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
     }
@@ -49,6 +54,54 @@ class BlogPostTest extends WebAuthTestCase
             ->get('/cw-page/blog/posts')
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('Admin/Blog/Posts/Index'));
+    }
+
+    public function test_user_with_blog_update_can_open_post_edit_page(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('password'),
+        ]);
+
+        $user->givePermissionTo(['blog.view', 'blog.update']);
+
+        $category = Category::query()->create([
+            'name' => 'Guides',
+            'slug' => 'guides',
+        ]);
+
+        $tag = Tag::query()->create([
+            'name' => 'WB',
+            'slug' => 'wb',
+        ]);
+
+        $post = Post::query()->create([
+            'title' => 'Editable post',
+            'slug' => 'editable-post',
+            'content' => "![cover](blog/images/2026/07/sample.jpg)\n\n~~strike~~",
+            'excerpt' => 'Excerpt',
+            'cover_image' => 'blog/images/2026/07/cover.jpg',
+            'status' => 'draft',
+            'published_at' => now()->subDay(),
+            'seo_keywords' => ['guide', 'wb'],
+        ]);
+
+        $post->categories()->sync([$category->id]);
+        $post->tags()->sync([$tag->id]);
+
+        $this->actingAs($user)
+            ->get("/cw-page/blog/posts/{$post->id}/edit")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Admin/Blog/Posts/Form')
+                ->where('post.id', $post->id)
+                ->where('post.content', $post->content)
+                ->where('post.cover_image', 'blog/images/2026/07/cover.jpg')
+                ->has('post.categories', 1)
+                ->where('post.categories.0.id', $category->id)
+                ->has('post.tags', 1)
+                ->where('post.tags.0.id', $tag->id)
+                ->has('categories', 1)
+                ->has('tags', 1));
     }
 
     private function setupBlogSchema(): void

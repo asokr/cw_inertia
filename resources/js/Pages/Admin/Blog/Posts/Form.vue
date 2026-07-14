@@ -2,7 +2,7 @@
 import { Head, useForm } from "@inertiajs/vue3";
 import { MdEditor, config as mdEditorConfig, en_US } from "md-editor-v3";
 import "md-editor-v3/lib/style.css";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AdminLayout from "@/Layouts/AdminLayout.vue";
 import PageHeader from "@/components/admin/PageHeader.vue";
 import Button from "@/components/ui/Button.vue";
@@ -14,10 +14,14 @@ import Label from "@/components/ui/Label.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import { useBlogMediaApi } from "@/composables/useBlogMediaApi";
 import { conversionBlockTemplates, getConversionTemplateById } from "@/utils/conversionBlockTemplates";
+import { markdownItLooseTable } from "@/utils/markdownItLooseTable";
 import { translitToSlug } from "@/utils/slug";
 import { getPostCoverUrl } from "@/utils/blogMedia";
 
 mdEditorConfig({
+    markdownItConfig(md) {
+        md.use(markdownItLooseTable);
+    },
     editorConfig: {
         languageUserDefined: {
             "ru-RU": {
@@ -51,10 +55,41 @@ const props = defineProps({
     tags: { type: Array, default: () => [] },
 });
 
+function normalizeRelationItems(items) {
+    if (Array.isArray(items)) {
+        return items;
+    }
+
+    if (Array.isArray(items?.data)) {
+        return items.data;
+    }
+
+    return [];
+}
+
+function normalizeRelationIds(items) {
+    return normalizeRelationItems(items)
+        .map((item) => item?.id)
+        .filter((id) => id != null);
+}
+
+function normalizeKeywords(value) {
+    if (Array.isArray(value)) {
+        return value.filter(Boolean);
+    }
+
+    if (typeof value === "string" && value.trim()) {
+        return value.split(",").map((item) => item.trim()).filter(Boolean);
+    }
+
+    return [];
+}
+
 const { uploadImage } = useBlogMediaApi();
 
 const isEdit = computed(() => !!props.post?.id);
 const mdEditorRef = ref(null);
+const editorContent = ref(String(props.post?.content ?? ""));
 const coverInputRef = ref(null);
 const uploadingCover = ref(false);
 const coverPreviewLocalUrl = ref("");
@@ -67,15 +102,19 @@ const form = useForm({
     title: props.post?.title ?? "",
     slug: props.post?.slug ?? "",
     excerpt: props.post?.excerpt ?? "",
-    content: props.post?.content ?? "",
+    content: editorContent.value,
     cover_image: props.post?.cover_image ?? "",
     status: props.post?.status ?? "draft",
     published_at: props.post?.published_at ?? new Date().toISOString(),
     seo_title: props.post?.seo_title ?? "",
     seo_description: props.post?.seo_description ?? "",
-    seo_keywords: Array.isArray(props.post?.seo_keywords) ? [...props.post.seo_keywords] : [],
-    categories: props.post?.categories?.map((c) => c.id) ?? [],
-    tags: props.post?.tags?.map((t) => t.id) ?? [],
+    seo_keywords: normalizeKeywords(props.post?.seo_keywords),
+    categories: normalizeRelationIds(props.post?.categories),
+    tags: normalizeRelationIds(props.post?.tags),
+});
+
+watch(editorContent, (value) => {
+    form.content = value;
 });
 
 const slugPreview = computed(() => translitToSlug(form.title));
@@ -109,6 +148,8 @@ const coverPreviewUrl = computed(() => {
 });
 
 function submit() {
+    form.content = editorContent.value;
+
     if (isEdit.value) {
         form.put(`/cw-page/blog/posts/${props.post.id}`);
     } else {
@@ -238,7 +279,7 @@ function insertConversionBlock(templateId) {
         return;
     }
 
-    const content = String(form.content || "");
+    const content = String(editorContent.value || "");
     if (template.dedupeKey && content.includes(template.dedupeKey)) {
         const allowDuplicate = window.confirm("Такой блок уже встречается в тексте. Добавить ещё раз?");
         if (!allowDuplicate) {
@@ -259,7 +300,7 @@ function insertConversionBlock(templateId) {
     const insertedByCursor = insertHtmlToCursor(htmlBlock);
 
     if (!insertedByCursor) {
-        form.content = appendHtmlBlock(form.content, htmlBlock);
+        editorContent.value = appendHtmlBlock(editorContent.value, htmlBlock);
     }
 
     showConversionBlocksDialog.value = false;
@@ -279,16 +320,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+
     <Head :title="isEdit ? 'Редактирование поста' : 'Создание поста'" />
 
-    <AdminLayout
-        :title="isEdit ? 'Редактирование' : 'Создание'"
-        :breadcrumbs="[
-            { label: 'Админка', href: '/cw-page' },
-            { label: 'Посты', href: '/cw-page/blog/posts' },
-            { label: isEdit ? 'Редактирование' : 'Создание' },
-        ]"
-    >
+    <AdminLayout :title="isEdit ? 'Редактирование' : 'Создание'" :breadcrumbs="[
+        { label: 'Админка', href: '/cw-page' },
+        { label: 'Посты', href: '/cw-page/blog/posts' },
+        { label: isEdit ? 'Редактирование' : 'Создание' },
+    ]">
         <PageHeader :title="isEdit ? 'Редактирование поста' : 'Создание поста'" description="Контент, SEO и публикация">
             <template #actions>
                 <Button variant="outline" as="a" href="/cw-page/blog/posts">Назад</Button>
@@ -315,26 +354,16 @@ onBeforeUnmount(() => {
                     <div>
                         <div class="mb-2 flex items-center justify-between gap-2">
                             <Label class="mb-0">Основной текст</Label>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                @click="showConversionBlocksDialog = true"
-                            >
+                            <Button type="button" variant="outline" size="sm"
+                                @click="showConversionBlocksDialog = true">
                                 Добавить конверсионный блок
                             </Button>
                         </div>
-                        <MdEditor
-                            ref="mdEditorRef"
-                            v-model="form.content"
-                            language="ru-RU"
-                            :toolbars-exclude="markdownToolbarsExclude"
-                            :preview="true"
-                            :auto-detect-code="true"
-                            class="blog-md-editor"
-                            @onUploadImg="onMarkdownUpload"
-                        />
-                        <p v-if="form.errors.content" class="mt-1 text-xs text-destructive">{{ form.errors.content }}</p>
+                        <MdEditor ref="mdEditorRef" v-model="editorContent" language="ru-RU"
+                            :toolbars-exclude="markdownToolbarsExclude" :preview="true" :auto-detect-code="true"
+                            class="blog-md-editor" @on-upload-img="onMarkdownUpload" />
+                        <p v-if="form.errors.content" class="mt-1 text-xs text-destructive">{{ form.errors.content }}
+                        </p>
                     </div>
                 </Card>
 
@@ -351,21 +380,14 @@ onBeforeUnmount(() => {
                     <div>
                         <Label>SEO Keywords</Label>
                         <div class="flex gap-2">
-                            <Input
-                                v-model="keywordInput"
-                                placeholder="Введите ключевое слово"
-                                @keyup.enter.prevent="addKeyword"
-                            />
+                            <Input v-model="keywordInput" placeholder="Введите ключевое слово"
+                                @keyup.enter.prevent="addKeyword" />
                             <Button type="button" variant="outline" @click="addKeyword">Добавить</Button>
                         </div>
                         <div v-if="form.seo_keywords.length" class="mt-2 flex flex-wrap gap-2">
-                            <button
-                                v-for="(keyword, index) in form.seo_keywords"
-                                :key="`${keyword}-${index}`"
-                                type="button"
-                                class="rounded-full border bg-muted px-3 py-1 text-xs hover:bg-accent"
-                                @click="removeKeyword(index)"
-                            >
+                            <button v-for="(keyword, index) in form.seo_keywords" :key="`${keyword}-${index}`"
+                                type="button" class="rounded-full border bg-muted px-3 py-1 text-xs hover:bg-accent"
+                                @click="removeKeyword(index)">
                                 {{ keyword }} ×
                             </button>
                         </div>
@@ -377,24 +399,14 @@ onBeforeUnmount(() => {
                 <Card class="space-y-4 p-4">
                     <Label>Обложка</Label>
                     <div class="rounded-lg border border-dashed p-4">
-                        <img
-                            v-if="coverPreviewUrl"
-                            :src="coverPreviewUrl"
-                            alt="cover"
-                            class="mb-3 w-full rounded-lg border"
-                            @error="onCoverError"
-                        />
+                        <img v-if="coverPreviewUrl" :src="coverPreviewUrl" alt="cover"
+                            class="mb-3 w-full rounded-lg border" @error="onCoverError" />
                         <p v-else class="mb-3 text-sm text-muted-foreground">Обложка пока не выбрана</p>
                         <div class="flex gap-2">
                             <Button type="button" :disabled="uploadingCover" @click="openCoverSelect">
                                 {{ uploadingCover ? "Загрузка…" : "Загрузить" }}
                             </Button>
-                            <Button
-                                v-if="form.cover_image"
-                                type="button"
-                                variant="outline"
-                                @click="removeCover"
-                            >
+                            <Button v-if="form.cover_image" type="button" variant="outline" @click="removeCover">
                                 Удалить
                             </Button>
                         </div>
@@ -414,18 +426,17 @@ onBeforeUnmount(() => {
                     <div>
                         <Label>Дата публикации</Label>
                         <Input v-model="publishedAtInput" type="datetime-local" />
-                        <p v-if="form.errors.published_at" class="mt-1 text-xs text-destructive">{{ form.errors.published_at }}</p>
+                        <p v-if="form.errors.published_at" class="mt-1 text-xs text-destructive">{{
+                            form.errors.published_at }}
+                        </p>
                     </div>
                 </Card>
 
                 <Card class="space-y-3 p-4">
                     <Label>Категории</Label>
                     <label v-for="cat in categories" :key="cat.id" class="flex items-center gap-2 text-sm">
-                        <input
-                            type="checkbox"
-                            :checked="form.categories.includes(cat.id)"
-                            @change="toggleId('categories', cat.id)"
-                        />
+                        <input type="checkbox" :checked="form.categories.includes(cat.id)"
+                            @change="toggleId('categories', cat.id)" />
                         {{ cat.name }}
                     </label>
                 </Card>
@@ -433,33 +444,23 @@ onBeforeUnmount(() => {
                 <Card class="space-y-3 p-4">
                     <Label>Теги</Label>
                     <label v-for="tag in tags" :key="tag.id" class="flex items-center gap-2 text-sm">
-                        <input
-                            type="checkbox"
-                            :checked="form.tags.includes(tag.id)"
-                            @change="toggleId('tags', tag.id)"
-                        />
+                        <input type="checkbox" :checked="form.tags.includes(tag.id)"
+                            @change="toggleId('tags', tag.id)" />
                         {{ tag.name }}
                     </label>
                 </Card>
             </div>
         </form>
 
-        <Dialog
-            :open="showConversionBlocksDialog"
-            title="Добавление конверсионного блока"
-            class="max-w-3xl"
-            @update:open="showConversionBlocksDialog = $event"
-        >
+        <Dialog :open="showConversionBlocksDialog" title="Добавление конверсионного блока" class="max-w-3xl"
+            @update:open="showConversionBlocksDialog = $event">
             <p class="mb-4 text-sm text-muted-foreground">
                 Будет вставлен HTML-блок в текущую позицию курсора. CTA формируется как
                 <strong>/register?utm_source={{ ctaSourcePreview }}</strong>.
             </p>
             <div class="grid gap-3 md:grid-cols-2">
-                <div
-                    v-for="templateItem in conversionBlockTemplates"
-                    :key="templateItem.id"
-                    class="flex flex-col gap-3 rounded-lg border p-3"
-                >
+                <div v-for="templateItem in conversionBlockTemplates" :key="templateItem.id"
+                    class="flex flex-col gap-3 rounded-lg border p-3">
                     <div>
                         <h4 class="text-sm font-semibold">{{ templateItem.title }}</h4>
                         <p class="mt-1 text-sm text-muted-foreground">{{ templateItem.description }}</p>
@@ -472,13 +473,8 @@ onBeforeUnmount(() => {
             </div>
         </Dialog>
 
-        <input
-            ref="coverInputRef"
-            type="file"
-            accept="image/png,image/jpeg,image/jpg,image/webp"
-            class="hidden"
-            @change="onCoverSelected"
-        />
+        <input ref="coverInputRef" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" class="hidden"
+            @change="onCoverSelected" />
     </AdminLayout>
 </template>
 

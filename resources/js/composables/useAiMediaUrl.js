@@ -1,6 +1,7 @@
 const AI_STORAGE_PREFIX = "ai/";
 const VIDEO_RELATIVE_PREFIX = "generated-videos/";
 const IMAGE_RELATIVE_PREFIX = "source-images/";
+
 const BACKEND_MEDIA_PROXY_PREFIX = "api/subscriber/ai/media/";
 const WEB_MEDIA_PREFIX = "/panel/ai/media/";
 

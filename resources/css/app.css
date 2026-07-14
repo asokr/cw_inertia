@@ -128,6 +128,149 @@
         margin: 24px 0;
     }
 
+    .blog-page .post-content figure {
+        margin: 24px 0;
+    }
+
+    .blog-page .post-content figure img {
+        margin: 0 auto;
+    }
+
+    .blog-page .post-content figcaption {
+        margin-top: 8px;
+        text-align: center;
+        font-size: 14px;
+        color: hsl(var(--muted-foreground));
+    }
+
+    .blog-page .post-content u {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .blog-page .post-content s,
+    .blog-page .post-content del {
+        text-decoration: line-through;
+        opacity: 0.85;
+    }
+
+    .blog-page .post-content .contains-task-list {
+        list-style: none;
+        padding-left: 0;
+    }
+
+    .blog-page .post-content .task-list-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        list-style: none;
+    }
+
+    .blog-page .post-content .task-list-item-checkbox {
+        margin-top: 0.35em;
+        flex-shrink: 0;
+    }
+
+    .blog-page .post-content .conversion-banner {
+        margin: 34px 0;
+        padding: 26px;
+        border-radius: 18px;
+        border: 1px solid hsl(var(--primary) / 0.25);
+        background: linear-gradient(145deg, hsl(var(--card)) 0%, hsl(var(--muted) / 0.5) 100%);
+        box-shadow: 0 18px 40px hsl(var(--foreground) / 0.08);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .blog-page .post-content .conversion-banner::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+            radial-gradient(600px 240px at 95% -20%, hsl(var(--primary) / 0.15), transparent 55%),
+            radial-gradient(420px 180px at -10% 110%, hsl(var(--primary) / 0.1), transparent 60%);
+        pointer-events: none;
+    }
+
+    .blog-page .post-content .conversion-banner > * {
+        position: relative;
+        z-index: 1;
+    }
+
+    .blog-page .post-content .conversion-banner h3 {
+        margin: 0 0 12px;
+        font-size: 28px;
+        line-height: 1.2;
+        font-weight: 800;
+        color: hsl(var(--foreground));
+    }
+
+    .blog-page .post-content .conversion-banner p {
+        margin: 0 0 16px;
+        font-size: 17px;
+        line-height: 1.6;
+        color: hsl(var(--foreground) / 0.85);
+    }
+
+    .blog-page .post-content .conversion-banner ul {
+        margin: 0 0 18px;
+        padding-left: 24px;
+    }
+
+    .blog-page .post-content .conversion-banner li {
+        margin-bottom: 8px;
+        font-size: 16px;
+        line-height: 1.55;
+    }
+
+    .blog-page .post-content .conversion-banner div {
+        margin: 12px 0 20px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .blog-page .post-content .conversion-banner span {
+        display: inline-flex;
+        align-items: center;
+        padding: 7px 11px;
+        border-radius: 999px;
+        border: 1px solid hsl(var(--primary) / 0.3);
+        background: hsl(var(--primary) / 0.1);
+        color: hsl(var(--primary));
+        font-size: 12px;
+        line-height: 1;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+    }
+
+    .blog-page .post-content .conversion-banner a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 12px 20px;
+        border-radius: 12px;
+        border: 1px solid hsl(var(--primary) / 0.2);
+        background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.8) 100%);
+        color: hsl(var(--primary-foreground));
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        box-shadow: 0 10px 26px hsl(var(--primary) / 0.25);
+        transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.22s ease;
+    }
+
+    .blog-page .post-content .conversion-banner a:hover {
+        transform: translateY(-1px);
+        filter: saturate(1.08);
+        box-shadow: 0 14px 28px hsl(var(--primary) / 0.35);
+    }
+
     .blog-page .post-content hr {
         border: none;
         border-top: 1px solid hsl(var(--border));

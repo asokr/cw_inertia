@@ -96,7 +96,6 @@ const toolCatalog = [
         label: "Текст",
         href: "/panel/ai/text",
         permission: "subscriber ai",
-        adminOnly: true,
         group: "ИИ",
         icon: Type,
         description: "Описания, адаптации и rich-контент для карточек",
@@ -107,7 +106,6 @@ const toolCatalog = [
         label: "Изображения",
         href: "/panel/ai/image",
         permission: "subscriber ai",
-        adminOnly: true,
         group: "ИИ",
         icon: Image,
         description: "Генерация и редактирование визуалов для товаров",
@@ -118,7 +116,6 @@ const toolCatalog = [
         label: "Видео",
         href: "/panel/ai/video",
         permission: "subscriber ai",
-        adminOnly: true,
         group: "ИИ",
         icon: Video,
         description: "Генерация видеороликов и сцен для карточек",
@@ -145,8 +142,7 @@ function buildGroupChildren(group) {
 
 export function getSubscriberNav({ can, hasRole, isAdmin = false }) {
     const isSuperAdmin = can("super admin") || hasRole("Супер-Админ") || hasRole("super-admin");
-    const canSeeAdminOnlyTools = isAdmin || isSuperAdmin;
-    const access = { can, isAdmin: canSeeAdminOnlyTools };
+    const access = { can, isAdmin: isAdmin || isSuperAdmin };
 
     if (!hasRole("Подписчик") && !isSuperAdmin && !isAdmin) {
         return { main: [], bottom: [] };
@@ -164,13 +160,11 @@ export function getSubscriberNav({ can, hasRole, isAdmin = false }) {
             icon: Warehouse,
             children: buildGroupChildren("Ozon"),
         },
-        ...(canSeeAdminOnlyTools
-            ? [{
-                label: "ИИ Инструменты",
-                icon: Sparkles,
-                children: buildGroupChildren("ИИ"),
-            }]
-            : []),
+        {
+            label: "ИИ Инструменты",
+            icon: Sparkles,
+            children: buildGroupChildren("ИИ"),
+        },
     ];
 
     const bottom = [

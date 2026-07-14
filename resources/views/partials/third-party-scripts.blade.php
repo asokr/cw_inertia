@@ -29,11 +29,13 @@
 </noscript>
 <!-- /Yandex.Metrika counter -->
 
-<script>
-    const d = document;
-    const s = d.createElement("script");
+@if (\App\Support\AnalyticsScripts::shouldLoadJivo())
+    <script>
+        const d = document;
+        const s = d.createElement("script");
 
-    s.src = "//code.jivo.ru/widget/xJLdCtgnnJ";
-    s.async = 1;
-    d.getElementsByTagName("head")[0].appendChild(s);
-</script>
+        s.src = "//code.jivo.ru/widget/xJLdCtgnnJ";
+        s.async = 1;
+        d.getElementsByTagName("head")[0].appendChild(s);
+    </script>
+@endif

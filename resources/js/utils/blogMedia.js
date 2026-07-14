@@ -53,6 +53,14 @@ export function toFrontendMediaUrl(rawSrc) {
         return `/media/${cleanPath}${suffix}`;
     }
 
+    if (normalized.startsWith("/media/")) {
+        return `${normalized}${suffix}`;
+    }
+
+    if (normalized.startsWith("/storage/blog/images/")) {
+        return `/media/${normalized.replace(/^\/storage\//, "")}${suffix}`;
+    }
+
     return trimmed;
 }
 
@@ -62,7 +70,7 @@ export function getPostCoverUrl(post) {
     }
 
     if (post?.cover_image) {
-        return `/media/${post.cover_image}`;
+        return toFrontendMediaUrl(post.cover_image);
     }
 
     return "";

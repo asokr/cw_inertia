@@ -119,6 +119,17 @@ class AiImageGenerationService
         $generation->touch();
     }
 
+    public function hasStoredSourceImages(AiImageGeneration $generation): bool
+    {
+        return $generation->tasks()
+            ->get()
+            ->contains(function (AiImageGenerationTask $task): bool {
+                $sourceImages = $task->source_images;
+
+                return is_array($sourceImages) && $sourceImages !== [];
+            });
+    }
+
     /**
      * @param  array<int, array<string, mixed>>|null  $sourceImages
      * @param  array<int, array<string, mixed>>|null  $resultImages

@@ -2,8 +2,10 @@
 
 namespace App\Services\Ai;
 
+use RuntimeException;
 use Throwable;
 use App\Enums\AiTaskType;
+use App\Models\AiImageGeneration;
 use App\Models\AiImageGenerationTask;
 use App\Models\AiRequestLog;
 use App\Models\Subscribers\SubscribersSubscriptions;
@@ -49,7 +51,7 @@ class AiImageService
             $prompt,
         );
 
-        $sourceImagesMeta = $this->storeSourceImages($request, $taskType, $userId);
+        $sourceImagesMeta = $this->storeSourceImages($request, $taskType, $userId, $generation);
 
         $imageOptions = [
             'responseModalities' => ['IMAGE', 'TEXT'],
@@ -64,12 +66,12 @@ class AiImageService
 
         if ($taskType === AiTaskType::EDIT_IMAGE->value) {
             $response = $this->geminiApiClient->editImage(
-                image: (string) $request->input('image', ''),
+                image: $this->normalizeImageInputForGemini((string) $request->input('image', '')),
                 prompt: $prompt,
                 options: $options
             );
         } else {
-            $inputImages = $this->resolveInputImages($request);
+            $inputImages = $this->resolveInputImagesForGemini($request);
             $response = empty($inputImages)
                 ? $this->geminiApiClient->generateImage($prompt, $options)
                 : $this->geminiApiClient->generateImageWithImages($prompt, $inputImages, $options);
@@ -86,12 +88,12 @@ class AiImageService
             for ($i = 0; $i < $missing; $i++) {
                 if ($taskType === AiTaskType::EDIT_IMAGE->value) {
                     $singleResponse = $this->geminiApiClient->editImage(
-                        image: (string) $request->input('image', ''),
+                        image: $this->normalizeImageInputForGemini((string) $request->input('image', '')),
                         prompt: $prompt,
                         options: $options
                     );
                 } else {
-                    $inputImages = $this->resolveInputImages($request);
+                    $inputImages = $this->resolveInputImagesForGemini($request);
                     $singleResponse = empty($inputImages)
                         ? $this->geminiApiClient->generateImage($prompt, $options)
                         : $this->geminiApiClient->generateImageWithImages($prompt, $inputImages, $options);
@@ -276,11 +278,15 @@ class AiImageService
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function storeSourceImages(Request $request, string $taskType, int $userId): array
-    {
+    private function storeSourceImages(
+        Request $request,
+        string $taskType,
+        int $userId,
+        AiImageGeneration $generation,
+    ): array {
         $stored = [];
 
-        if ($userId <= 0) {
+        if ($userId <= 0 || $this->aiImageGenerationService->hasStoredSourceImages($generation)) {
             return $stored;
         }
 
@@ -288,12 +294,18 @@ class AiImageService
 
         if ($taskType === AiTaskType::EDIT_IMAGE->value) {
             $primary = trim((string) $request->input('image', ''));
-            if ($primary !== '') {
+            if ($primary !== '' && $this->isUserUploadedImageInput($primary)) {
                 $inputs[] = $primary;
             }
         }
 
-        $inputs = array_values(array_unique(array_merge($inputs, $this->resolveInputImages($request))));
+        foreach ($this->resolveInputImages($request) as $imageInput) {
+            if ($this->isUserUploadedImageInput($imageInput)) {
+                $inputs[] = $imageInput;
+            }
+        }
+
+        $inputs = array_values(array_unique($inputs));
 
         foreach ($inputs as $imageInput) {
             try {
@@ -314,6 +326,20 @@ class AiImageService
         }
 
         return array_values(array_filter($stored, static fn (array $item): bool => ($item['path'] ?? '') !== ''));
+    }
+
+    private function isUserUploadedImageInput(string $imageInput): bool
+    {
+        $trimmed = trim($imageInput);
+        if ($trimmed === '' || $this->aiMediaStorageService->isStoredMediaReference($trimmed)) {
+            return false;
+        }
+
+        if (str_starts_with($trimmed, 'data:')) {
+            return true;
+        }
+
+        return preg_match('/^[A-Za-z0-9+\/=\r\n]+$/', $trimmed) === 1;
     }
 
     private function resolveImagePrompt(Request $request): string
@@ -510,6 +536,38 @@ class AiImageService
         }
 
         return array_values(array_unique($images));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveInputImagesForGemini(Request $request): array
+    {
+        $images = [];
+
+        foreach ($this->resolveInputImages($request) as $imageInput) {
+            try {
+                $images[] = $this->normalizeImageInputForGemini($imageInput);
+            } catch (Throwable $exception) {
+                Log::warning('AI image input normalization failed', [
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        return array_values(array_unique($images));
+    }
+
+    private function normalizeImageInputForGemini(string $imageInput): string
+    {
+        $trimmed = trim($imageInput);
+        if ($trimmed === '') {
+            throw new RuntimeException('Изображение не передано');
+        }
+
+        [$mimeType, $base64] = $this->aiMediaStorageService->resolveImageInlineData($trimmed);
+
+        return 'data:' . $mimeType . ';base64,' . $base64;
     }
 
     /**

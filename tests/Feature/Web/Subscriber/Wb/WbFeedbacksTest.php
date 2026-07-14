@@ -3,9 +3,12 @@
 namespace Tests\Feature\Web\Subscriber\Wb;
 
 use App\Models\Subscribers\Subscribers;
+use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksTemplates;
 use App\Models\User;
+use App\Services\Subscriber\Ai\SubscriberAiTextService;
+use Illuminate\Http\Request;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -178,6 +181,55 @@ class WbFeedbacksTest extends WebAuthTestCase
                 ->component('Subscriber/Wb/Feedbacks/Product/Stats')
                 ->where('productId', '123456')
                 ->has('months'));
+    }
+
+    public function test_generate_ai_passes_prompt_for_json_feedback_request(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'AI Generate Cabinet');
+        $subscriber = Subscribers::query()->where('user_id', $user->id)->firstOrFail();
+
+        SubscribersSubscriptions::query()->create([
+            'subscribers_id' => $subscriber->id,
+            'status' => 1,
+            'limits_month' => ['feedbacks_gpt_query' => 5],
+        ]);
+
+        $this->mock(SubscriberAiTextService::class, function ($mock): void {
+            $mock->shouldReceive('ask')
+                ->once()
+                ->withArgs(function (Request $request): bool {
+                    $prompt = $request->input('prompt');
+
+                    return is_string($prompt)
+                        && strlen($prompt) >= 10
+                        && str_contains($prompt, 'Это отзыв на товар:')
+                        && $request->input('for') === 'feedbacks';
+                })
+                ->andReturn(response()->json([
+                    'success' => true,
+                    'messages' => ['Ответ ИИ'],
+                    'data' => 'Спасибо за ваш отзыв!',
+                ], 200));
+        });
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/feedbacks/clients/{$cabinet->id}/ai/generate", [
+                'feedback' => [
+                    'id' => 'fb-1',
+                    'productValuation' => 5,
+                    'productDetails' => [
+                        'productName' => 'Тестовый товар',
+                        'brandName' => 'Test Brand',
+                    ],
+                ],
+                'rating_type' => null,
+            ])
+            ->assertOk()
+            ->assertJson([
+                'success' => true,
+                'data' => 'Спасибо за ваш отзыв!',
+            ]);
     }
 
     public function test_destroy_cabinet_redirects_with_success(): void
