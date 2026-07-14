@@ -40,12 +40,12 @@ async function downloadImage() {
 </script>
 
 <template>
-    <div class="relative flex min-h-[min(72vh,760px)] flex-1 items-center justify-center overflow-hidden rounded-2xl border bg-muted/30 lg:min-h-[calc(100vh-300px)]">
+    <div class="relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-2xl border bg-muted/30">
         <template v-if="displayUrl">
             <img
                 :src="displayUrl"
                 alt="Результат"
-                class="max-h-[min(72vh,760px)] w-full object-contain lg:max-h-[calc(100vh-300px)]"
+                class="max-h-full max-w-full object-contain"
             />
             <button
                 v-if="!loading"
@@ -76,7 +76,7 @@ async function downloadImage() {
             <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
                 <ImageIcon class="h-7 w-7 opacity-40" />
             </div>
-            <p class="text-sm">Опишите изображение или выберите превью справа, чтобы доработать его</p>
+            <p class="text-sm">Опишите изображение ниже или выберите сессию в истории сверху</p>
         </div>
     </div>
 </template>

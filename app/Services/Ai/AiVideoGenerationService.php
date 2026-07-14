@@ -33,28 +33,31 @@ class AiVideoGenerationService
     /**
      * @return array<string, mixed>|null
      */
-    public function show(int $generationId, int $subscriberId): ?array
+    public function showByUuid(string $generationUuid, int $subscriberId): ?array
     {
-        $generation = AiVideoGeneration::query()
-            ->where('id', $generationId)
-            ->where('subscriber_id', $subscriberId)
-            ->with(['tasks' => fn ($query) => $query->orderByDesc('id')])
-            ->first();
+        $generation = $this->findForSubscriberByUuid($generationUuid, $subscriberId, withTasks: true);
 
         if (! $generation) {
             return null;
         }
 
-        return [
-            'id' => $generation->id,
-            'title' => $this->resolveTitle($generation),
-            'created_at' => $generation->created_at?->toIso8601String(),
-            'updated_at' => $generation->updated_at?->toIso8601String(),
-            'tasks' => $generation->tasks
-                ->map(fn (AiVideoGenerationTask $task) => $this->mapTaskForFrontend($task))
-                ->values()
-                ->all(),
-        ];
+        return $this->mapGenerationDetail($generation);
+    }
+
+    public function findForSubscriberByUuid(
+        string $generationUuid,
+        int $subscriberId,
+        bool $withTasks = false,
+    ): ?AiVideoGeneration {
+        $query = AiVideoGeneration::query()
+            ->where('uuid', $generationUuid)
+            ->where('subscriber_id', $subscriberId);
+
+        if ($withTasks) {
+            $query->with(['tasks' => fn ($taskQuery) => $taskQuery->orderByDesc('id')]);
+        }
+
+        return $query->first();
     }
 
     public function create(int $subscriberId, int $userId, ?string $title = null): AiVideoGeneration
@@ -67,16 +70,13 @@ class AiVideoGenerationService
     }
 
     public function resolveForStart(
-        ?int $generationId,
+        ?string $generationUuid,
         int $subscriberId,
         int $userId,
         string $prompt,
     ): AiVideoGeneration {
-        if ($generationId !== null && $generationId > 0) {
-            $existing = AiVideoGeneration::query()
-                ->where('id', $generationId)
-                ->where('subscriber_id', $subscriberId)
-                ->first();
+        if (filled($generationUuid)) {
+            $existing = $this->findForSubscriberByUuid($generationUuid, $subscriberId);
 
             if ($existing) {
                 if ($existing->title === null || trim($existing->title) === '') {
@@ -101,17 +101,15 @@ class AiVideoGenerationService
             ->first();
     }
 
-    public function delete(int $generationId, int $subscriberId): bool
+    public function deleteByUuid(string $generationUuid, int $subscriberId): bool
     {
-        $generation = AiVideoGeneration::query()
-            ->where('id', $generationId)
-            ->where('subscriber_id', $subscriberId)
-            ->with('tasks')
-            ->first();
+        $generation = $this->findForSubscriberByUuid($generationUuid, $subscriberId);
 
         if (! $generation) {
             return false;
         }
+
+        $generation->load('tasks');
 
         DB::transaction(function () use ($generation): void {
             foreach ($generation->tasks as $task) {
@@ -276,12 +274,31 @@ class AiVideoGenerationService
 
         return [
             'id' => $generation->id,
+            'uuid' => $generation->uuid,
             'title' => $this->resolveTitle($generation),
             'preview_url' => $previewUrl,
             'tasks_count' => $tasks->count(),
             'has_pending' => $hasPending,
             'created_at' => $generation->created_at?->toIso8601String(),
             'updated_at' => $generation->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mapGenerationDetail(AiVideoGeneration $generation): array
+    {
+        return [
+            'id' => $generation->id,
+            'uuid' => $generation->uuid,
+            'title' => $this->resolveTitle($generation),
+            'created_at' => $generation->created_at?->toIso8601String(),
+            'updated_at' => $generation->updated_at?->toIso8601String(),
+            'tasks' => $generation->tasks
+                ->map(fn (AiVideoGenerationTask $task) => $this->mapTaskForFrontend($task))
+                ->values()
+                ->all(),
         ];
     }
 

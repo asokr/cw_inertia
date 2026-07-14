@@ -5,9 +5,10 @@ const md = new MarkdownIt({
     html: true,
     linkify: true,
     typographer: true,
+    breaks: true,
 });
 
-const defaultRender = md.renderer.rules.link_open || function (tokens, idx, options, env, self) {
+const defaultLinkRender = md.renderer.rules.link_open || function (tokens, idx, options, env, self) {
     return self.renderToken(tokens, idx, options);
 };
 
@@ -19,8 +20,41 @@ md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
         tokens[idx].attrSet("rel", "noopener noreferrer");
     }
 
-    return defaultRender(tokens, idx, options, env, self);
+    return defaultLinkRender(tokens, idx, options, env, self);
 };
+
+const defaultImageRender = md.renderer.rules.image || function (tokens, idx, options, env, self) {
+    return self.renderToken(tokens, idx, options);
+};
+
+md.renderer.rules.image = function (tokens, idx, options, env, self) {
+    const token = tokens[idx];
+    const src = token.attrGet("src");
+
+    if (src) {
+        token.attrSet("src", toFrontendMediaUrl(src));
+    }
+
+    token.attrSet("loading", "lazy");
+    token.attrSet("decoding", "async");
+
+    return defaultImageRender(tokens, idx, options, env, self);
+};
+
+function rewriteHtmlImageSources(html) {
+    return html.replace(
+        /<img\b([^>]*?)\bsrc=(["'])(.*?)\2/gi,
+        (match, before, quote, src) => {
+            const rewrittenSrc = toFrontendMediaUrl(src);
+
+            if (rewrittenSrc === src) {
+                return match;
+            }
+
+            return `<img${before}src=${quote}${rewrittenSrc}${quote}`;
+        },
+    );
+}
 
 export function renderBlogMarkdown(content) {
     if (!content) {
@@ -29,20 +63,7 @@ export function renderBlogMarkdown(content) {
 
     let html = md.render(content);
 
-    html = html.replace(
-        /<img\s([^>]*)src="([^"]+)"/g,
-        (match, before, src) => {
-            const rewrittenSrc = toFrontendMediaUrl(src);
-
-            if (rewrittenSrc === src) {
-                return match;
-            }
-
-            return `<img ${before}src="${rewrittenSrc}"`;
-        },
-    );
-
-    return html;
+    return rewriteHtmlImageSources(html);
 }
 
 export function formatBlogDate(dateStr) {

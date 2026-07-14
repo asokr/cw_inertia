@@ -96,6 +96,7 @@ const toolCatalog = [
         label: "Текст",
         href: "/panel/ai/text",
         permission: "subscriber ai",
+        adminOnly: true,
         group: "ИИ",
         icon: Type,
         description: "Описания, адаптации и rich-контент для карточек",
@@ -106,6 +107,7 @@ const toolCatalog = [
         label: "Изображения",
         href: "/panel/ai/image",
         permission: "subscriber ai",
+        adminOnly: true,
         group: "ИИ",
         icon: Image,
         description: "Генерация и редактирование визуалов для товаров",
@@ -116,6 +118,7 @@ const toolCatalog = [
         label: "Видео",
         href: "/panel/ai/video",
         permission: "subscriber ai",
+        adminOnly: true,
         group: "ИИ",
         icon: Video,
         description: "Генерация видеороликов и сцен для карточек",
@@ -123,8 +126,27 @@ const toolCatalog = [
     },
 ];
 
+function mapToolToNavChild(tool) {
+    return {
+        key: tool.key,
+        label: tool.label,
+        href: tool.href,
+        permission: tool.permission,
+        adminOnly: tool.adminOnly,
+        description: tool.description,
+    };
+}
+
+function buildGroupChildren(group) {
+    return toolCatalog
+        .filter((tool) => tool.group === group)
+        .map(mapToolToNavChild);
+}
+
 export function getSubscriberNav({ can, hasRole, isAdmin = false }) {
     const isSuperAdmin = can("super admin") || hasRole("Супер-Админ") || hasRole("super-admin");
+    const canSeeAdminOnlyTools = isAdmin || isSuperAdmin;
+    const access = { can, isAdmin: canSeeAdminOnlyTools };
 
     if (!hasRole("Подписчик") && !isSuperAdmin && !isAdmin) {
         return { main: [], bottom: [] };
@@ -135,42 +157,20 @@ export function getSubscriberNav({ can, hasRole, isAdmin = false }) {
         {
             label: "Wildberries",
             icon: Rocket,
-            children: toolCatalog
-                .filter((tool) => tool.group === "Wildberries")
-                .map(({ key, label, href, permission, description }) => ({
-                    key,
-                    label,
-                    href,
-                    permission,
-                    description,
-                })),
+            children: buildGroupChildren("Wildberries"),
         },
         {
             label: "Ozon",
             icon: Warehouse,
-            children: toolCatalog
-                .filter((tool) => tool.group === "Ozon")
-                .map(({ key, label, href, permission, description }) => ({
-                    key,
-                    label,
-                    href,
-                    permission,
-                    description,
-                })),
+            children: buildGroupChildren("Ozon"),
         },
-        {
-            label: "ИИ Инструменты",
-            icon: Sparkles,
-            children: toolCatalog
-                .filter((tool) => tool.group === "ИИ")
-                .map(({ key, label, href, permission, description }) => ({
-                    key,
-                    label,
-                    href,
-                    permission,
-                    description,
-                })),
-        },
+        ...(canSeeAdminOnlyTools
+            ? [{
+                label: "ИИ Инструменты",
+                icon: Sparkles,
+                children: buildGroupChildren("ИИ"),
+            }]
+            : []),
     ];
 
     const bottom = [
@@ -192,7 +192,7 @@ export function getSubscriberNav({ can, hasRole, isAdmin = false }) {
 
     return {
         main: main
-            .map((item) => filterNavItem(item, can))
+            .map((item) => filterNavItem(item, access))
             .filter(Boolean),
         bottom: bottom
             .filter((item) => !item.permission || can(item.permission))
@@ -200,17 +200,25 @@ export function getSubscriberNav({ can, hasRole, isAdmin = false }) {
     };
 }
 
-export function getSubscriberTools({ can }) {
+export function getSubscriberTools({ can, isAdmin = false }) {
     return toolCatalog
-        .filter((tool) => !tool.permission || can(tool.permission))
+        .filter((tool) => canSeeTool(tool, { can, isAdmin }))
         .filter((tool) => isRouteAvailable(tool.href))
         .map((tool) => ({ ...tool }));
 }
 
-function filterNavItem(item, can) {
+function canSeeTool(tool, { can, isAdmin = false }) {
+    if (tool.adminOnly && !isAdmin) {
+        return false;
+    }
+
+    return !tool.permission || can(tool.permission);
+}
+
+function filterNavItem(item, { can, isAdmin = false }) {
     if (item.children) {
         const children = item.children
-            .filter((child) => !child.permission || can(child.permission))
+            .filter((child) => canSeeTool(child, { can, isAdmin }))
             .map((child) => ({
                 ...child,
                 comingSoon: !isRouteAvailable(child.href),
@@ -223,7 +231,7 @@ function filterNavItem(item, can) {
         return { ...item, children };
     }
 
-    if (item.permission && !can(item.permission)) {
+    if (!canSeeTool(item, { can, isAdmin })) {
         return null;
     }
 

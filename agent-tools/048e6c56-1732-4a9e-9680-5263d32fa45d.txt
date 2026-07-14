@@ -1,0 +1,493 @@
+
+   PASS  Tests\Feature\Web\Subscriber\Ai\AiApiRemovalTest
+  ✓ legacy ai api routes are removed                                                                             0.31s  
+
+   PASS  Tests\Feature\Web\Subscriber\Ai\AiImageGenerationTest
+  ✓ guest cannot access image history page                                                                       0.07s  
+  ✓ subscriber can access image history page                                                                     0.13s  
+  ✓ subscriber can access image generation page by uuid                                                          0.08s  
+  ✓ guest cannot list generations                                                                                0.03s  
+  ✓ guest cannot start image generation                                                                          0.04s  
+  ✓ subscriber can list own generations                                                                          0.05s  
+  ✓ open done generation returns source images before results                                                    0.05s  
+  ✓ open done generation returns resolved image url                                                              0.04s  
+  ✓ delete generation removes tasks and media files                                                              0.06s  
+  ✓ subscriber cannot delete foreign generation                                                                  0.05s  
+  ✓ image start validates required fields                                                                        0.05s  
+  ✓ store image accepts panel media url                                                                          0.05s  
+
+   FAIL  Tests\Feature\Web\Subscriber\Ai\AiMarketplaceTest
+  ⨯ guest cannot access text page                                                                                0.05s  
+  ✓ user without permission cannot access text page                                                              0.05s  
+  ✓ subscriber with permission can access ai pages                                                               0.10s  
+  ✓ marketplace requires task type                                                                               0.05s  
+  ✓ video status requires auth                                                                                   0.03s  
+  ✓ media endpoint requires auth                                                                                 0.04s  
+  ✓ media endpoint rejects foreign user path                                                                     0.04s  
+  ✓ media endpoint supports range requests                                                                       0.06s  
+  ✓ media endpoint serves source image                                                                           0.06s  
+  ✓ refresh limits returns value                                                                                 0.05s  
+
+   PASS  Tests\Feature\Web\Subscriber\Ai\AiVideoGenerationTest
+  ✓ guest cannot access video history page                                                                       0.04s  
+  ✓ subscriber can access video history page                                                                     0.06s  
+  ✓ subscriber can access video generation page by uuid                                                          0.05s  
+  ✓ guest cannot list generations                                                                                0.04s  
+  ✓ subscriber can list own generations                                                                          0.05s  
+  ✓ open done generation returns resolved video url                                                              0.05s  
+  ✓ subscriber can open generation with tasks                                                                    0.04s  
+  ✓ delete generation removes tasks and media files                                                              0.06s  
+  ✓ subscriber cannot delete foreign generation                                                                  0.05s  
+
+   PASS  Tests\Feature\Web\Subscriber\ManagerTest
+  ✓ guest cannot access manager page                                                                             0.04s  
+  ✓ subscriber can access manager page                                                                           0.08s  
+
+   PASS  Tests\Feature\Web\Subscriber\Oz\OzFeedbacksApiRemovalTest
+  ✓ legacy oz feedbacks api routes are removed                                                                   0.07s  
+
+   FAIL  Tests\Feature\Web\Subscriber\Oz\OzFeedbacksTest
+  ⨯ guest cannot access oz feedbacks index                                                                       0.09s  
+  ✓ user without permission cannot access oz feedbacks index                                                     0.11s  
+  ✓ subscriber with permission can access index                                                                  0.13s  
+  ✓ index lists owned cabinets                                                                                   0.16s  
+  ✓ cabinet show renders for owner                                                                               0.95s  
+  ✓ cabinet show forbidden for foreign cabinet                                                                   0.06s  
+  ✓ destroy cabinet redirects with success                                                                       0.06s  
+
+   PASS  Tests\Feature\Web\Subscriber\Oz\OzPriceCalcApiRemovalTest
+  ✓ legacy oz price calc api routes are removed                                                                  0.06s  
+
+   FAIL  Tests\Feature\Web\Subscriber\Oz\OzPriceCalcTest
+  ⨯ guest cannot access oz price calc index                                                                      0.04s  
+  ✓ user without permission cannot access index                                                                  0.06s  
+  ✓ subscriber with permission can access index                                                                  0.06s  
+  ✓ index lists owned cabinets                                                                                   0.06s  
+  ✓ cabinet show renders for owner fbo                                                                           0.08s  
+  ✓ cabinet show renders for owner fbs                                                                           0.07s  
+  ✓ cabinet show forbidden for foreign cabinet                                                                   0.06s  
+  ✓ destroy cabinet redirects with success                                                                       0.04s  
+  ✓ index shows oz price calc limit                                                                              0.08s  
+  ✓ store cabinet rejected when limit exhausted                                                                  0.05s  
+  ✓ store cabinet decrements limit                                                                               0.06s  
+  ✓ destroy cabinet increments limit                                                                             0.04s  
+  ✓ sync fbo dispatches batch                                                                                    0.06s  
+  ✓ calculate fbo dispatches batch                                                                               0.05s  
+
+   PASS  Tests\Feature\Web\Subscriber\PanelTest
+  ✓ guest cannot access panel                                                                                    0.04s  
+  ✓ subscriber can access panel dashboard                                                                        0.05s  
+  ✓ panel dashboard reflects subscription cabinets limits and payments                                           0.06s  
+
+   PASS  Tests\Feature\Web\Subscriber\PlansTest
+  ✓ subscriber can open plans page with visible plans only                                                       0.08s  
+  ✓ trial user gets promo banner in shared props                                                                 0.07s  
+  ✓ expired paid subscription gets subscription expired banner                                                   0.05s  
+  ✓ subscriber can schedule downgrade with success details                                                       0.06s  
+  ✓ subscriber can cancel scheduled downgrade                                                                    0.07s  
+  ✓ deposit with plan id stores plan on transaction                                                              0.07s  
+
+   PASS  Tests\Feature\Web\Subscriber\PlatformApiRemovalTest
+  ✓ legacy platform api routes are removed                                                                       0.04s  
+
+   PASS  Tests\Feature\Web\Subscriber\ProfileTest
+  ✓ admin without subscriber record can open profile                                                             0.05s  
+  ✓ subscriber can open profile                                                                                  0.05s  
+
+   FAIL  Tests\Feature\Web\Subscriber\SubscriberApiFinalCleanupTest
+  ✓ legacy subscriber api routes are removed                                                                     0.05s  
+  ⨯ public fullfilment api still works                                                                           0.03s  
+
+   FAIL  Tests\Feature\Web\Subscriber\SubscriberToolsInfrastructureTest
+  ✓ subscriber tools route file exists                                                                           0.03s  
+  ✓ web routes include subscriber tools file                                                                     0.03s  
+  ⨯ guest cannot access subscriber panel                                                                         0.04s  
+  ✓ user without subscriber role cannot access panel                                                             0.05s  
+
+   PASS  Tests\Feature\Web\Subscriber\Wb\WbAiCabinetAnalyzerApiRemovalTest
+  ✓ legacy wb ai cabinet analyzer api routes are removed                                                         0.04s  
+
+   FAIL  Tests\Feature\Web\Subscriber\Wb\WbAiCabinetAnalyzerTest
+  ⨯ guest cannot access index                                                                                    0.04s  
+  ✓ user without permission cannot access index                                                                  0.07s  
+  ✓ subscriber with permission can access index                                                                  0.08s  
+  ✓ index lists owned cabinets                                                                                   0.05s  
+  ✓ cabinet show renders for owner                                                                               0.06s  
+  ✓ cabinet show forbidden for foreign cabinet                                                                   0.06s  
+  ✓ destroy cabinet redirects with success                                                                       0.04s  
+  ✓ start report dispatches job for owner                                                                        0.05s  
+  ✓ start report forbidden for foreign cabinet                                                                   0.06s  
+  ✓ ai analysis show json for owner                                                                              0.05s  
+  ✓ ai analysis show forbidden for foreign owner                                                                 0.07s  
+
+   PASS  Tests\Feature\Web\Subscriber\Wb\WbFeedbacksApiRemovalTest
+  ✓ legacy wb feedbacks api routes are removed                                                                   0.05s  
+
+   FAIL  Tests\Feature\Web\Subscriber\Wb\WbFeedbacksTest
+  ⨯ guest cannot access wb feedbacks index                                                                       0.04s  
+  ✓ user without permission cannot access wb feedbacks index                                                     0.08s  
+  ✓ subscriber with permission can access index                                                                  0.06s  
+  ✓ index lists owned cabinets                                                                                   0.07s  
+  ✓ client show renders for owner                                                                                1.13s  
+  ✓ update ai settings enables auto replies                                                                      0.05s  
+  ✓ client show forbidden for foreign cabinet                                                                    0.06s  
+  ✓ templates page renders for owner                                                                             0.06s  
+  ✓ store template redirects and lists template                                                                  0.06s  
+  ✓ product stats page renders for owner                                                                         0.06s  
+  ✓ destroy cabinet redirects with success                                                                       0.07s  
+
+   PASS  Tests\Feature\Web\Subscriber\Wb\WbPriceCalcApiRemovalTest
+  ✓ legacy wb price calc api routes are removed                                                                  0.05s  
+
+   FAIL  Tests\Feature\Web\Subscriber\Wb\WbPriceCalcTest
+  ⨯ guest cannot access wb price calc index                                                                      0.04s  
+  ✓ user without permission cannot access index                                                                  0.08s  
+  ✓ subscriber with permission can access index                                                                  0.05s  
+  ✓ index lists owned cabinets                                                                                   0.05s  
+  ✓ cabinet show renders for owner                                                                               0.06s  
+  ✓ cabinet show forbidden for foreign cabinet                                                                   0.07s  
+  ✓ sync products passes cabinet id from web panel                                                               0.07s  
+  ✓ destroy cabinet redirects with success                                                                       0.05s  
+
+   PASS  Tests\Feature\Web\Subscriber\Wb\WbProfitabilityApiRemovalTest
+  ✓ legacy wb profitability api routes are removed                                                               0.04s  
+
+   PASS  Tests\Feature\Web\Subscriber\Wb\WbProfitabilityTest
+  ✓ guest cannot access profitability index                                                                      0.04s  
+  ✓ user without permission cannot access index                                                                  0.05s  
+  ✓ subscriber with permission can access index                                                                  0.05s  
+  ✓ index lists owned cabinets                                                                                   0.05s  
+  ✓ cabinet show renders for owner                                                                               0.09s  
+  ✓ cabinet show forbidden for foreign cabinet                                                                   0.06s  
+  ✓ destroy cabinet redirects with success                                                                       0.05s  
+  ✓ store report dispatches job for owner                                                                        0.05s  
+  ✓ store report works with json request like inertia                                                            0.05s  
+  ✓ store report rejects while already processing                                                                0.07s  
+  ✓ store report accepts empty optional fields from form                                                         0.05s  
+  ✓ cabinet show returns groups as list when report exists                                                       0.05s  
+  ✓ cabinet show keeps group items while job processing                                                          0.06s  
+  ✓ cabinet show clears stale duplicate rejection failure                                                        0.06s  
+  ✓ cabinet show exposes job progress while processing                                                           0.05s  
+  ✓ store report forbidden for foreign cabinet                                                                   0.07s  
+
+   PASS  Tests\Feature\Web\Subscriber\Wb\WbPromoCalculatorApiRemovalTest
+  ✓ legacy wb promo calculator api routes are removed                                                            0.04s  
+
+   FAIL  Tests\Feature\Web\Subscriber\Wb\WbPromoCalculatorTest
+  ⨯ guest cannot access index                                                                                    0.06s  
+  ✓ user without permission cannot access index                                                                  0.07s  
+  ✓ subscriber with permission can access index                                                                  0.05s  
+  ✓ index lists owned price calc cabinets                                                                        0.06s  
+  ✓ upload requires xlsx file                                                                                    0.05s  
+  ✓ calculate forbidden for foreign price calc cabinet                                                           0.11s  
+  ✓ calculate returns results for owner                                                                          0.07s  
+  ✓ repricer forbidden for foreign cabinet                                                                       0.06s  
+  ✓ repricer validates named payload fields                                                                      0.05s  
+  ✓ upload accepts xlsx and returns path                                                                         0.09s  
+
+   PASS  Tests\Feature\Web\Subscriber\Wb\WbRepricerApiRemovalTest
+  ✓ legacy wb repricer api routes are removed                                                                    0.10s  
+
+   FAIL  Tests\Feature\Web\Subscriber\Wb\WbRepricerTest
+  ⨯ guest cannot access repricer index                                                                           0.09s  
+  ✓ user without permission cannot access index                                                                  0.14s  
+  ✓ subscriber with permission can access index                                                                  0.18s  
+  ✓ index lists owned cabinets                                                                                   0.14s  
+  ✓ strategy hub renders for owner                                                                               0.12s  
+  ✓ time index renders for owner                                                                                 0.05s  
+  ✓ stocks index renders for owner                                                                               0.07s  
+  ✓ cabinet show forbidden for foreign cabinet                                                                   0.06s  
+  ✓ destroy cabinet redirects with success                                                                       0.05s  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\Ai\AiMarketplaceTest > guest cannot access text page                            
+  Expected response status code [401] but received 302.
+Failed asserting that 302 is identical to 401.
+
+  at tests\Feature\Web\Subscriber\Ai\AiMarketplaceTest.php:34
+     30▕     }
+     31▕ 
+     32▕     public function test_guest_cannot_access_text_page(): void
+     33▕     {
+  ➜  34▕         $this->get('/panel/ai/text')->assertUnauthorized();
+     35▕     }
+     36▕ 
+     37▕     public function test_user_without_permission_cannot_access_text_page(): void
+     38▕     {
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\Oz\OzFeedbacksTest > guest cannot access oz feedbacks index                     
+  Expected response status code [401] but received 302.
+Failed asserting that 302 is identical to 401.
+
+  at tests\Feature\Web\Subscriber\Oz\OzFeedbacksTest.php:33
+     29▕     }
+     30▕ 
+     31▕     public function test_guest_cannot_access_oz_feedbacks_index(): void
+     32▕     {
+  ➜  33▕         $this->get('/panel/oz/feedbacks')->assertUnauthorized();
+     34▕     }
+     35▕ 
+     36▕     public function test_user_without_permission_cannot_access_oz_feedbacks_index(): void
+     37▕     {
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\Oz\OzPriceCalcTest > guest cannot access oz price calc index                    
+  Expected response status code [401] but received 302.
+Failed asserting that 302 is identical to 401.
+
+  at tests\Feature\Web\Subscriber\Oz\OzPriceCalcTest.php:37
+     33▕     }
+     34▕ 
+     35▕     public function test_guest_cannot_access_oz_price_calc_index(): void
+     36▕     {
+  ➜  37▕         $this->get('/panel/oz/price-calc')->assertUnauthorized();
+     38▕     }
+     39▕ 
+     40▕     public function test_user_without_permission_cannot_access_index(): void
+     41▕     {
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\SubscriberApiFinalCleanupTest > public fullfilment api still works              
+  Expected response status code [200] but received 500.
+Failed asserting that 500 is identical to 200.
+
+The following exception occurred during the last request:
+
+PDOException: SQLSTATE[HY000]: General error: 1 no such table: fullfilment_prices in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:435
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(435): PDO->prepare('select "id", "c...')
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(846): Illuminate\Database\Connection->Illuminate\Database\{closure}('select "id", "c...', Array)
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('select "id", "c...', Array, Object(Closure))
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(426): Illuminate\Database\Connection->run('select "id", "c...', Array, Object(Closure))
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3573): Illuminate\Database\Connection->select('select "id", "c...', Array, true, Array)
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3557): Illuminate\Database\Query\Builder->runSelect()
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(908): Illuminate\Database\Query\Builder->get(Array)
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(890): Illuminate\Database\Eloquent\Builder->getModels(Array)
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Controllers\Web\FullfilmentController.php(20): Illuminate\Database\Eloquent\Builder->get()
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Controller.php(54): App\Http\Controllers\Web\FullfilmentController->index()
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\ControllerDispatcher.php(43): Illuminate\Routing\Controller->callAction('index', Array)
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(275): Illuminate\Routing\ControllerDispatcher->dispatch(Object(Illuminate\Routing\Route), Object(App\Http\Controllers\Web\FullfilmentController), 'index')
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(215): Illuminate\Routing\Route->runController()
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(822): Illuminate\Routing\Route->run()
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(168): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(129): Illuminate\Routing\Middleware\ThrottleRequests->handleRequest(Object(Illuminate\Http\Request), Object(Closure), Array)
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(90): Illuminate\Routing\Middleware\ThrottleRequests->handleRequestUsingNamedLimiter(Object(Illuminate\Http\Request), Object(Closure), 'api', Object(Closure))
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\ThrottleRequests->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware\EnsureGetOnRedirect.php(19): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware\EnsureGetOnRedirect->handle(Object(Illuminate\Http\Request), Object(Closure))
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(573): Illuminate\Foundation\Testing\TestCase->call('GET', '/api/fullfilmen...', Array, Array, Array, Array, '[]')
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(381): Illuminate\Foundation\Testing\TestCase->json('GET', '/api/fullfilmen...', Array, Array, 0)
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Web\Subscriber\SubscriberApiFinalCleanupTest.php(20): Illuminate\Foundation\Testing\TestCase->getJson('/api/fullfilmen...')
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Web\Subscriber\SubscriberApiFinalCleanupTest->test_public_fullfilment_api_still_works()
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_public_ful...', Array)
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Web\Subscriber\SubscriberApiFinalCleanupTest))
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#57 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#58 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#59 {main}
+
+Next Illuminate\Database\QueryException: SQLSTATE[HY000]: General error: 1 no such table: fullfilment_prices (Connection: sqlite, Database: :memory:, SQL: select "id", "city", "warehouses", "marketplaces", "our_services", "services" from "fullfilment_prices") in C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php:857
+Stack trace:
+#0 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(813): Illuminate\Database\Connection->runQueryCallback('select "id", "c...', Array, Object(Closure))
+#1 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Connection.php(426): Illuminate\Database\Connection->run('select "id", "c...', Array, Object(Closure))
+#2 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3573): Illuminate\Database\Connection->select('select "id", "c...', Array, true, Array)
+#3 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Query\Builder.php(3557): Illuminate\Database\Query\Builder->runSelect()
+#4 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(908): Illuminate\Database\Query\Builder->get(Array)
+#5 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Database\Eloquent\Builder.php(890): Illuminate\Database\Eloquent\Builder->getModels(Array)
+#6 C:\OSPanel\home\subs-back.local\cw_inertia\app\Http\Controllers\Web\FullfilmentController.php(20): Illuminate\Database\Eloquent\Builder->get()
+#7 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Controller.php(54): App\Http\Controllers\Web\FullfilmentController->index()
+#8 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\ControllerDispatcher.php(43): Illuminate\Routing\Controller->callAction('index', Array)
+#9 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(275): Illuminate\Routing\ControllerDispatcher->dispatch(Object(Illuminate\Routing\Route), Object(App\Http\Controllers\Web\FullfilmentController), 'index')
+#10 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Route.php(215): Illuminate\Routing\Route->runController()
+#11 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(822): Illuminate\Routing\Route->run()
+#12 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Routing\Router->Illuminate\Routing\{closure}(Object(Illuminate\Http\Request))
+#13 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\SubstituteBindings.php(52): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#14 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\SubstituteBindings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#15 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(168): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#16 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(129): Illuminate\Routing\Middleware\ThrottleRequests->handleRequest(Object(Illuminate\Http\Request), Object(Closure), Array)
+#17 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Middleware\ThrottleRequests.php(90): Illuminate\Routing\Middleware\ThrottleRequests->handleRequestUsingNamedLimiter(Object(Illuminate\Http\Request), Object(Closure), 'api', Object(Closure))
+#18 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Routing\Middleware\ThrottleRequests->handle(Object(Illuminate\Http\Request), Object(Closure), 'api')
+#19 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#20 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(821): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#21 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(800): Illuminate\Routing\Router->runRouteWithinStack(Object(Illuminate\Routing\Route), Object(Illuminate\Http\Request))
+#22 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(764): Illuminate\Routing\Router->runRoute(Object(Illuminate\Http\Request), Object(Illuminate\Routing\Route))
+#23 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Routing\Router.php(753): Illuminate\Routing\Router->dispatchToRoute(Object(Illuminate\Http\Request))
+#24 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(200): Illuminate\Routing\Router->dispatch(Object(Illuminate\Http\Request))
+#25 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(180): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}(Object(Illuminate\Http\Request))
+#26 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\inertiajs\inertia-laravel\src\Middleware\EnsureGetOnRedirect.php(19): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#27 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Inertia\Middleware\EnsureGetOnRedirect->handle(Object(Illuminate\Http\Request), Object(Closure))
+#28 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#29 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#30 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle(Object(Illuminate\Http\Request), Object(Closure))
+#31 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#32 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(51): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle(Object(Illuminate\Http\Request), Object(Closure))
+#33 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\TrimStrings->handle(Object(Illuminate\Http\Request), Object(Closure))
+#34 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#35 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\ValidatePostSize->handle(Object(Illuminate\Http\Request), Object(Closure))
+#36 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(109): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#37 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle(Object(Illuminate\Http\Request), Object(Closure))
+#38 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(58): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#39 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(219): Illuminate\Http\Middleware\TrustProxies->handle(Object(Illuminate\Http\Request), Object(Closure))
+#40 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(137): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}(Object(Illuminate\Http\Request))
+#41 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(175): Illuminate\Pipeline\Pipeline->then(Object(Closure))
+#42 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(144): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter(Object(Illuminate\Http\Request))
+#43 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(607): Illuminate\Foundation\Http\Kernel->handle(Object(Illuminate\Http\Request))
+#44 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(573): Illuminate\Foundation\Testing\TestCase->call('GET', '/api/fullfilmen...', Array, Array, Array, Array, '[]')
+#45 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\laravel\framework\src\Illuminate\Foundation\Testing\Concerns\MakesHttpRequests.php(381): Illuminate\Foundation\Testing\TestCase->json('GET', '/api/fullfilmen...', Array, Array, 0)
+#46 C:\OSPanel\home\subs-back.local\cw_inertia\tests\Feature\Web\Subscriber\SubscriberApiFinalCleanupTest.php(20): Illuminate\Foundation\Testing\TestCase->getJson('/api/fullfilmen...')
+#47 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1318): Tests\Feature\Web\Subscriber\SubscriberApiFinalCleanupTest->test_public_fullfilment_api_still_works()
+#48 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(1355): PHPUnit\Framework\TestCase->invokeTestMethod('test_public_ful...', Array)
+#49 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(521): PHPUnit\Framework\TestCase->runTest()
+#50 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestRunner\TestRunner.php(99): PHPUnit\Framework\TestCase->runBare()
+#51 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestCase.php(361): PHPUnit\Framework\TestRunner->run(Object(Tests\Feature\Web\Subscriber\SubscriberApiFinalCleanupTest))
+#52 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestCase->run()
+#53 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\Framework\TestSuite.php(374): PHPUnit\Framework\TestSuite->run()
+#54 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#55 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\src\TextUI\Application.php(229): PHPUnit\TextUI\TestRunner->run(Object(PHPUnit\TextUI\Configuration\Configuration), Object(PHPUnit\Runner\ResultCache\DefaultResultCache), Object(PHPUnit\Framework\TestSuite))
+#56 C:\OSPanel\home\subs-back.local\cw_inertia\vendor\phpunit\phpunit\phpunit(104): PHPUnit\TextUI\Application->run(Array)
+#57 {main}
+
+----------------------------------------------------------------------------------
+
+SQLSTATE[HY000]: General error: 1 no such table: fullfilment_prices (Connection: sqlite, Database: :memory:, SQL: select "id", "city", "warehouses", "marketplaces", "our_services", "services" from "fullfilment_prices")
+
+  at tests\Feature\Web\Subscriber\SubscriberApiFinalCleanupTest.php:21
+     17▕ 
+     18▕     public function test_public_fullfilment_api_still_works(): void
+     19▕     {
+     20▕         $this->getJson('/api/fullfilment')
+  ➜  21▕             ->assertOk()
+     22▕             ->assertJsonPath('success', true);
+     23▕     }
+     24▕ }
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\SubscriberToolsInfrastructureTest > guest cannot access subscriber panel        
+  Expected response status code [401] but received 302.
+Failed asserting that 302 is identical to 401.
+
+  at tests\Feature\Web\Subscriber\SubscriberToolsInfrastructureTest.php:26
+     22▕     }
+     23▕ 
+     24▕     public function test_guest_cannot_access_subscriber_panel(): void
+     25▕     {
+  ➜  26▕         $this->get('/panel')->assertUnauthorized();
+     27▕     }
+     28▕ 
+     29▕     public function test_user_without_subscriber_role_cannot_access_panel(): void
+     30▕     {
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\Wb\WbAiCabinetAnalyzerTest > guest cannot access index                          
+  Expected response status code [401] but received 302.
+Failed asserting that 302 is identical to 401.
+
+  at tests\Feature\Web\Subscriber\Wb\WbAiCabinetAnalyzerTest.php:40
+     36▕     }
+     37▕ 
+     38▕     public function test_guest_cannot_access_index(): void
+     39▕     {
+  ➜  40▕         $this->get('/panel/wb/ai-cabinet-analyzer')->assertUnauthorized();
+     41▕     }
+     42▕ 
+     43▕     public function test_user_without_permission_cannot_access_index(): void
+     44▕     {
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\Wb\WbFeedbacksTest > guest cannot access wb feedbacks index                     
+  Expected response status code [401] but received 302.
+Failed asserting that 302 is identical to 401.
+
+  at tests\Feature\Web\Subscriber\Wb\WbFeedbacksTest.php:35
+     31▕     }
+     32▕ 
+     33▕     public function test_guest_cannot_access_wb_feedbacks_index(): void
+     34▕     {
+  ➜  35▕         $this->get('/panel/wb/feedbacks')->assertUnauthorized();
+     36▕     }
+     37▕ 
+     38▕     public function test_user_without_permission_cannot_access_wb_feedbacks_index(): void
+     39▕     {
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\Wb\WbPriceCalcTest > guest cannot access wb price calc index                    
+  Expected response status code [401] but received 302.
+Failed asserting that 302 is identical to 401.
+
+  at tests\Feature\Web\Subscriber\Wb\WbPriceCalcTest.php:37
+     33▕     }
+     34▕ 
+     35▕     public function test_guest_cannot_access_wb_price_calc_index(): void
+     36▕     {
+  ➜  37▕         $this->get('/panel/wb/price-calc')->assertUnauthorized();
+     38▕     }
+     39▕ 
+     40▕     public function test_user_without_permission_cannot_access_index(): void
+     41▕     {
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\Wb\WbPromoCalculatorTest > guest cannot access index                            
+  Expected response status code [401] but received 302.
+Failed asserting that 302 is identical to 401.
+
+  at tests\Feature\Web\Subscriber\Wb\WbPromoCalculatorTest.php:48
+     44▕     }
+     45▕ 
+     46▕     public function test_guest_cannot_access_index(): void
+     47▕     {
+  ➜  48▕         $this->get('/panel/wb/promocalculator')->assertUnauthorized();
+     49▕     }
+     50▕ 
+     51▕     public function test_user_without_permission_cannot_access_index(): void
+     52▕     {
+
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\Web\Subscriber\Wb\WbRepricerTest > guest cannot access repricer index                          
+  Expected response status code [401] but received 302.
+Failed asserting that 302 is identical to 401.
+
+  at tests\Feature\Web\Subscriber\Wb\WbRepricerTest.php:37
+     33▕     }
+     34▕ 
+     35▕     public function test_guest_cannot_access_repricer_index(): void
+     36▕     {
+  ➜  37▕         $this->get('/panel/wb/repricer')->assertUnauthorized();
+     38▕     }
+     39▕ 
+     40▕     public function test_user_without_permission_cannot_access_index(): void
+     41▕     {
+
+
+  Tests:    10 failed, 136 passed (893 assertions)
+  Duration: 11.51s
+

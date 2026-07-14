@@ -10,9 +10,12 @@ const props = defineProps({
     cabinetsByTool: { type: Object, default: () => ({}) },
 });
 
-const { can } = usePermissions();
+const { can, isAdmin, isSuperAdmin } = usePermissions();
 
-const tools = computed(() => getSubscriberTools({ can }));
+const tools = computed(() => getSubscriberTools({
+    can,
+    isAdmin: isAdmin.value || isSuperAdmin.value,
+}));
 
 function cabinetCount(key) {
     return props.cabinetsByTool?.[key] ?? 0;

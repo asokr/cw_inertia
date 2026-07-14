@@ -5,6 +5,7 @@ namespace App\Models\Subscribers;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Models\CouponUsage;
+use App\Support\ToolLimits;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Subscribers\Subscribers;
 use Illuminate\Database\Eloquent\Model;
@@ -100,6 +101,12 @@ class SubscribersSubscriptions extends Model
 
     public function getMonthLimit($limit)
     {
+        $user = Auth::user();
+
+        if ($user instanceof User && ToolLimits::bypassesFor($user)) {
+            return ToolLimits::UNLIMITED_VALUE;
+        }
+
         $limits = is_array($this->limits_month) ? $this->limits_month : [];
         $extraLimits = is_array($this->extra_limits_month) ? $this->extra_limits_month : [];
 
@@ -112,6 +119,12 @@ class SubscribersSubscriptions extends Model
 
     public function minusMonthLimit($limit)
     {
+        $user = Auth::user();
+
+        if ($user instanceof User && ToolLimits::bypassesFor($user)) {
+            return true;
+        }
+
         $limits = is_array($this->limits_month) ? $this->limits_month : [];
         $extraLimits = is_array($this->extra_limits_month) ? $this->extra_limits_month : [];
 

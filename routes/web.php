@@ -10,13 +10,16 @@ use App\Http\Controllers\Web\Auth\ResetPasswordController;
 use App\Http\Controllers\Web\Auth\VerificationController;
 use App\Http\Controllers\Web\Auth\VkOAuthController;
 use App\Http\Controllers\Web\Auth\YandexOAuthController;
-use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Web\ContactMessageController;
 use App\Http\Controllers\Web\HomeController;
+use App\Http\Controllers\Web\PublicOfferController;
 use App\Http\Controllers\Web\SupportMessageController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
+Route::get('/public-offer', [PublicOfferController::class, 'show'])->name('public-offer');
+Route::get('/public-offer/', [PublicOfferController::class, 'show']);
 
 require __DIR__.'/blog.php';
 
@@ -35,7 +38,7 @@ Route::get('/email/verify/{id}/{hash}', [VerificationController::class, 'verify'
     ->name('verification.verify');
 
 Route::post('/check-coupon', [CouponController::class, 'check'])->name('coupon.check');
-Route::post('/send-message', [AuthController::class, 'sendMessage'])
+Route::post('/send-message', [ContactMessageController::class, 'store'])
     ->middleware('throttle:10,1')
     ->name('contact.send');
 Route::post('/support-message', [SupportMessageController::class, 'store'])
@@ -57,9 +60,9 @@ Route::middleware('guest')->group(function () {
     Route::post('/reset-password', [ResetPasswordController::class, 'store'])->name('password.update');
 
     Route::get('/auth/vk/redirect', [VkOAuthController::class, 'redirect'])->name('auth.vk.redirect');
-    Route::get('/auth/vk/callback', [VkOAuthController::class, 'callback'])->name('auth.vk.callback');
+    Route::get('/auth/callback/vk', [VkOAuthController::class, 'callback'])->name('auth.vk.callback');
     Route::get('/auth/yandex/redirect', [YandexOAuthController::class, 'redirect'])->name('auth.yandex.redirect');
-    Route::get('/auth/yandex/callback', [YandexOAuthController::class, 'callback'])->name('auth.yandex.callback');
+    Route::get('/auth/callback/yandex', [YandexOAuthController::class, 'callback'])->name('auth.yandex.callback');
 });
 
 Route::middleware('auth')->group(function () {

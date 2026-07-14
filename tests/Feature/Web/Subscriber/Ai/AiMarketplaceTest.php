@@ -75,6 +75,11 @@ class AiMarketplaceTest extends WebAuthTestCase
             ->get('/panel/ai/video')
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('Subscriber/Ai/Video'));
+
+        $this->actingAs($user)
+            ->get('/panel/ai/video/history')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Subscriber/Ai/VideoHistory'));
     }
 
     public function test_marketplace_requires_task_type(): void
@@ -95,7 +100,7 @@ class AiMarketplaceTest extends WebAuthTestCase
     public function test_media_endpoint_requires_auth(): void
     {
         $this->get('/panel/ai/media/generated-videos/user-1/test.mp4')
-            ->assertUnauthorized();
+            ->assertForbidden();
     }
 
     public function test_media_endpoint_rejects_foreign_user_path(): void
@@ -122,6 +127,23 @@ class AiMarketplaceTest extends WebAuthTestCase
             ->assertStatus(206)
             ->assertHeader('Accept-Ranges', 'bytes')
             ->assertHeader('Content-Range', 'bytes 0-99/1000');
+    }
+
+    public function test_media_endpoint_serves_source_image(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $relativePath = 'source-images/user-' . $user->id . '/2026/demo.jpg';
+        $storagePath = 'ai/' . $relativePath;
+        $binary = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+        Storage::disk('private')->put($storagePath, $binary);
+
+        $this->actingAs($user)
+            ->get('/panel/ai/media/' . $relativePath)
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png')
+            ->assertHeader('Content-Disposition', 'inline; filename="demo.jpg"');
     }
 
     public function test_refresh_limits_returns_value(): void

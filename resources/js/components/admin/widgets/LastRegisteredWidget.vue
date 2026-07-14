@@ -2,6 +2,7 @@
 import { Link } from "@inertiajs/vue3";
 import { computed, onMounted, reactive } from "vue";
 import LimitList from "@/components/admin/widgets/LimitList.vue";
+import OAuthProviderBadge from "@/components/admin/OAuthProviderBadge.vue";
 import Card from "@/components/ui/Card.vue";
 import WidgetPagination from "@/components/admin/widgets/WidgetPagination.vue";
 import { useAdminWidgetApi } from "@/composables/useAdminWidgetApi";
@@ -115,9 +116,12 @@ onMounted(fetchData);
                 <tbody>
                     <tr v-for="item in state.items" :key="item.id" class="border-b">
                         <td class="px-3 py-2">
-                            <Link :href="`/cw-page/subscribers/${item.id}`" class="text-primary hover:underline">
-                                {{ item.name || "—" }}<span v-if="item.email"> ({{ item.email }})</span>
-                            </Link>
+                            <span class="inline-flex items-center">
+                                <Link :href="`/cw-page/subscribers/${item.id}`" class="text-primary hover:underline">
+                                    {{ item.name || "—" }}<span v-if="item.email"> ({{ item.email }})</span>
+                                </Link>
+                                <OAuthProviderBadge :vk-id="item.vk_id" :yandex-id="item.yandex_id" />
+                            </span>
                         </td>
                         <td class="px-3 py-2 whitespace-nowrap">{{ item.registered_at || "—" }}</td>
                         <td class="px-3 py-2">

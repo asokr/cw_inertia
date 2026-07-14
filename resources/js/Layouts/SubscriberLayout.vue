@@ -11,6 +11,7 @@ import {
     X,
 } from "lucide-vue-next";
 import { computed, ref } from "vue";
+import CabinetFooter from "@/components/CabinetFooter.vue";
 import FlashToasts from "@/components/admin/FlashToasts.vue";
 import SubscriptionPromoBanner from "@/components/subscriber/SubscriptionPromoBanner.vue";
 import TopBalance from "@/components/subscriber/TopBalance.vue";
@@ -29,13 +30,17 @@ defineProps({
 });
 
 const page = usePage();
-const { can, hasRole, isAdmin } = usePermissions();
+const { can, hasRole, isAdmin, isSuperAdmin } = usePermissions();
 const mobileOpen = ref(false);
 const expandedGroups = ref({});
 const isDark = useAppColorMode();
 
 const user = computed(() => page.props.auth?.user);
-const nav = computed(() => getSubscriberNav({ can, hasRole, isAdmin: isAdmin.value }));
+const nav = computed(() => getSubscriberNav({
+    can,
+    hasRole,
+    isAdmin: isAdmin.value || isSuperAdmin.value,
+}));
 
 function isGroupActive(item) {
     if (!item?.children?.length) {
@@ -82,9 +87,9 @@ function navLinkClass(href, comingSoon) {
 </script>
 
 <template>
-    <div class="subscriber-cabinet min-h-screen bg-background text-foreground">
+    <div class="subscriber-cabinet flex min-h-screen flex-col bg-background text-foreground">
         <FlashToasts />
-        <div class="mx-auto flex min-h-screen w-full max-w-[1920px]">
+        <div class="mx-auto flex w-full max-w-[1920px] flex-1">
             <aside class="hidden w-60 shrink-0 border-r border-border/60 bg-card/90 backdrop-blur dark:bg-card dark:backdrop-blur-none md:flex md:flex-col">
                 <div class="flex h-14 items-center border-b border-border/60 px-4">
                     <Link href="/panel" class="text-sm font-semibold tracking-tight">CW Platform</Link>
@@ -285,5 +290,6 @@ function navLinkClass(href, comingSoon) {
                 </main>
             </div>
         </div>
+        <CabinetFooter />
     </div>
 </template>

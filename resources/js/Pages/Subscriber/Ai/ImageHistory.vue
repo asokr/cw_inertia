@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { Head, router } from "@inertiajs/vue3";
 import { ArrowLeft, Plus } from "lucide-vue-next";
+import AiGenerationDeleteDialog from "@/components/subscriber/ai/AiGenerationDeleteDialog.vue";
 import AiImageGenerationsList from "@/components/subscriber/ai/AiImageGenerationsList.vue";
 import AiLimitsBadge from "@/components/subscriber/ai/AiLimitsBadge.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
@@ -25,7 +26,9 @@ const breadcrumbs = [
     { label: "История" },
 ];
 
-const deletingGenerationId = ref(null);
+const deletingGenerationUuid = ref(null);
+const deleteDialogOpen = ref(false);
+const pendingDeleteUuid = ref(null);
 const { showError, showSuccess } = useFlashToast();
 
 const {
@@ -39,8 +42,8 @@ const {
     refreshLimits,
 } = useMarketplaceAi(props.limits, { limitsMode: "image" });
 
-function handleOpenGeneration(generationId) {
-    router.visit(`/panel/ai/image?generation=${generationId}`);
+function handleOpenGeneration(generationUuid) {
+    router.visit(`/panel/ai/image/${generationUuid}`);
 }
 
 async function handleCreateGeneration() {
@@ -51,23 +54,39 @@ async function handleCreateGeneration() {
     }
 
     showSuccess("Новая сессия");
-    router.visit(`/panel/ai/image?generation=${result.generation.id}`);
+    router.visit(`/panel/ai/image/${result.generation.uuid}`);
 }
 
-async function handleDeleteGeneration(generationId) {
-    if (!window.confirm("Удалить сессию и все изображения?")) {
+function handleDeleteGeneration(generationUuid) {
+    pendingDeleteUuid.value = generationUuid;
+    deleteDialogOpen.value = true;
+}
+
+function handleDeleteDialogOpen(value) {
+    deleteDialogOpen.value = value;
+
+    if (!value && !deletingGenerationUuid.value) {
+        pendingDeleteUuid.value = null;
+    }
+}
+
+async function confirmDeleteGeneration() {
+    const generationUuid = pendingDeleteUuid.value;
+    if (!generationUuid) {
         return;
     }
 
-    deletingGenerationId.value = generationId;
-    const result = await deleteGeneration(generationId);
-    deletingGenerationId.value = null;
+    deletingGenerationUuid.value = generationUuid;
+    const result = await deleteGeneration(generationUuid);
+    deletingGenerationUuid.value = null;
 
     if (!result.ok) {
         showError(result.message);
         return;
     }
 
+    deleteDialogOpen.value = false;
+    pendingDeleteUuid.value = null;
     showSuccess("Сессия удалена");
 }
 
@@ -106,11 +125,18 @@ onMounted(async () => {
             <AiImageGenerationsList
                 :items="savedGenerations"
                 :loading="generationsLoading"
-                :deleting-id="deletingGenerationId"
+                :deleting-id="deletingGenerationUuid"
                 @open="handleOpenGeneration"
                 @create="handleCreateGeneration"
                 @delete="handleDeleteGeneration"
             />
         </div>
+        <AiGenerationDeleteDialog
+            :open="deleteDialogOpen"
+            media-label="изображения"
+            :loading="Boolean(deletingGenerationUuid)"
+            @update:open="handleDeleteDialogOpen"
+            @confirm="confirmDeleteGeneration"
+        />
     </SubscriberLayout>
 </template>

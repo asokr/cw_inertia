@@ -101,7 +101,11 @@ async function handleFiles(files) {
         }
         if (results.length) emit("files-added", results);
     } else {
-        processFile(files[0]);
+        const res = await processFile(files[0], true);
+        if (res) {
+            emit("update:modelValue", res);
+            emit("files-added", [res]);
+        }
     }
 }
 

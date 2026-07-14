@@ -10,6 +10,7 @@ import {
     X,
 } from "lucide-vue-next";
 import { computed, ref } from "vue";
+import CabinetFooter from "@/components/CabinetFooter.vue";
 import AiCostsWidget from "@/components/admin/AiCostsWidget.vue";
 import FlashToasts from "@/components/admin/FlashToasts.vue";
 import Button from "@/components/ui/Button.vue";
@@ -46,9 +47,9 @@ function isActive(href) {
 </script>
 
 <template>
-    <div class="min-h-screen bg-background text-foreground">
+    <div class="flex min-h-screen flex-col bg-background text-foreground">
         <FlashToasts />
-        <div class="mx-auto flex min-h-screen w-full max-w-[1920px]">
+        <div class="mx-auto flex w-full max-w-[1920px] flex-1">
             <aside class="hidden w-60 shrink-0 border-r bg-card md:flex md:flex-col">
                 <div class="flex h-14 items-center border-b px-4">
                     <Link :href="defaultAdminPath" class="text-sm font-semibold tracking-tight">CW Platform</Link>
@@ -137,5 +138,6 @@ function isActive(href) {
                 </main>
             </div>
         </div>
+        <CabinetFooter />
     </div>
 </template>

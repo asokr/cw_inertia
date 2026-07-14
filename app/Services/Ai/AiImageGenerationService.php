@@ -33,28 +33,31 @@ class AiImageGenerationService
     /**
      * @return array<string, mixed>|null
      */
-    public function show(int $generationId, int $subscriberId): ?array
+    public function showByUuid(string $generationUuid, int $subscriberId): ?array
     {
-        $generation = AiImageGeneration::query()
-            ->where('id', $generationId)
-            ->where('subscriber_id', $subscriberId)
-            ->with(['tasks' => fn ($query) => $query->orderByDesc('id')])
-            ->first();
+        $generation = $this->findForSubscriberByUuid($generationUuid, $subscriberId, withTasks: true);
 
         if (! $generation) {
             return null;
         }
 
-        return [
-            'id' => $generation->id,
-            'title' => $this->resolveTitle($generation),
-            'created_at' => $generation->created_at?->toIso8601String(),
-            'updated_at' => $generation->updated_at?->toIso8601String(),
-            'tasks' => $generation->tasks
-                ->map(fn (AiImageGenerationTask $task) => $this->mapTaskForFrontend($task))
-                ->values()
-                ->all(),
-        ];
+        return $this->mapGenerationDetail($generation);
+    }
+
+    public function findForSubscriberByUuid(
+        string $generationUuid,
+        int $subscriberId,
+        bool $withTasks = false,
+    ): ?AiImageGeneration {
+        $query = AiImageGeneration::query()
+            ->where('uuid', $generationUuid)
+            ->where('subscriber_id', $subscriberId);
+
+        if ($withTasks) {
+            $query->with(['tasks' => fn ($taskQuery) => $taskQuery->orderByDesc('id')]);
+        }
+
+        return $query->first();
     }
 
     public function create(int $subscriberId, int $userId, ?string $title = null): AiImageGeneration
@@ -67,16 +70,13 @@ class AiImageGenerationService
     }
 
     public function resolveForStart(
-        ?int $generationId,
+        ?string $generationUuid,
         int $subscriberId,
         int $userId,
         string $prompt,
     ): AiImageGeneration {
-        if ($generationId !== null && $generationId > 0) {
-            $existing = AiImageGeneration::query()
-                ->where('id', $generationId)
-                ->where('subscriber_id', $subscriberId)
-                ->first();
+        if (filled($generationUuid)) {
+            $existing = $this->findForSubscriberByUuid($generationUuid, $subscriberId);
 
             if ($existing) {
                 if ($existing->title === null || trim($existing->title) === '') {
@@ -92,17 +92,15 @@ class AiImageGenerationService
         return $this->create($subscriberId, $userId, $this->titleFromPrompt($prompt));
     }
 
-    public function delete(int $generationId, int $subscriberId): bool
+    public function deleteByUuid(string $generationUuid, int $subscriberId): bool
     {
-        $generation = AiImageGeneration::query()
-            ->where('id', $generationId)
-            ->where('subscriber_id', $subscriberId)
-            ->with('tasks')
-            ->first();
+        $generation = $this->findForSubscriberByUuid($generationUuid, $subscriberId);
 
         if (! $generation) {
             return false;
         }
+
+        $generation->load('tasks');
 
         DB::transaction(function () use ($generation): void {
             foreach ($generation->tasks as $task) {
@@ -168,7 +166,10 @@ class AiImageGenerationService
     {
         $sourceImages = is_array($task->source_images) ? $task->source_images : [];
         $resultImages = is_array($task->result_images) ? $task->result_images : [];
-        $firstSource = $this->resolveSourceImageUrl($sourceImages[0] ?? null);
+        $sourceUrls = array_values(array_filter(array_map(
+            fn (?array $image): ?string => $this->resolveSourceImageUrl($image),
+            $sourceImages,
+        )));
         $resultUrls = $this->resolveResultImageUrls($resultImages);
 
         $frontendStatus = $task->status;
@@ -188,15 +189,9 @@ class AiImageGenerationService
             'created_at' => $task->created_at?->toIso8601String(),
         ];
 
-        if ($firstSource) {
-            $mapped['image'] = $firstSource;
-        }
-
-        if (count($sourceImages) > 1) {
-            $mapped['source_images'] = array_values(array_filter(array_map(
-                fn (?array $image): ?string => $this->resolveSourceImageUrl($image),
-                $sourceImages,
-            )));
+        if ($sourceUrls !== []) {
+            $mapped['source_images'] = $sourceUrls;
+            $mapped['image'] = $sourceUrls[0];
         }
 
         if ($resultUrls !== []) {
@@ -239,12 +234,31 @@ class AiImageGenerationService
 
         return [
             'id' => $generation->id,
+            'uuid' => $generation->uuid,
             'title' => $this->resolveTitle($generation),
             'preview_url' => $previewUrl,
             'tasks_count' => $tasks->count(),
             'has_pending' => false,
             'created_at' => $generation->created_at?->toIso8601String(),
             'updated_at' => $generation->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mapGenerationDetail(AiImageGeneration $generation): array
+    {
+        return [
+            'id' => $generation->id,
+            'uuid' => $generation->uuid,
+            'title' => $this->resolveTitle($generation),
+            'created_at' => $generation->created_at?->toIso8601String(),
+            'updated_at' => $generation->updated_at?->toIso8601String(),
+            'tasks' => $generation->tasks
+                ->map(fn (AiImageGenerationTask $task) => $this->mapTaskForFrontend($task))
+                ->values()
+                ->all(),
         ];
     }
 

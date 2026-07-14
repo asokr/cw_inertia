@@ -77,6 +77,13 @@ function submit() {
                 <Button type="submit" class="w-full" size="lg" :disabled="form.processing">
                     Зарегистрироваться
                 </Button>
+
+                <p class="text-center text-xs text-muted-foreground">
+                    Нажимая кнопку, вы соглашаетесь с
+                    <a href="/public-offer" target="_blank" rel="noopener noreferrer" class="font-medium text-primary hover:underline">
+                        условиями оферты
+                    </a>
+                </p>
             </form>
 
             <div v-if="vkEnabled || yandexEnabled" class="mt-6 space-y-3">

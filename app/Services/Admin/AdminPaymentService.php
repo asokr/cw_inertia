@@ -13,6 +13,20 @@ class AdminPaymentService
         $sortOrder = ($filters['sort_order'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
         $perPage = (int) ($filters['per_page'] ?? 15);
 
+        return $this->baseQuery()
+            ->orderBy($sortField, $sortOrder)
+            ->paginate($perPage);
+    }
+
+    public function paginateForWidget(int $rows, string $sortField = 'id', string $sortOrder = '-1'): LengthAwarePaginator
+    {
+        return $this->baseQuery()
+            ->orderBy($sortField, $sortOrder === '1' ? 'asc' : 'desc')
+            ->paginate($rows);
+    }
+
+    private function baseQuery()
+    {
         return PaymentsTransaction::select([
             'id', 'user_id', 'amount', 'description', 'status', 'system', 'created_at',
         ])
@@ -24,8 +38,6 @@ class AdminPaymentService
                         },
                     ]);
                 },
-            ])
-            ->orderBy($sortField, $sortOrder)
-            ->paginate($perPage);
+            ]);
     }
 }

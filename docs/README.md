@@ -1,6 +1,6 @@
 # Документация проекта subscribers_backend
 
-Laravel API для подписчиков маркетплейсов Wildberries и Ozon. Админка — Inertia + Vue 3 на `/cw-page/`; основной фронт подписчиков — отдельное Nuxt-приложение, работающее через REST API.
+Laravel-приложение для подписчиков маркетплейсов Wildberries и Ozon. Админка — Inertia + Vue 3 на `/cw-page/`; кабинет подписчика — Inertia + Vue 3 на `/panel/*`.
 
 ## Стек
 
@@ -8,23 +8,22 @@ Laravel API для подписчиков маркетплейсов Wildberries
 |------|------------|
 | Backend | Laravel 13, MySQL, Composer |
 | Admin frontend | Vue 3, Inertia.js, Tailwind, shadcn-vue, TanStack Table, Vite |
-| Subscriber frontend | Nuxt (внешний репозиторий) |
+| Subscriber frontend | Vue 3, Inertia.js, Tailwind, shadcn-vue, Vite |
 | Очереди | Laravel Queue (отдельные очереди на инструмент) |
 | Баланс | `O21\LaravelWallet` |
-| Права | Spatie Permission (`guard: web` для Inertia, `guard: api` для Nuxt) |
+| Права | Spatie Permission (`guard: web` для Inertia) |
 
 ## Архитектура
 
 ```mermaid
 flowchart TB
     subgraph clients [Clients]
-        Nuxt[NuxtSubscriberFrontend]
+        InertiaSubscriber[InertiaSubscriberPanel]
         InertiaAdmin[InertiaAdminCwPage]
     end
-    subgraph api [Laravel]
-        WebRoutes[WebRoutes_cw-page]
-        ApiRoutes[LegacyAPI_Nuxt]
-        Instruments[InstrumentControllers]
+    subgraph laravel [Laravel]
+        WebRoutes[WebRoutes_panel_and_cw-page]
+        Services[SubscriberServices]
         Jobs[QueueJobs]
     end
     subgraph external [External]
@@ -32,14 +31,13 @@ flowchart TB
         Ozon[OzonAPI]
         AI[GeminiGrokOpenAI]
     end
-    Nuxt --> ApiRoutes
+    InertiaSubscriber --> WebRoutes
     InertiaAdmin --> WebRoutes
-    ApiRoutes --> Instruments
-    WebRoutes --> Instruments
-    Instruments --> Jobs
+    WebRoutes --> Services
+    Services --> Jobs
     Jobs --> WB
     Jobs --> Ozon
-    Instruments --> AI
+    Services --> AI
 ```
 
 ## Админка (`/cw-page/`)
@@ -64,9 +62,13 @@ flowchart TB
 
 Legacy Vue SPA (`resources/js/views/dashboard/admin/`) удалён — админка полностью на Inertia.
 
-## Формат API (Nuxt)
+## Кабинет подписчика (`/panel/`)
 
-Все ответы инструментов следуют единому контракту:
+Доступ по web-сессии (`auth`, `verified`, `role:Подписчик`) + permission на конкретный инструмент.
+
+Паттерн: `app/Http/Controllers/Web/Subscriber/*` → `app/Services/Subscriber/*` → `resources/js/Pages/Subscriber/*`.
+
+JSON-эндпоинты для polling (генерации ИИ, статусы задач) отдают тот же контракт:
 
 ```json
 {
@@ -76,7 +78,7 @@ Legacy Vue SPA (`resources/js/views/dashboard/admin/`) удалён — адми
 }
 ```
 
-Авторизация подписчиков: `auth:api`, `verified`, `role:Подписчик` + permission на конкретный инструмент.
+Ключевые маршруты: [`routes/subscriber.php`](../routes/subscriber.php), [`routes/subscriber-tools.php`](../routes/subscriber-tools.php).
 
 ## Инструменты
 
@@ -92,7 +94,6 @@ Legacy Vue SPA (`resources/js/views/dashboard/admin/`) удалён — адми
 | Репрайсер | WB | `subscriber wb repricer` | [wb-repricer.md](wb-repricer.md) |
 | Ценообразование | Ozon | `subscriber oz price calc` | [ozon-price-calculation.md](ozon-price-calculation.md) |
 | Блог | — | `blog.view/create/update/delete` | [blog.md](blog.md) |
-| Фулфилмент (цены) | — | `manager fullfilment` | [fullfilment.md](fullfilment.md) |
 
 ## Справочники
 
@@ -111,7 +112,8 @@ Legacy Vue SPA (`resources/js/views/dashboard/admin/`) удалён — адми
 ## Ключевые файлы проекта
 
 - Web-маршруты админки: [`routes/admin.php`](../routes/admin.php)
-- Legacy API (Nuxt): [`routes/api.php`](../routes/api.php)
+- Web-маршруты подписчика: [`routes/subscriber.php`](../routes/subscriber.php), [`routes/subscriber-tools.php`](../routes/subscriber-tools.php)
+- Legacy API (auth, admin, webhooks): [`routes/api.php`](../routes/api.php)
 - Permissions: [`database/seeders/Roles.php`](../database/seeders/Roles.php)
 - Inertia-страницы админки: [`resources/js/Pages/Admin/`](../resources/js/Pages/Admin/)
 - Навигация админки: [`resources/js/config/adminNav.js`](../resources/js/config/adminNav.js)

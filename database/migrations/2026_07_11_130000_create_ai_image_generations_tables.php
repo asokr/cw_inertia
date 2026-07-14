@@ -10,6 +10,7 @@ return new class extends Migration
     {
         Schema::create('ai_image_generations', function (Blueprint $table) {
             $table->id();
+            $table->uuid('uuid')->unique();
             $table->unsignedBigInteger('subscriber_id')->index();
             $table->unsignedBigInteger('user_id')->index();
             $table->string('title', 120)->nullable();

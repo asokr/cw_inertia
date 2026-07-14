@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Oz\PriceCalc;
 
-use App\Http\Controllers\Api\Subscriber\Ozon\PriceCalc\CabinetsController as ApiCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresOzPriceCalcCabinetOwnership;
+use App\Services\Subscriber\Oz\OzPriceCalcCabinetsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreOzPriceCalcCabinetRequest;
 use App\Http\Requests\Web\Subscriber\UpdateOzPriceCalcCabinetRequest;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -19,13 +20,13 @@ class CabinetsController extends SubscriberToolController
     use EnsuresOzPriceCalcCabinetOwnership;
 
     public function __construct(
-        private readonly ApiCabinetsController $apiCabinetsController,
+        private readonly OzPriceCalcCabinetsService $cabinetsService,
     ) {
     }
 
     public function index(Request $request): Response
     {
-        $response = $this->apiCabinetsController->index($request);
+        $response = $this->cabinetsService->index($request);
         $payload = $this->decodeApiResponse($response);
 
         $cabinets = [];
@@ -43,14 +44,13 @@ class CabinetsController extends SubscriberToolController
             }
         }
 
-        $limits = ['oz_price_calc_clients' => null];
         $subscription = SubscribersSubscriptions::query()
             ->where('subscribers_id', $request->user()->subscriber?->id)
             ->first();
 
-        if ($subscription && isset($subscription->limits_plan['oz_price_calc_clients'])) {
-            $limits['oz_price_calc_clients'] = (int) $subscription->limits_plan['oz_price_calc_clients'];
-        }
+        $limits = [
+            'oz_price_calc_clients' => ToolLimits::planLimitValue($request->user(), $subscription, 'oz_price_calc_clients'),
+        ];
 
         return Inertia::render('Subscriber/Oz/PriceCalc/Index', [
             'cabinets' => $cabinets,
@@ -60,7 +60,7 @@ class CabinetsController extends SubscriberToolController
 
     public function store(StoreOzPriceCalcCabinetRequest $request): RedirectResponse
     {
-        $response = $this->apiCabinetsController->store($request);
+        $response = $this->cabinetsService->store($request);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -78,7 +78,7 @@ class CabinetsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiCabinetsController->update(
+        $response = $this->cabinetsService->update(
             $request->duplicate(null, $request->validated()),
             (int) $cabinet->id
         );
@@ -97,7 +97,7 @@ class CabinetsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiCabinetsController->destroy(request(), (int) $cabinet->id);
+        $response = $this->cabinetsService->destroy(request(), (int) $cabinet->id);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {

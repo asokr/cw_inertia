@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Repricer;
 
-use App\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerStocksController as ApiRepricerStocksController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresRepricerCabinetOwnership;
+use App\Services\Subscriber\Wb\RepricerStocksService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\LoadRepricerStockSizesRequest;
 use App\Http\Requests\Web\Subscriber\StoreRepricerStockRequest;
 use App\Http\Requests\Web\Subscriber\UpdateRepricerStockRequest;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
 use App\Models\Subscribers\Wb\Repricer\RepricerStocks;
 use Illuminate\Http\JsonResponse;
@@ -22,7 +23,7 @@ class StocksController extends SubscriberToolController
     use EnsuresRepricerCabinetOwnership;
 
     public function __construct(
-        private readonly ApiRepricerStocksController $apiStocksController,
+        private readonly RepricerStocksService $stocksService,
     ) {
     }
 
@@ -30,7 +31,7 @@ class StocksController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiStocksController->show((string) $cabinet->id);
+        $response = $this->stocksService->show((string) $cabinet->id);
         $payload = $this->decodeApiResponse($response);
 
         $stocks = ($payload['success'] ?? false) ? ($payload['data'] ?? []) : [];
@@ -50,7 +51,7 @@ class StocksController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiStocksController->store(
+        $response = $this->stocksService->store(
             $request->duplicate(null, array_merge(
                 $request->validated(),
                 ['cabinet_id' => $cabinet->id]
@@ -76,7 +77,7 @@ class StocksController extends SubscriberToolController
     ): RedirectResponse {
         $this->ensureStockBelongsToCabinet($stock, $cabinet);
 
-        $response = $this->apiStocksController->update(
+        $response = $this->stocksService->update(
             $request->duplicate(null, $request->validated()),
             (string) $stock->id
         );
@@ -95,7 +96,7 @@ class StocksController extends SubscriberToolController
     {
         $this->ensureStockBelongsToCabinet($stock, $cabinet);
 
-        $response = $this->apiStocksController->destroy((string) $stock->id);
+        $response = $this->stocksService->destroy((string) $stock->id);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -109,7 +110,7 @@ class StocksController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiStocksController->getSizesFromWb(
+        $response = $this->stocksService->getSizesFromWb(
             $request->duplicate(null, array_merge(
                 $request->validated(),
                 ['cabinet_id' => $cabinet->id]
@@ -124,7 +125,7 @@ class StocksController extends SubscriberToolController
     {
         $this->ensureStockBelongsToCabinet($stock, $cabinet);
 
-        $response = $this->apiStocksController->reset((string) $stock->id);
+        $response = $this->stocksService->reset((string) $stock->id);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -160,12 +161,8 @@ class StocksController extends SubscriberToolController
             ->where('status', 1)
             ->first();
 
-        $limits = ['repricer_nmid' => null];
-
-        if ($subscription && isset($subscription->limits_plan['repricer_nmid'])) {
-            $limits['repricer_nmid'] = (int) $subscription->limits_plan['repricer_nmid'];
-        }
-
-        return $limits;
+        return [
+            'repricer_nmid' => ToolLimits::planLimitValue($request->user(), $subscription, 'repricer_nmid'),
+        ];
     }
 }

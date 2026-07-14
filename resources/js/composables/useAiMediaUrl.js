@@ -22,6 +22,11 @@ function toWebMediaPath(path) {
     return normalized.replace(/^ai\//, "");
 }
 
+function buildPanelMediaUrl(pathPart) {
+    const webPath = toWebMediaPath(pathPart);
+    return webPath ? `${WEB_MEDIA_PREFIX}${webPath}` : "";
+}
+
 export function toAiMediaUrl(rawSrc, options = {}) {
     const { allowDataUrl = false } = options;
 
@@ -30,29 +35,37 @@ export function toAiMediaUrl(rawSrc, options = {}) {
     }
 
     if (rawSrc.startsWith(WEB_MEDIA_PREFIX)) {
-        const webPath = toWebMediaPath(rawSrc.slice(WEB_MEDIA_PREFIX.length));
-        return webPath ? `${WEB_MEDIA_PREFIX}${webPath}` : "";
+        const pathPart = rawSrc.slice(WEB_MEDIA_PREFIX.length).split("?")[0];
+        return buildPanelMediaUrl(pathPart);
     }
 
     if (rawSrc.startsWith("/media/")) {
-        const webPath = toWebMediaPath(rawSrc.replace(/^\/media\//, ""));
-        return webPath ? `${WEB_MEDIA_PREFIX}${webPath}` : "";
+        const pathPart = rawSrc.replace(/^\/media\//, "").split("?")[0];
+        return buildPanelMediaUrl(pathPart);
     }
 
     if (rawSrc.startsWith("data:")) {
         return allowDataUrl ? rawSrc : "";
     }
 
-    let normalized = rawSrc;
     if (rawSrc.startsWith("http://") || rawSrc.startsWith("https://")) {
         try {
-            normalized = new URL(rawSrc).pathname || "";
+            const parsed = new URL(rawSrc);
+            if (parsed.pathname.startsWith(WEB_MEDIA_PREFIX)) {
+                const pathPart = parsed.pathname.slice(WEB_MEDIA_PREFIX.length);
+                const normalized = buildPanelMediaUrl(pathPart);
+                if (normalized) {
+                    return normalized;
+                }
+            }
+
+            return rawSrc;
         } catch {
             return "";
         }
     }
 
-    const cleanPath = normalized.replace(/^\/+/, "");
+    const cleanPath = rawSrc.replace(/^\/+/, "").split("?")[0];
 
     if (cleanPath.startsWith(BACKEND_MEDIA_PROXY_PREFIX)) {
         const encodedPath = cleanPath.slice(BACKEND_MEDIA_PROXY_PREFIX.length);

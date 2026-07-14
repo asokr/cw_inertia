@@ -48,41 +48,49 @@ export const highlights = [
         title: "Автоответы на Wildberries и Ozon",
         description:
             "Выбираете, на какие оценки реагировать. На WB — ИИ-ответы и свои шаблоны. На Ozon — персональный ответ под каждый отзыв. Экономите часы и держите рейтинг магазина высоким.",
-        image: "/images/home/services/reviews/1.webp",
-        imageFallback: "/images/home/services/reviews/1.png",
+        image: "/images/home/previews/feedbacks.webp",
+        imageFallback: "/images/home/previews/feedbacks.png",
     },
     {
-        id: "repricer",
-        badge: "Репрайсер",
-        title: "Цены, которые работают на прибыль",
+        id: "pricing",
+        badge: "Ценообразование",
+        title: "Цена, с которой продажа приносит прибыль",
         description:
-            "Репрайсер анализирует конкурентов, спрос и ваши остатки в реальном времени. Поднимает цену при дефиците, снижает — когда нужно ускорить оборот. Без ручных таблиц и ночных проверок.",
-        image: "/images/home/services/rep/1.webp",
-        imageFallback: "/images/home/services/rep/1.png",
+            "Сервис считает комиссии WB и Ozon, логистику, хранение и вашу целевую маржу — вы сразу видите минимальную и рекомендуемую цену по каждому SKU. Без формул в Excel и догадок, хватит ли маржи после скидки маркетплейса.",
+        image: "/images/home/previews/pricing.webp",
+        imageFallback: "/images/home/previews/pricing.png",
     },
     {
-        id: "ai",
-        badge: "ИИ-контент",
-        title: "Полный цикл AI-контента для карточек",
+        id: "profitability",
+        badge: "Рентабельность",
+        title: "Чистая прибыль по каждому товару — не оборот",
         description:
-            "Продающие описания, студийные фото и короткие видео — из названия, характеристик или референса. Одно из сильнейших качеств генерации на рынке для селлеров.",
-        image: "/images/home/services/ai/1.webp",
-        imageFallback: "/images/home/services/ai/1.png",
+            "Отчёты маркетплейса показывают выручку, мы — сколько остаётся после комиссий, логистики, рекламы и себестоимости. Сразу видно, какие SKU тянут бизнес вверх, а какие продаются в ноль. Решения по ассортименту и закупкам — на цифрах, не на ощущениях.",
+        image: "/images/home/previews/profitability.webp",
+        imageFallback: "/images/home/previews/profitability.png",
     },
 ];
+
+export const aiToolScreenshotSize = { width: 400, height: 300 };
 
 export const aiTools = [
     {
         title: "AI-описания",
         text: "Генерация и улучшение текстов под WB и Ozon — по фото, названию или своему промпту.",
+        image: "/images/home/previews/ai-text.webp",
+        imageFallback: "/images/home/previews/ai-text.png",
     },
     {
         title: "AI-фото",
         text: "Редактирование и генерация изображений для карточек без студии и дизайнера.",
+        image: "/images/home/previews/ai-image.webp",
+        imageFallback: "/images/home/previews/ai-image.png",
     },
     {
         title: "AI-видео",
         text: "Короткие ролики для вовлечения покупателей — прямо из личного кабинета.",
+        image: "/images/home/previews/ai-video.webp",
+        imageFallback: "/images/home/previews/ai-video.png",
     },
 ];
 

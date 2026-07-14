@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use Laravel\Passport\HasApiTokens;
 use O21\LaravelWallet\Models\Balance;
 use Spatie\Permission\Traits\HasRoles;
 use App\Models\Subscribers\Subscribers;
@@ -20,7 +19,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 
 class User extends Authenticatable implements MustVerifyEmail, Payable, CanResetPassword
 {
-    use HasApiTokens, HasFactory, Notifiable, HasRoles, LaravelPermissionToVueJS, HasBalance;
+    use HasFactory, Notifiable, HasRoles, LaravelPermissionToVueJS, HasBalance;
 
     /**
      * The attributes that are mass assignable.

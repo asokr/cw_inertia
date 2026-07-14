@@ -184,4 +184,27 @@ class AdminWbApiUsageService
             'updated_at' => optional($stat->updated_at)->toDateTimeString(),
         ];
     }
+
+    /**
+     * @return array{date: string, total_requests: int, unique_keys: int, unique_clients: int, items: \Illuminate\Support\Collection, meta: array<string, int>}
+     */
+    public function widgetData(string $statDate, ?string $legalEntity, ?string $sellerId, int $perPage = 50): array
+    {
+        $stats = $this->paginateStats($statDate, $legalEntity, $sellerId, $perPage);
+        $summary = $this->summaryForDate($statDate, $legalEntity, $sellerId);
+
+        return [
+            'date' => $statDate,
+            'total_requests' => $summary['total_requests'],
+            'unique_keys' => $summary['unique_keys'],
+            'unique_clients' => $summary['unique_clients'],
+            'items' => collect($stats->items())->map(fn (WbApiUsageStat $stat) => $this->formatStatRow($stat)),
+            'meta' => [
+                'current_page' => $stats->currentPage(),
+                'per_page' => $stats->perPage(),
+                'total' => $stats->total(),
+                'last_page' => $stats->lastPage(),
+            ],
+        ];
+    }
 }

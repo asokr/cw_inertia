@@ -1,9 +1,9 @@
 <script setup>
-import { onMounted, ref, watch } from "vue";
-import { router } from "@inertiajs/vue3";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import Checkbox from "@/components/ui/Checkbox.vue";
 import Switch from "@/components/ui/Switch.vue";
 import Textarea from "@/components/ui/Textarea.vue";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
     settings: { type: Object, default: null },
@@ -13,40 +13,90 @@ const props = defineProps({
 
 const emit = defineEmits(["signature-change"]);
 
+const { showError } = useFlashToast();
+
 const open = ref(true);
 const aiStatus = ref(Number(props.settings?.status ?? 0));
 const aiRatings = ref([...(props.settings?.ratings ?? [])].map(String));
 const emptyAnswer = ref(Boolean(props.settings?.empty_answer));
 const signature = ref(props.settings?.signature ?? "");
 const saving = ref(false);
+const saved = ref(false);
 const ready = ref(false);
+
+let saveTimer = null;
+let savedTimer = null;
 
 onMounted(() => {
     ready.value = true;
     emit("signature-change", signature.value);
 });
 
-watch(
-    () => [aiStatus.value, aiRatings.value, emptyAnswer.value, signature.value],
-    () => {
-        if (!ready.value || saving.value) return;
-        saving.value = true;
-        emit("signature-change", signature.value);
-        router.post(
-            props.updateUrl,
-            {
+onUnmounted(() => {
+    clearTimeout(saveTimer);
+    clearTimeout(savedTimer);
+});
+
+async function persistSettings() {
+    if (!ready.value || saving.value) {
+        return;
+    }
+
+    saving.value = true;
+    saved.value = false;
+
+    try {
+        const response = await fetch(props.updateUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]')?.content ?? "",
+            },
+            body: JSON.stringify({
                 status: aiStatus.value,
                 ratings: aiRatings.value.map(Number),
                 empty_answer: emptyAnswer.value,
                 signature: signature.value,
-            },
-            {
-                preserveScroll: true,
-                onFinish: () => {
-                    saving.value = false;
-                },
-            },
-        );
+            }),
+            credentials: "same-origin",
+        });
+        const data = await response.json();
+
+        if (!data.success) {
+            showError(data.messages?.join(" ") || "Не удалось сохранить настройки");
+            return;
+        }
+
+        saved.value = true;
+        clearTimeout(savedTimer);
+        savedTimer = setTimeout(() => {
+            saved.value = false;
+        }, 2000);
+        emit("signature-change", signature.value);
+    } catch {
+        showError("Не удалось сохранить настройки");
+    } finally {
+        saving.value = false;
+    }
+}
+
+function queueSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+        persistSettings();
+    }, 400);
+}
+
+watch(
+    () => [aiStatus.value, aiRatings.value, emptyAnswer.value, signature.value],
+    () => {
+        if (!ready.value) {
+            return;
+        }
+
+        emit("signature-change", signature.value);
+        queueSave();
     },
     { deep: true },
 );
@@ -63,11 +113,17 @@ function toggleRating(value) {
 
 <template>
     <div class="rounded-lg border p-4 text-sm">
-        <template v-if="aiStatus">
-            <p>У вас настроены автоответы при помощи ИИ.</p>
-            <p class="mt-1 text-muted-foreground">Осталось запросов к ИИ для отзывов: {{ aiLimit }}</p>
-        </template>
-        <p v-else>Отвечать на отзывы автоматически при помощи ИИ:</p>
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <template v-if="aiStatus">
+                    <p>У вас настроены автоответы при помощи ИИ.</p>
+                    <p class="mt-1 text-muted-foreground">Осталось запросов к ИИ для отзывов: {{ aiLimit }}</p>
+                </template>
+                <p v-else>Отвечать на отзывы автоматически при помощи ИИ:</p>
+            </div>
+            <p v-if="saving" class="shrink-0 text-xs text-muted-foreground">Сохранение…</p>
+            <p v-else-if="saved" class="shrink-0 text-xs text-primary">Сохранено</p>
+        </div>
 
         <button type="button" class="mt-2 text-sm font-medium text-primary hover:underline" @click="open = !open">
             {{ open ? "Закрыть настройки" : "Открыть настройки" }}

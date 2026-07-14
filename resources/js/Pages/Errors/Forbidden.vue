@@ -39,7 +39,7 @@ const toolLinks = [
 
         <div class="relative z-10 mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-10 sm:px-6 lg:px-8">
             <header class="landing-page__fade flex items-center justify-between">
-                <Link href="/" class="text-sm font-semibold tracking-tight text-foreground/90 transition hover:text-primary">
+                <Link href="/" class="text-base font-semibold tracking-tight text-foreground/90 transition hover:text-primary">
                     CW Platform
                 </Link>
                 <Link

@@ -2,10 +2,9 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Oz\PriceCalc;
 
-use App\Http\Controllers\Api\Subscriber\Ozon\PriceCalc\FboController as ApiFboController;
-use App\Http\Controllers\Api\Subscriber\Ozon\PriceCalc\FbsController as ApiFbsController;
-use App\Http\Controllers\Web\Subscriber\Concerns\DelegatesToApiGuard;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresOzPriceCalcCabinetOwnership;
+use App\Services\Subscriber\Oz\OzPriceCalcFboService;
+use App\Services\Subscriber\Oz\OzPriceCalcFbsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\ImportOzPriceCalcExcelRequest;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
@@ -18,12 +17,11 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WorkspaceController extends SubscriberToolController
 {
-    use DelegatesToApiGuard;
     use EnsuresOzPriceCalcCabinetOwnership;
 
     public function __construct(
-        private readonly ApiFboController $apiFboController,
-        private readonly ApiFbsController $apiFbsController,
+        private readonly OzPriceCalcFboService $fboService,
+        private readonly OzPriceCalcFbsService $fbsService,
     ) {
     }
 
@@ -33,9 +31,9 @@ class WorkspaceController extends SubscriberToolController
 
         $mode = $this->resolveMode($request);
 
-        $rowsPayload = $this->withApiGuard($request, fn () => $this->decodeApiResponse(
+        $rowsPayload = $this->decodeApiResponse(
             $this->indexResponse($request, $cabinet->id, $mode)
-        ));
+        );
 
         $rowsData = ($rowsPayload['success'] ?? false) ? ($rowsPayload['data'] ?? []) : [];
 
@@ -66,7 +64,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->dispatchAction(
             $request,
             $cabinet,
-            fn () => $this->apiFboController->sync($request, $cabinet->id),
+            fn () => $this->fboService->sync($request, $cabinet->id),
             'Синхронизация запущена',
             'Не удалось запустить синхронизацию'
         );
@@ -77,7 +75,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->dispatchAction(
             $request,
             $cabinet,
-            fn () => $this->apiFbsController->sync($request, $cabinet->id),
+            fn () => $this->fbsService->sync($request, $cabinet->id),
             'Синхронизация запущена',
             'Не удалось запустить синхронизацию'
         );
@@ -88,7 +86,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->dispatchAction(
             $request,
             $cabinet,
-            fn () => $this->apiFboController->calculate($request, $cabinet->id),
+            fn () => $this->fboService->calculate($request, $cabinet->id),
             'Калькуляция запущена',
             'Не удалось запустить калькуляцию'
         );
@@ -99,7 +97,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->dispatchAction(
             $request,
             $cabinet,
-            fn () => $this->apiFbsController->calculate($request, $cabinet->id),
+            fn () => $this->fbsService->calculate($request, $cabinet->id),
             'Калькуляция запущена',
             'Не удалось запустить калькуляцию'
         );
@@ -110,7 +108,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->dispatchAction(
             $request,
             $cabinet,
-            fn () => $this->apiFboController->import($request, $cabinet->id),
+            fn () => $this->fboService->import($request, $cabinet->id),
             'Импорт запущен',
             'Импорт не выполнен'
         );
@@ -121,7 +119,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->dispatchAction(
             $request,
             $cabinet,
-            fn () => $this->apiFbsController->import($request, $cabinet->id),
+            fn () => $this->fbsService->import($request, $cabinet->id),
             'Импорт запущен',
             'Импорт не выполнен'
         );
@@ -132,7 +130,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->dispatchAction(
             $request,
             $cabinet,
-            fn () => $this->apiFboController->export($request, $cabinet->id),
+            fn () => $this->fboService->export($request, $cabinet->id),
             'Экспорт запущен',
             'Не удалось запустить экспорт'
         );
@@ -143,7 +141,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->dispatchAction(
             $request,
             $cabinet,
-            fn () => $this->apiFbsController->export($request, $cabinet->id),
+            fn () => $this->fbsService->export($request, $cabinet->id),
             'Экспорт запущен',
             'Не удалось запустить экспорт'
         );
@@ -178,28 +176,26 @@ class WorkspaceController extends SubscriberToolController
      */
     private function buildJobStatus(Request $request, int $cabinetId, string $mode): array
     {
-        return $this->withApiGuard($request, function () use ($request, $cabinetId, $mode) {
-            if ($mode === 'fbs') {
-                $syncPayload = $this->decodeApiResponse($this->apiFbsController->status($request, $cabinetId));
-                $calcPayload = $this->decodeApiResponse($this->apiFbsController->calculateStatus($request, $cabinetId));
-                $importPayload = $this->decodeApiResponse($this->apiFbsController->importStatus($request, $cabinetId));
-                $exportPayload = $this->decodeApiResponse($this->apiFbsController->exportStatus($request, $cabinetId));
-            } else {
-                $syncPayload = $this->decodeApiResponse($this->apiFboController->status($request, $cabinetId));
-                $calcPayload = $this->decodeApiResponse($this->apiFboController->calculateStatus($request, $cabinetId));
-                $importPayload = $this->decodeApiResponse($this->apiFboController->importStatus($request, $cabinetId));
-                $exportPayload = $this->decodeApiResponse($this->apiFboController->exportStatus($request, $cabinetId));
-            }
+        if ($mode === 'fbs') {
+            $syncPayload = $this->decodeApiResponse($this->fbsService->status($request, $cabinetId));
+            $calcPayload = $this->decodeApiResponse($this->fbsService->calculateStatus($request, $cabinetId));
+            $importPayload = $this->decodeApiResponse($this->fbsService->importStatus($request, $cabinetId));
+            $exportPayload = $this->decodeApiResponse($this->fbsService->exportStatus($request, $cabinetId));
+        } else {
+            $syncPayload = $this->decodeApiResponse($this->fboService->status($request, $cabinetId));
+            $calcPayload = $this->decodeApiResponse($this->fboService->calculateStatus($request, $cabinetId));
+            $importPayload = $this->decodeApiResponse($this->fboService->importStatus($request, $cabinetId));
+            $exportPayload = $this->decodeApiResponse($this->fboService->exportStatus($request, $cabinetId));
+        }
 
-            return [
-                'is_syncing' => (bool) ($syncPayload['data']['is_syncing'] ?? false),
-                'is_calculating' => (bool) ($calcPayload['data']['is_calculating'] ?? false),
-                'is_importing' => (bool) ($importPayload['data']['is_importing'] ?? false),
-                'is_exporting' => (bool) ($exportPayload['data']['is_exporting'] ?? false),
-                'last_error' => $syncPayload['data']['last_error'] ?? null,
-                'export_file_url' => $exportPayload['data']['file_url'] ?? null,
-            ];
-        });
+        return [
+            'is_syncing' => (bool) ($syncPayload['data']['is_syncing'] ?? false),
+            'is_calculating' => (bool) ($calcPayload['data']['is_calculating'] ?? false),
+            'is_importing' => (bool) ($importPayload['data']['is_importing'] ?? false),
+            'is_exporting' => (bool) ($exportPayload['data']['is_exporting'] ?? false),
+            'last_error' => $syncPayload['data']['last_error'] ?? null,
+            'export_file_url' => $exportPayload['data']['file_url'] ?? null,
+        ];
     }
 
     private function resolveMode(Request $request): string
@@ -212,10 +208,10 @@ class WorkspaceController extends SubscriberToolController
     private function indexResponse(Request $request, int $cabinetId, string $mode): \Symfony\Component\HttpFoundation\Response
     {
         if ($mode === 'fbs') {
-            return $this->apiFbsController->index($request, $cabinetId);
+            return $this->fbsService->index($request, $cabinetId);
         }
 
-        return $this->apiFboController->index($request, $cabinetId);
+        return $this->fboService->index($request, $cabinetId);
     }
 
     private function dispatchAction(
@@ -227,7 +223,7 @@ class WorkspaceController extends SubscriberToolController
     ): RedirectResponse {
         $this->ensureCabinetOwnership($cabinet);
 
-        $payload = $this->withApiGuard($request, fn () => $this->decodeApiResponse($action()));
+        $payload = $this->decodeApiResponse($action());
 
         if (($payload['success'] ?? false) !== true) {
             return back()->with('error', $this->apiMessage($payload, $errorFallback));

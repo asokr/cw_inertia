@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\IndexWbApiUsageRequest;
 use App\Services\Admin\AdminWbApiUsageService;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -40,6 +42,31 @@ class ApiUsageController extends Controller
                 'seller_id' => $sellerId ?? '',
             ],
         ]);
+    }
+
+    public function widgetIndex(Request $request): JsonResponse
+    {
+        $statDate = $this->resolveStatDate($request->input('date'));
+        $perPage = (int) $request->input('per_page', 50);
+        $perPage = $perPage > 0 ? $perPage : 50;
+
+        $payload = $this->wbApiUsageService->widgetData(
+            $statDate,
+            $request->filled('legal_entity') ? (string) $request->input('legal_entity') : null,
+            $request->filled('seller_id') ? (string) $request->input('seller_id') : null,
+            $perPage,
+        );
+
+        $meta = $payload['meta'];
+        unset($payload['meta']);
+        $payload['items'] = $payload['items']->values()->all();
+
+        return response()->json([
+            'success' => true,
+            'messages' => ['Статистика запросов к API Wildberries'],
+            'data' => $payload,
+            'meta' => $meta,
+        ], 200);
     }
 
     private function resolveStatDate(?string $dateInput): string

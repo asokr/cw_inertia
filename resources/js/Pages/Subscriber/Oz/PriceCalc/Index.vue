@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from "vue";
-import { Head, router, useForm } from "@inertiajs/vue3";
+import { Head, Link, router, useForm } from "@inertiajs/vue3";
 import { Pencil, Trash2 } from "lucide-vue-next";
 import PriceCalcFaq from "@/components/subscriber/oz/price-calc/PriceCalcFaq.vue";
 import CabinetForm from "@/components/subscriber/tools/CabinetForm.vue";
@@ -89,7 +89,6 @@ function confirmDelete() {
         </ToolPageHeader>
 
         <div class="space-y-4">
-            <PriceCalcFaq />
             <p v-if="!cabinets.length" class="text-sm text-muted-foreground">Кабинеты не добавлены</p>
 
             <div v-if="cabinets.length" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -99,7 +98,7 @@ function confirmDelete() {
                     class="flex flex-col justify-between p-4"
                 >
                     <div class="space-y-2">
-                        <a :href="cabinet.href" class="font-medium hover:text-primary">{{ cabinet.name }}</a>
+                        <Link :href="cabinet.href" class="font-medium hover:text-primary">{{ cabinet.name }}</Link>
                         <p v-if="cabinet.client_id" class="text-sm text-muted-foreground">
                             Client ID: {{ cabinet.client_id }}
                         </p>
@@ -119,6 +118,8 @@ function confirmDelete() {
                     </div>
                 </Card>
             </div>
+
+            <PriceCalcFaq />
         </div>
 
         <CabinetForm

@@ -25,4 +25,4 @@
 | WB AI Cabinet Analyzer (2 pages) | `/panel/wb/ai-cabinet-analyzer`, `/panel/wb/ai-cabinet-analyzer/cabinets/{cabinet}` | `Web/Subscriber/Wb/AiCabinetAnalyzer/*` | `Subscriber/Wb/AiCabinetAnalyzer/*` | done (Phase 3b.8) |
 | WB Promo Calculator (1 page) | `/panel/wb/promocalculator` | `Web/Subscriber/Wb/PromoCalculator/*` | `Subscriber/Wb/PromoCalculator/Index` | done (Phase 3b.9) |
 | AI Marketplace (1 page) | `/panel/ai` | `Web/Subscriber/Ai/*` | `Subscriber/Ai/Index` | done (Phase 3b.10) |
-| Legacy API routes | — | — | — | pending (Phase 4) |
+| Legacy API routes | — | — | — | done (Phase 4) |

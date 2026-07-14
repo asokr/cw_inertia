@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Repricer;
 
-use App\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCabinetsController as ApiRepricerCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresRepricerCabinetOwnership;
+use App\Services\Subscriber\Wb\RepricerCabinetsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\RepricerLogsRequest;
 use App\Http\Requests\Web\Subscriber\StoreRepricerCabinetRequest;
 use App\Http\Requests\Web\Subscriber\UpdateRepricerCabinetRequest;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -21,13 +22,13 @@ class CabinetsController extends SubscriberToolController
     use EnsuresRepricerCabinetOwnership;
 
     public function __construct(
-        private readonly ApiRepricerCabinetsController $apiCabinetsController,
+        private readonly RepricerCabinetsService $cabinetsService,
     ) {
     }
 
     public function index(Request $request): Response
     {
-        $response = $this->apiCabinetsController->index();
+        $response = $this->cabinetsService->index();
         $payload = $this->decodeApiResponse($response);
 
         $cabinets = [];
@@ -52,7 +53,7 @@ class CabinetsController extends SubscriberToolController
 
     public function store(StoreRepricerCabinetRequest $request): RedirectResponse
     {
-        $response = $this->apiCabinetsController->store($request);
+        $response = $this->cabinetsService->store($request);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -70,7 +71,7 @@ class CabinetsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiCabinetsController->update(
+        $response = $this->cabinetsService->update(
             $request->duplicate(null, $request->validated()),
             (string) $cabinet->id
         );
@@ -89,7 +90,7 @@ class CabinetsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiCabinetsController->destroy((string) $cabinet->id);
+        $response = $this->cabinetsService->destroy((string) $cabinet->id);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -105,7 +106,7 @@ class CabinetsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiCabinetsController->getLogs(
+        $response = $this->cabinetsService->getLogs(
             $request->duplicate(null, array_merge(
                 $request->validated(),
                 ['cabinet_id' => $cabinet->id]
@@ -126,12 +127,8 @@ class CabinetsController extends SubscriberToolController
             ->where('status', 1)
             ->first();
 
-        $limits = ['repricer_nmid' => null];
-
-        if ($subscription && isset($subscription->limits_plan['repricer_nmid'])) {
-            $limits['repricer_nmid'] = (int) $subscription->limits_plan['repricer_nmid'];
-        }
-
-        return $limits;
+        return [
+            'repricer_nmid' => ToolLimits::planLimitValue($request->user(), $subscription, 'repricer_nmid'),
+        ];
     }
 }

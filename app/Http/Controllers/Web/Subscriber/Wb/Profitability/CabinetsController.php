@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Profitability;
 
-use App\Http\Controllers\Api\Subscriber\Wb\Profitability\ProfitabilityCabinetsController as ApiProfitabilityCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresWbProfitabilityCabinetOwnership;
+use App\Services\Subscriber\Wb\WbProfitabilityCabinetsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreProfitabilityCabinetRequest;
 use App\Http\Requests\Web\Subscriber\UpdateProfitabilityCabinetRequest;
@@ -18,13 +18,13 @@ class CabinetsController extends SubscriberToolController
     use EnsuresWbProfitabilityCabinetOwnership;
 
     public function __construct(
-        private readonly ApiProfitabilityCabinetsController $apiCabinetsController,
+        private readonly WbProfitabilityCabinetsService $cabinetsService,
     ) {
     }
 
     public function index(Request $request): Response
     {
-        $response = $this->apiCabinetsController->index();
+        $response = $this->cabinetsService->index();
         $payload = $this->decodeApiResponse($response);
 
         $cabinets = [];
@@ -48,7 +48,7 @@ class CabinetsController extends SubscriberToolController
 
     public function store(StoreProfitabilityCabinetRequest $request): RedirectResponse
     {
-        $response = $this->apiCabinetsController->store($request);
+        $response = $this->cabinetsService->store($request);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -66,7 +66,7 @@ class CabinetsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiCabinetsController->update(
+        $response = $this->cabinetsService->update(
             $request->duplicate(null, $request->validated()),
             (string) $cabinet->id
         );
@@ -85,7 +85,7 @@ class CabinetsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiCabinetsController->destroy((string) $cabinet->id);
+        $response = $this->cabinetsService->destroy((string) $cabinet->id);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {

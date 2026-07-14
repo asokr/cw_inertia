@@ -1,5 +1,5 @@
 <script setup>
-import { Head } from "@inertiajs/vue3";
+import { Head, Link } from "@inertiajs/vue3";
 import RepricerSubnav from "@/components/subscriber/wb/repricer/RepricerSubnav.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import Card from "@/components/ui/Card.vue";
@@ -31,10 +31,10 @@ const breadcrumbs = [
                 :key="strategy.key"
                 class="p-4 transition-colors hover:border-primary/40"
             >
-                <a :href="strategy.href" class="block space-y-1">
+                <Link :href="strategy.href" class="block space-y-1">
                     <h3 class="font-medium text-primary">{{ strategy.title }}</h3>
                     <p class="text-sm text-muted-foreground">{{ strategy.description }}</p>
-                </a>
+                </Link>
             </Card>
         </div>
     </SubscriberLayout>

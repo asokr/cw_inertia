@@ -63,18 +63,6 @@ return [
             'throw' => false,
         ],
 
-        'ai_media' => [
-            'driver' => 's3',
-            'key' => env('AI_MEDIA_KEY', env('AWS_ACCESS_KEY_ID')),
-            'secret' => env('AI_MEDIA_SECRET', env('AWS_SECRET_ACCESS_KEY')),
-            'region' => env('AI_MEDIA_REGION', 'ru-central1'),
-            'bucket' => env('AI_MEDIA_BUCKET', env('AWS_BUCKET')),
-            'url' => env('AI_MEDIA_URL'),
-            'endpoint' => env('AI_MEDIA_ENDPOINT', 'https://storage.yandexcloud.net'),
-            'use_path_style_endpoint' => env('AI_MEDIA_USE_PATH_STYLE', false),
-            'throw' => false,
-        ],
-
     ],
 
     /*

@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script>
-        (function () {
+        (function() {
             const key = "cw-color-scheme";
             const stored = localStorage.getItem(key);
             const isDark = stored === "dark";
@@ -21,6 +21,11 @@
             else document.documentElement.classList.remove("dark");
         })();
     </script>
+
+    @if (\App\Support\AnalyticsScripts::shouldLoad())
+        @include('partials.third-party-scripts')
+    @endif
+
     @vite(['resources/js/app.js'])
     @inertiaHead
 </head>

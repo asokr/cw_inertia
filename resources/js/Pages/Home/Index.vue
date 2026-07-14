@@ -16,7 +16,7 @@ import ReviewsSection from "@/components/landing/ReviewsSection.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import Dialog from "@/components/ui/Dialog.vue";
-import { aiTools, faqItems, features, highlights, plans } from "@/config/homeContent";
+import { aiToolScreenshotSize, aiTools, faqItems, features, highlights, plans } from "@/config/homeContent";
 import LandingLayout from "@/Layouts/LandingLayout.vue";
 
 const props = defineProps({
@@ -42,19 +42,32 @@ function closeSpecialModal() {
 
 const profileUrl = computed(() => (props.isSubscriber ? "/panel/user/profile" : props.homeUrl));
 
+const screenshotSize = { width: 1200, height: 675 };
+
 const heroImage = {
-    webp: "/images/home/sales.webp",
-    png: "/images/home/sales.png",
+    webp: "/images/home/previews/hero.webp",
+    png: "/images/home/previews/hero.png",
 };
 </script>
 
 <template>
-    <Head title="Онлайн-сервис для продаж на Wildberries и Ozon">
+    <Head title="Онлайн сервис для работы с маркетплейсами - CWPlatform">
         <meta
             head-key="description"
             name="description"
-            content="Инструменты для селлеров: рентабельность, репрайсер, автоответы на отзывы, ценообразование и ИИ-контент для WB и Ozon."
+            content="Набор инструментов для работы с маркетплейсами✔️ Ценообразование WB ✔️ Работа с отзывами ✔️ Рентабельность акций ✔️ Инструменты ИИ "
         />
+        <meta
+            head-key="og:title"
+            property="og:title"
+            content="Набор инструментов для работы с маркетплейсами✔️ Ценообразование WB ✔️ Работа с отзывами ✔️ Рентабельность акций ✔️ Инструменты ИИ "
+        />
+        <meta
+            head-key="og:description"
+            property="og:description"
+            content="Набор инструментов для работы с маркетплейсами✔️ Ценообразование WB ✔️ Работа с отзывами ✔️ Рентабельность акций ✔️ Инструменты ИИ "
+        />
+        <meta head-key="og:image" property="og:image" content="/android-chrome-512x512.png" />
     </Head>
 
     <LandingLayout
@@ -137,7 +150,9 @@ const heroImage = {
                         <img
                             :src="heroImage.png"
                             alt="Панель CW Platform"
-                            class="w-full"
+                            :width="screenshotSize.width"
+                            :height="screenshotSize.height"
+                            class="aspect-video w-full object-cover"
                             loading="eager"
                         />
                     </picture>
@@ -192,7 +207,14 @@ const heroImage = {
                     <div class="overflow-hidden rounded-xl border bg-background/50">
                         <picture>
                             <source :srcset="item.image" type="image/webp" />
-                            <img :src="item.imageFallback" :alt="item.title" class="w-full" loading="lazy" />
+                            <img
+                                :src="item.imageFallback"
+                                :alt="item.title"
+                                :width="screenshotSize.width"
+                                :height="screenshotSize.height"
+                                class="aspect-video w-full object-cover"
+                                loading="lazy"
+                            />
                         </picture>
                     </div>
                 </div>
@@ -218,10 +240,23 @@ const heroImage = {
                     <div
                         v-for="tool in aiTools"
                         :key="tool.title"
-                        class="rounded-xl border bg-background/70 p-4"
+                        class="overflow-hidden rounded-xl border bg-background/70"
                     >
-                        <h3 class="mb-2 font-medium">{{ tool.title }}</h3>
-                        <p class="text-sm text-muted-foreground">{{ tool.text }}</p>
+                        <picture>
+                            <source :srcset="tool.image" type="image/webp" />
+                            <img
+                                :src="tool.imageFallback"
+                                :alt="tool.title"
+                                :width="aiToolScreenshotSize.width"
+                                :height="aiToolScreenshotSize.height"
+                                class="aspect-[4/3] w-full object-cover"
+                                loading="lazy"
+                            />
+                        </picture>
+                        <div class="p-4">
+                            <h3 class="mb-2 font-medium">{{ tool.title }}</h3>
+                            <p class="text-sm text-muted-foreground">{{ tool.text }}</p>
+                        </div>
                     </div>
                 </div>
 

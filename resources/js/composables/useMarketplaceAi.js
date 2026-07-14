@@ -4,8 +4,8 @@ import { mapAiImageItem, normalizeVideoItem, toAiMediaUrl } from "@/composables/
 import { useAiVideoPoll } from "@/composables/useAiVideoPoll";
 
 const GENERATION_STORAGE_KEYS = {
-    image: "ai_image_active_generation_id",
-    video: "ai_video_active_generation_id",
+    image: "ai_image_active_generation_uuid",
+    video: "ai_video_active_generation_uuid",
 };
 
 const GENERATIONS_BASE_PATHS = {
@@ -81,6 +81,13 @@ function mapApiImageTask(task) {
         mapped.image = normalizeHistoryImage(task.image);
     }
 
+    if (Array.isArray(task.source_images) && task.source_images.length > 0) {
+        mapped.source_images = normalizeHistoryImages(task.source_images);
+        if (!mapped.image && mapped.source_images[0]) {
+            mapped.image = mapped.source_images[0];
+        }
+    }
+
     if (Array.isArray(task.images) && task.images.length > 0) {
         mapped.images = normalizeHistoryImages(task.images);
     }
@@ -138,7 +145,7 @@ function mapApiTask(task) {
     return mapped.request_id ? mapped : null;
 }
 
-function buildVideoStartPayload(payload, generationId) {
+function buildVideoStartPayload(payload, generationUuid) {
     const body = {
         task_type: payload.task_type,
         prompt: String(payload.prompt || "").trim(),
@@ -146,8 +153,8 @@ function buildVideoStartPayload(payload, generationId) {
         resolution: payload.resolution || "480p",
     };
 
-    if (generationId) {
-        body.generation_id = generationId;
+    if (generationUuid) {
+        body.generation_uuid = generationUuid;
     }
 
     if (payload.task_type === "generate_video" && payload.aspect_ratio) {
@@ -161,7 +168,7 @@ function buildVideoStartPayload(payload, generationId) {
     return body;
 }
 
-function buildSceneVideoPayload(payload, generationId) {
+function buildSceneVideoPayload(payload, generationUuid) {
     const body = {
         prompt: String(payload.prompt || "").trim(),
         duration: Number(payload.duration || 5),
@@ -169,8 +176,8 @@ function buildSceneVideoPayload(payload, generationId) {
         images: Array.isArray(payload.images) ? payload.images : [],
     };
 
-    if (generationId) {
-        body.generation_id = generationId;
+    if (generationUuid) {
+        body.generation_uuid = generationUuid;
     }
 
     return body;
@@ -192,6 +199,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
     const videoHistory = ref([]);
     const savedGenerations = ref([]);
     const activeGenerationId = ref(null);
+    const activeGenerationUuid = ref(null);
 
     const generationsMode = limitsMode === "image" || limitsMode === "video" ? limitsMode : "video";
     const generationsBasePath = GENERATIONS_BASE_PATHS[generationsMode];
@@ -220,10 +228,15 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
         }
     }
 
-    function rememberActiveGeneration(id) {
-        activeGenerationId.value = id;
-        if (id) {
-            localStorage.setItem(activeGenerationStorageKey, String(id));
+    function rememberActiveGeneration(key) {
+        if (generationsMode === "image" || generationsMode === "video") {
+            activeGenerationUuid.value = key || null;
+        } else {
+            activeGenerationId.value = key || null;
+        }
+
+        if (key) {
+            localStorage.setItem(activeGenerationStorageKey, String(key));
         } else {
             localStorage.removeItem(activeGenerationStorageKey);
         }
@@ -333,13 +346,13 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
         }
     }
 
-    async function openGeneration(generationId) {
-        if (!generationId) {
+    async function openGeneration(generationKey) {
+        if (!generationKey) {
             return { ok: false, message: "Генерация не выбрана" };
         }
 
         try {
-            const response = await aiFetch(`${generationsBasePath}/${generationId}`);
+            const response = await aiFetch(`${generationsBasePath}/${generationKey}`);
             if (!response?.success) {
                 return { ok: false, message: extractAiMessage(response, "Не удалось загрузить генерацию") };
             }
@@ -350,7 +363,8 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
                 : [];
 
             taskHistory.value = tasks;
-            rememberActiveGeneration(generationId);
+            const resolvedKey = response.data?.uuid ?? generationKey;
+            rememberActiveGeneration(resolvedKey);
 
             if (generationsMode === "video") {
                 videoPoll.resumePending(tasks);
@@ -390,7 +404,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             };
             upsertGenerationSummary(generation);
             taskHistory.value = [];
-            rememberActiveGeneration(generation.id);
+            rememberActiveGeneration(generation.uuid);
 
             return { ok: true, generation };
         } catch (error) {
@@ -401,9 +415,9 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
         }
     }
 
-    async function deleteGeneration(generationId) {
+    async function deleteGeneration(generationKey) {
         try {
-            const response = await aiFetch(`${generationsBasePath}/${generationId}`, {
+            const response = await aiFetch(`${generationsBasePath}/${generationKey}`, {
                 method: "DELETE",
             });
 
@@ -411,9 +425,11 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
                 return { ok: false, message: extractAiMessage(response, "Не удалось удалить генерацию") };
             }
 
-            savedGenerations.value = savedGenerations.value.filter((item) => item.id !== generationId);
+            savedGenerations.value = savedGenerations.value.filter((item) => item.uuid !== generationKey);
 
-            if (activeGenerationId.value === generationId) {
+            const isActive = activeGenerationUuid.value === generationKey;
+
+            if (isActive) {
                 taskHistory.value = [];
                 rememberActiveGeneration(null);
             }
@@ -438,15 +454,16 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             return { ok: true, tasks: [] };
         }
 
-        const storedId = Number(localStorage.getItem(activeGenerationStorageKey) || 0);
-        const target = savedGenerations.value.find((item) => item.id === storedId)
-            ?? savedGenerations.value[0];
+        const storedKey = localStorage.getItem(activeGenerationStorageKey);
+        const target = savedGenerations.value.find((item) => item.uuid === storedKey) ?? savedGenerations.value[0];
 
-        if (!target?.id) {
+        const resolvedKey = target?.uuid;
+
+        if (!resolvedKey) {
             return { ok: true, tasks: [] };
         }
 
-        return openGeneration(target.id);
+        return openGeneration(resolvedKey);
     }
 
     async function sendRequest(payload) {
@@ -510,7 +527,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
 
         const body = {
             ...payload,
-            generation_id: activeGenerationId.value || undefined,
+            generation_uuid: activeGenerationUuid.value || undefined,
         };
 
         try {
@@ -525,15 +542,15 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
                     ok: false,
                     message: extractAiMessage(response, "Запрос не выполнен"),
                     moderation: Boolean(response?.meta?.moderation),
-                    generationId: response?.data?.generation_id ?? null,
+                    generationUuid: response?.data?.generation_uuid ?? null,
                 };
             }
 
             applyLimits(response?.limits || response?.data?.limits);
 
-            const generationId = response?.data?.generation_id;
-            if (generationId) {
-                rememberActiveGeneration(generationId);
+            const generationUuid = response?.data?.generation_uuid;
+            if (generationUuid) {
+                rememberActiveGeneration(generationUuid);
             }
 
             const mappedTask = mapApiImageTask(response?.data?.task);
@@ -554,7 +571,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             return {
                 ok: true,
                 taskId: mappedTask?.id ?? null,
-                generationId,
+                generationUuid,
             };
         } catch (error) {
             const status = error?.status;
@@ -579,7 +596,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
 
     async function runVideoTask(payload) {
         loading.value = true;
-        const body = buildVideoStartPayload(payload, activeGenerationId.value);
+        const body = buildVideoStartPayload(payload, activeGenerationUuid.value);
 
         try {
             const response = await aiFetch("/panel/ai/video/start", {
@@ -593,10 +610,10 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             }
 
             const reqId = response?.data?.request_id;
-            const generationId = response?.data?.generation_id;
+            const generationUuid = response?.data?.generation_uuid ?? null;
 
-            if (generationId) {
-                rememberActiveGeneration(generationId);
+            if (generationUuid) {
+                rememberActiveGeneration(generationUuid);
             }
 
             if (reqId) {
@@ -616,7 +633,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
 
             await loadGenerations();
 
-            return { ok: true, requestId: reqId, generationId };
+            return { ok: true, requestId: reqId, generationUuid };
         } catch (error) {
             const status = error?.status;
             const payload = error?.payload || {};
@@ -640,7 +657,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
 
     async function runSceneVideoTask(payload) {
         loading.value = true;
-        const body = buildSceneVideoPayload(payload, activeGenerationId.value);
+        const body = buildSceneVideoPayload(payload, activeGenerationUuid.value);
 
         try {
             const response = await aiFetch("/panel/ai/video/reference/start", {
@@ -654,10 +671,10 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             }
 
             const reqId = response?.data?.request_id;
-            const generationId = response?.data?.generation_id;
+            const generationUuid = response?.data?.generation_uuid ?? null;
 
-            if (generationId) {
-                rememberActiveGeneration(generationId);
+            if (generationUuid) {
+                rememberActiveGeneration(generationUuid);
             }
 
             if (reqId) {
@@ -677,7 +694,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
 
             await loadGenerations();
 
-            return { ok: true, requestId: reqId, generationId };
+            return { ok: true, requestId: reqId, generationUuid };
         } catch (error) {
             const status = error?.status;
             const payload = error?.payload || {};
@@ -713,6 +730,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
         videoHistory,
         savedGenerations,
         activeGenerationId,
+        activeGenerationUuid,
         hasTextLimit,
         hasImageLimit,
         hasVideoLimit,

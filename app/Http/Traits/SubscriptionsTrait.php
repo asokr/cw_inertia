@@ -4,6 +4,7 @@ namespace App\Http\Traits;
 
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
@@ -17,6 +18,10 @@ trait SubscriptionsTrait
     private function syncLimits($subscriber_id, $limit_type)
     {
         $user = Subscribers::find($subscriber_id)->user;
+
+        if (ToolLimits::bypassesFor($user)) {
+            return false;
+        }
 
         switch ($limit_type) {
             case 'feedbacks_clients':

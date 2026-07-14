@@ -6,9 +6,9 @@ import { toAiMediaUrl } from "@/composables/useAiMediaUrl";
 
 const props = defineProps({
     items: { type: Array, default: () => [] },
-    activeId: { type: [Number, null], default: null },
+    activeId: { type: [String, null], default: null },
     loading: { type: Boolean, default: false },
-    deletingId: { type: [Number, null], default: null },
+    deletingId: { type: [String, null], default: null },
 });
 
 const emit = defineEmits(["open", "create", "delete"]);
@@ -67,12 +67,12 @@ function formatDate(value) {
                 v-for="item in items"
                 :key="item.id"
                 class="group relative overflow-hidden rounded-xl border bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
-                :class="activeId === item.id ? 'border-primary ring-2 ring-primary/15' : ''"
+                :class="activeId === item.uuid ? 'border-primary ring-2 ring-primary/15' : ''"
             >
                 <button
                     type="button"
                     class="block w-full text-left"
-                    @click="emit('open', item.id)"
+                    @click="emit('open', item.uuid)"
                 >
                     <div class="relative aspect-[3/4] min-h-[180px] overflow-hidden bg-gradient-to-br from-muted via-muted/80 to-muted/40 sm:min-h-[220px]">
                         <img
@@ -117,11 +117,11 @@ function formatDate(value) {
                 <button
                     type="button"
                     class="absolute right-2 top-2 rounded-lg bg-background/80 p-1.5 text-destructive opacity-0 shadow-sm backdrop-blur-sm transition-all hover:bg-background group-hover:opacity-100"
-                    :disabled="deletingId === item.id"
+                    :disabled="deletingId === item.uuid"
                     title="Удалить"
-                    @click.stop="emit('delete', item.id)"
+                    @click.stop="emit('delete', item.uuid)"
                 >
-                    <Loader2 v-if="deletingId === item.id" class="h-3.5 w-3.5 animate-spin" />
+                    <Loader2 v-if="deletingId === item.uuid" class="h-3.5 w-3.5 animate-spin" />
                     <Trash2 v-else class="h-3.5 w-3.5" />
                 </button>
             </article>

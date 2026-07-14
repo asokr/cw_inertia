@@ -2,6 +2,7 @@
 import { Head, router } from "@inertiajs/vue3";
 import { h, ref } from "vue";
 import { actionsColumn, renderRowActions } from "@/lib/tableActions";
+import OAuthProviderBadge from "@/components/admin/OAuthProviderBadge.vue";
 import AdminLayout from "@/Layouts/AdminLayout.vue";
 import PageHeader from "@/components/admin/PageHeader.vue";
 import SubscribersSubnav from "@/components/admin/SubscribersSubnav.vue";
@@ -37,7 +38,16 @@ const columns = [
     {
         accessorKey: "user.name",
         header: "Имя",
-        cell: ({ row }) => row.original.user?.name ?? "—",
+        cell: ({ row }) => {
+            const user = row.original.user;
+            return h("span", { class: "inline-flex items-center" }, [
+                user?.name ?? "—",
+                h(OAuthProviderBadge, {
+                    vkId: user?.vk_id,
+                    yandexId: user?.yandex_id,
+                }),
+            ]);
+        },
     },
     {
         id: "contact",

@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Feedbacks;
 
-use App\Http\Controllers\Api\Subscriber\Wb\Feedbacks\FeedbacksClientsController as ApiFeedbacksClientsController;
-use App\Http\Controllers\Api\Subscriber\Wb\Feedbacks\FeedbacksTemplatesController as ApiFeedbacksTemplatesController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresFeedbacksClientOwnership;
+use App\Services\Subscriber\Wb\WbFeedbacksClientsService;
+use App\Services\Subscriber\Wb\WbFeedbacksTemplatesService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreTemplateRequest;
 use App\Http\Requests\Web\Subscriber\UpdateBotStatusRequest;
@@ -22,8 +22,8 @@ class TemplatesController extends SubscriberToolController
     use EnsuresFeedbacksClientOwnership;
 
     public function __construct(
-        private readonly ApiFeedbacksTemplatesController $apiTemplatesController,
-        private readonly ApiFeedbacksClientsController $apiClientsController,
+        private readonly WbFeedbacksTemplatesService $templatesService,
+        private readonly WbFeedbacksClientsService $clientsService,
     ) {
     }
 
@@ -31,12 +31,12 @@ class TemplatesController extends SubscriberToolController
     {
         $this->ensureClientOwnership($client);
 
-        $templatesResponse = $this->apiTemplatesController->showAll(
+        $templatesResponse = $this->templatesService->showAll(
             $request->duplicate(['client_id' => $client->id])
         );
         $templatesPayload = $this->decodeApiResponse($templatesResponse);
 
-        $botResponse = $this->apiClientsController->getBotStatus(
+        $botResponse = $this->clientsService->getBotStatus(
             $request->duplicate(['client_id' => $client->id])
         );
         $botPayload = $this->decodeApiResponse($botResponse);
@@ -79,7 +79,7 @@ class TemplatesController extends SubscriberToolController
     {
         $this->ensureClientOwnership($client);
 
-        $response = $this->apiTemplatesController->store(
+        $response = $this->templatesService->store(
             $this->apiRequestWith($request, [
                 'client_id' => $client->id,
                 'text' => $request->validated('text'),
@@ -108,7 +108,7 @@ class TemplatesController extends SubscriberToolController
             abort(404);
         }
 
-        $response = $this->apiTemplatesController->update(
+        $response = $this->templatesService->update(
             $this->apiRequestWith($request, [
                 'text' => $request->validated('text'),
                 'minRating' => $request->validated('minRating'),
@@ -137,7 +137,7 @@ class TemplatesController extends SubscriberToolController
             abort(404);
         }
 
-        $response = $this->apiTemplatesController->destroy((string) $template->id);
+        $response = $this->templatesService->destroy((string) $template->id);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -153,7 +153,7 @@ class TemplatesController extends SubscriberToolController
     {
         $this->ensureClientOwnership($client);
 
-        $response = $this->apiClientsController->updateBotStatus(
+        $response = $this->clientsService->updateBotStatus(
             $this->apiRequestWith($request, [
                 'client_id' => $client->id,
                 'bot_status' => $request->validated('bot_status'),

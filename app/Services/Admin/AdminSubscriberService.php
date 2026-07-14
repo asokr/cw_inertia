@@ -29,7 +29,7 @@ class AdminSubscriberService
         $query = Subscribers::select(['id', 'user_id', 'status'])
             ->with([
                 'user' => function ($query) {
-                    $query->select(['id', 'name', 'email', 'phone'])
+                    $query->select(['id', 'name', 'email', 'phone', 'vk_id', 'yandex_id'])
                         ->with(['balances' => function ($query) {
                             $query->select(['payable_id', 'value', 'value_pending', 'value_on_hold']);
                         }]);
@@ -69,43 +69,33 @@ class AdminSubscriberService
 
     public function search(string $query): Collection
     {
-        $results = collect();
-
-        $users = User::select(['id'])
-            ->where('name', 'like', "%{$query}%")
-            ->orWhere('surname', 'like', "%{$query}%")
-            ->orWhere('email', 'like', "%{$query}%")
+        return Subscribers::select(['id', 'user_id', 'status'])
+            ->with([
+                'user' => function ($query) {
+                    $query->select(['id', 'name', 'email', 'phone', 'vk_id', 'yandex_id'])
+                        ->with(['balances' => function ($query) {
+                            $query->select(['payable_id', 'value', 'value_pending', 'value_on_hold']);
+                        }]);
+                },
+            ])
+            ->with([
+                'subscriptions' => function ($query) {
+                    $query->select([
+                        'subscribers_id', 'plan_id', 'limits_plan', 'limits_month',
+                        'extra_limits_plan', 'extra_limits_month', 'start_date', 'end_date', 'status',
+                    ])
+                        ->with(['plan' => function ($query) {
+                            $query->select(['id', 'name', 'limits_plan', 'limits_month']);
+                        }])
+                        ->where('status', 1);
+                },
+            ])
+            ->whereHas('user', function ($userQuery) use ($query) {
+                $userQuery->where('name', 'like', "%{$query}%")
+                    ->orWhere('surname', 'like', "%{$query}%")
+                    ->orWhere('email', 'like', "%{$query}%");
+            })
             ->get();
-
-        foreach ($users as $user) {
-            $subscriber = Subscribers::where('user_id', $user->id)
-                ->select(['id', 'user_id', 'status'])
-                ->with([
-                    'user' => function ($q) {
-                        $q->select(['id', 'name', 'email', 'phone'])
-                            ->with(['balances' => function ($q) {
-                                $q->select(['payable_id', 'value', 'value_pending', 'value_on_hold']);
-                            }]);
-                    },
-                    'subscriptions' => function ($q) {
-                        $q->select([
-                            'subscribers_id', 'plan_id', 'limits_plan', 'limits_month',
-                            'extra_limits_plan', 'extra_limits_month', 'start_date', 'end_date', 'status',
-                        ])
-                            ->with(['plan' => function ($q) {
-                                $q->select(['id', 'name', 'limits_plan', 'limits_month']);
-                            }])
-                            ->where('status', 1);
-                    },
-                ])
-                ->first();
-
-            if ($subscriber) {
-                $results->push($subscriber);
-            }
-        }
-
-        return $results;
     }
 
     public function getDetail(Subscribers $subscriber): array

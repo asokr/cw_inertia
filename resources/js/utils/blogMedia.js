@@ -3,35 +3,57 @@ export function toFrontendMediaUrl(rawSrc) {
         return "";
     }
 
-    if (rawSrc.startsWith("/media/") || rawSrc.startsWith("data:")) {
-        return rawSrc;
+    const trimmed = String(rawSrc).trim();
+    if (!trimmed) {
+        return "";
     }
 
-    let normalized = rawSrc;
+    if (trimmed.startsWith("/media/") || trimmed.startsWith("data:")) {
+        return trimmed;
+    }
 
-    if (rawSrc.startsWith("http://") || rawSrc.startsWith("https://")) {
+    let normalized = trimmed;
+    let suffix = "";
+
+    const queryIndex = normalized.indexOf("?");
+    const hashIndex = normalized.indexOf("#");
+    const cutIndex = queryIndex >= 0
+        ? queryIndex
+        : (hashIndex >= 0 ? hashIndex : -1);
+
+    if (cutIndex >= 0) {
+        suffix = normalized.slice(cutIndex);
+        normalized = normalized.slice(0, cutIndex);
+    }
+
+    if (
+        normalized.startsWith("http://")
+        || normalized.startsWith("https://")
+        || normalized.startsWith("//")
+    ) {
         try {
-            normalized = new URL(rawSrc).pathname || "";
+            const url = normalized.startsWith("//") ? `https:${normalized}` : normalized;
+            normalized = new URL(url).pathname || "";
         } catch {
-            return rawSrc;
+            return trimmed;
         }
     }
 
     const cleanPath = normalized.replace(/^\/+/, "");
 
     if (cleanPath.startsWith("storage/blog/images/")) {
-        return `/media/${cleanPath.replace(/^storage\//, "")}`;
+        return `/media/${cleanPath.replace(/^storage\//, "")}${suffix}`;
     }
 
     if (cleanPath.startsWith("media/blog/images/")) {
-        return `/${cleanPath}`;
+        return `/${cleanPath}${suffix}`;
     }
 
     if (cleanPath.startsWith("blog/images/")) {
-        return `/media/${cleanPath}`;
+        return `/media/${cleanPath}${suffix}`;
     }
 
-    return rawSrc;
+    return trimmed;
 }
 
 export function getPostCoverUrl(post) {

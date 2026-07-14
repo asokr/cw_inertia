@@ -17,7 +17,7 @@ const emit = defineEmits(["submit", "error"]);
 const form = reactive({
     image_prompt: "",
     images: [],
-    aspectRatio: "3:4",
+    aspectRatio: null,
     resolution: "default",
 });
 
@@ -78,13 +78,24 @@ function insertSourcePrompt() {
     sourcePrompt.value = "";
 }
 
+function toggleAspectRatio(value) {
+    if (props.disabled) {
+        return;
+    }
+
+    form.aspectRatio = form.aspectRatio === value ? null : value;
+}
+
 function submit() {
     const payload = {
         task_type: "generate_image",
         image_prompt: form.image_prompt.trim(),
-        aspectRatio: form.aspectRatio,
         resolution: form.resolution,
     };
+
+    if (form.aspectRatio) {
+        payload.aspectRatio = form.aspectRatio;
+    }
 
     if (form.images.length > 0) {
         payload.images = [...form.images];
@@ -121,7 +132,7 @@ function updateImage(idx, imgBase64) {
 function resetForm() {
     form.image_prompt = "";
     form.images = [];
-    form.aspectRatio = "3:4";
+    form.aspectRatio = null;
     form.resolution = "default";
     sourcePrompt.value = "";
 }
@@ -152,8 +163,8 @@ function applySnapshot(snapshot = {}) {
         form.image_prompt = "";
     }
 
-    if (snapshot.aspectRatio) {
-        form.aspectRatio = snapshot.aspectRatio;
+    if ("aspectRatio" in snapshot) {
+        form.aspectRatio = snapshot.aspectRatio || null;
     }
 
     if (snapshot.resolution) {
@@ -172,7 +183,7 @@ defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm });
 
 <template>
     <div class="space-y-3">
-        <div v-if="referencePreviews.length > 0" class="flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
             <div
                 v-for="(preview, idx) in referencePreviews"
                 :key="idx"
@@ -245,7 +256,7 @@ defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm });
                         class="rounded-md border px-1.5 py-0.5 transition-colors"
                         :class="form.aspectRatio === ar.value ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-muted/50'"
                         :disabled="disabled"
-                        @click="form.aspectRatio = ar.value"
+                        @click="toggleAspectRatio(ar.value)"
                     >
                         {{ ar.label }}
                     </button>
@@ -270,17 +281,6 @@ defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm });
             </div>
 
             <span class="text-[11px]">{{ totalCost }} {{ pluralCredits(totalCost) }}</span>
-        </div>
-
-        <div v-if="form.images.length === 0" class="flex items-center gap-2">
-            <AiImageUploader
-                model-value=""
-                :multiple="true"
-                :disabled="disabled"
-                class="flex-1 [&>div]:py-3"
-                @files-added="onFilesAdded"
-                @error="handleImageError"
-            />
         </div>
     </div>
 </template>

@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Repricer;
 
-use App\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerSettingsController as ApiRepricerSettingsController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresRepricerCabinetOwnership;
+use App\Services\Subscriber\Wb\RepricerTimeSettingsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreRepricerTimeSettingRequest;
 use App\Http\Requests\Web\Subscriber\UpdateRepricerTimeSettingRequest;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use Illuminate\Http\RedirectResponse;
@@ -20,7 +21,7 @@ class TimeSettingsController extends SubscriberToolController
     use EnsuresRepricerCabinetOwnership;
 
     public function __construct(
-        private readonly ApiRepricerSettingsController $apiSettingsController,
+        private readonly RepricerTimeSettingsService $settingsService,
     ) {
     }
 
@@ -28,7 +29,7 @@ class TimeSettingsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiSettingsController->show((string) $cabinet->id);
+        $response = $this->settingsService->show((string) $cabinet->id);
         $payload = $this->decodeApiResponse($response);
 
         $settings = ($payload['success'] ?? false) ? ($payload['data'] ?? []) : [];
@@ -48,7 +49,7 @@ class TimeSettingsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiSettingsController->store(
+        $response = $this->settingsService->store(
             $request->duplicate(null, array_merge(
                 $request->validated(),
                 ['cabinet_id' => $cabinet->id]
@@ -74,7 +75,7 @@ class TimeSettingsController extends SubscriberToolController
     ): RedirectResponse {
         $this->ensureSettingBelongsToCabinet($setting, $cabinet);
 
-        $response = $this->apiSettingsController->update(
+        $response = $this->settingsService->update(
             $request->duplicate(null, $request->validated()),
             (string) $setting->id
         );
@@ -93,7 +94,7 @@ class TimeSettingsController extends SubscriberToolController
     {
         $this->ensureSettingBelongsToCabinet($setting, $cabinet);
 
-        $response = $this->apiSettingsController->destroy((string) $setting->id);
+        $response = $this->settingsService->destroy((string) $setting->id);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -129,12 +130,8 @@ class TimeSettingsController extends SubscriberToolController
             ->where('status', 1)
             ->first();
 
-        $limits = ['repricer_nmid' => null];
-
-        if ($subscription && isset($subscription->limits_plan['repricer_nmid'])) {
-            $limits['repricer_nmid'] = (int) $subscription->limits_plan['repricer_nmid'];
-        }
-
-        return $limits;
+        return [
+            'repricer_nmid' => ToolLimits::planLimitValue($request->user(), $subscription, 'repricer_nmid'),
+        ];
     }
 }

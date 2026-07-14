@@ -2,8 +2,6 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\PriceCalc;
 
-use App\Http\Controllers\Api\Subscriber\Wb\PriceCalculation\PriceCalculationV3Controller as ApiPriceCalculationV3Controller;
-use App\Http\Controllers\Web\Subscriber\Concerns\DelegatesToApiGuard;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresWbPriceCalcCabinetOwnership;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\ImportWbPriceCalcExcelRequest;
@@ -11,6 +9,7 @@ use App\Http\Requests\Web\Subscriber\ImportWbPriceCalcVolumeRequest;
 use App\Http\Requests\Web\Subscriber\SaveWbPriceCalcSettingsRequest;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
+use App\Services\Subscriber\Wb\WbPriceCalculationV3Service;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -20,11 +19,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WorkspaceController extends SubscriberToolController
 {
-    use DelegatesToApiGuard;
     use EnsuresWbPriceCalcCabinetOwnership;
 
     public function __construct(
-        private readonly ApiPriceCalculationV3Controller $apiV3Controller,
+        private readonly WbPriceCalculationV3Service $v3Service,
     ) {
     }
 
@@ -32,13 +30,13 @@ class WorkspaceController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $settingsPayload = $this->withApiGuard($request, fn () => $this->decodeApiResponse(
-            $this->apiV3Controller->getSettings((int) $cabinet->id)
-        ));
+        $settingsPayload = $this->decodeApiResponse(
+            $this->v3Service->getSettings((int) $cabinet->id)
+        );
 
-        $cardsPayload = $this->withApiGuard($request, fn () => $this->decodeApiResponse(
-            $this->apiV3Controller->index($request, (int) $cabinet->id)
-        ));
+        $cardsPayload = $this->decodeApiResponse(
+            $this->v3Service->index($request, (int) $cabinet->id)
+        );
 
         $settings = ($settingsPayload['success'] ?? false) ? ($settingsPayload['data'] ?? null) : null;
         $cardsData = ($cardsPayload['success'] ?? false) ? ($cardsPayload['data'] ?? []) : [];
@@ -66,9 +64,9 @@ class WorkspaceController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->syncCards(
+        $response = $this->v3Service->syncCards(
             $this->apiRequestWith($request, ['cabinet_id' => $cabinet->id])
-        ));
+        );
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -94,12 +92,12 @@ class WorkspaceController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->saveSettings(
+        $response = $this->v3Service->saveSettings(
             $this->apiRequestWith($request, array_merge(
                 $request->validated(),
                 ['cabinet_id' => $cabinet->id]
             ))
-        ));
+        );
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -118,12 +116,12 @@ class WorkspaceController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->importVolumes(
+        $response = $this->v3Service->importVolumes(
             $this->apiRequestWith($request, [
                 'cabinet_id' => $cabinet->id,
                 'file' => $request->file('file'),
             ])
-        ));
+        );
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -137,12 +135,12 @@ class WorkspaceController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->importExcel(
+        $response = $this->v3Service->importExcel(
             $this->apiRequestWith($request, [
                 'cabinet_id' => $cabinet->id,
                 'file' => $request->file('file'),
             ])
-        ));
+        );
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -156,9 +154,9 @@ class WorkspaceController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->withApiGuard($request, fn () => $this->apiV3Controller->exportExcel(
+        $response = $this->v3Service->exportExcel(
             $this->apiRequestWith($request, ['cabinet_id' => $cabinet->id])
-        ));
+        );
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {

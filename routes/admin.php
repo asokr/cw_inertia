@@ -6,11 +6,8 @@ use App\Http\Controllers\Web\Admin\Ai\MarketplaceLogController as AiMarketplaceL
 use App\Http\Controllers\Web\Admin\Ai\MediaController as AiMediaController;
 use App\Http\Controllers\Web\Admin\AiCabinet\CabinetController as AiCabinetCabinetController;
 use App\Http\Controllers\Web\Admin\AiCabinet\PromptController as AiCabinetPromptController;
-use App\Http\Controllers\Api\Admin\Blog\BlogMediaController;
-use App\Http\Controllers\Api\Admin\PaymentsController as ApiPaymentsController;
-use App\Http\Controllers\Api\Admin\WidgetsController as ApiWidgetsController;
-use App\Http\Controllers\Api\Admin\wb\WbApiUsageStatsController;
 use App\Http\Controllers\Web\Admin\Blog\CategoryController as BlogCategoryController;
+use App\Http\Controllers\Web\Admin\Blog\MediaController as BlogMediaController;
 use App\Http\Controllers\Web\Admin\Blog\PostController as BlogPostController;
 use App\Http\Controllers\Web\Admin\Blog\TagController as BlogTagController;
 use App\Http\Controllers\Web\Admin\CouponController;
@@ -37,10 +34,10 @@ Route::middleware(['admin.access', 'verified'])
         Route::get('/', [AdminController::class, 'index'])->name('index');
 
         Route::middleware(['role:Супер-Админ|super-admin'])->prefix('widgets')->name('widgets.')->group(function () {
-            Route::post('last-registered', [ApiWidgetsController::class, 'lastRegistered'])->name('last-registered');
-            Route::post('last-subscriptions', [ApiWidgetsController::class, 'lastSubscriptions'])->name('last-subscriptions');
-            Route::post('last-payments', [ApiPaymentsController::class, 'payments'])->name('last-payments');
-            Route::get('wb-api-usage', [WbApiUsageStatsController::class, 'index'])->name('wb-api-usage');
+            Route::post('last-registered', [WidgetController::class, 'lastRegistered'])->name('last-registered');
+            Route::post('last-subscriptions', [WidgetController::class, 'lastSubscriptions'])->name('last-subscriptions');
+            Route::post('last-payments', [PaymentController::class, 'lastPayments'])->name('last-payments');
+            Route::get('wb-api-usage', [WbApiUsageController::class, 'widgetIndex'])->name('wb-api-usage');
         });
 
         Route::middleware(['permission:blog.view'])->prefix('blog')->name('blog.')->group(function () {

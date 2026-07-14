@@ -86,6 +86,28 @@ class WbFeedbacksTest extends WebAuthTestCase
                     && ! str_contains(mb_strtolower((string) $error), 'skip field is required')));
     }
 
+    public function test_update_ai_settings_enables_auto_replies(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'AI Cabinet');
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/feedbacks/clients/{$cabinet->id}/ai", [
+                'status' => 1,
+                'ratings' => [4, 5],
+                'review_type' => [],
+            ])
+            ->assertOk()
+            ->assertJson([
+                'success' => true,
+            ]);
+
+        $cabinet->refresh();
+
+        $this->assertSame(1, (int) $cabinet->ai_status);
+        $this->assertSame([4, 5], $cabinet->ai_ratings);
+    }
+
     public function test_client_show_forbidden_for_foreign_cabinet(): void
     {
         $owner = $this->createSubscriberUser(withPermission: true);

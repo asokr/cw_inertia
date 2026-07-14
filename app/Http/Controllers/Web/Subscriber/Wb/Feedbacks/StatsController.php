@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Feedbacks;
 
-use App\Http\Controllers\Api\Subscriber\Wb\Feedbacks\FeedbacksStatController as ApiFeedbacksStatController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresFeedbacksClientOwnership;
+use App\Services\Subscriber\Wb\WbFeedbacksStatsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 use Illuminate\Http\Request;
@@ -15,7 +15,7 @@ class StatsController extends SubscriberToolController
     use EnsuresFeedbacksClientOwnership;
 
     public function __construct(
-        private readonly ApiFeedbacksStatController $apiStatController,
+        private readonly WbFeedbacksStatsService $statsService,
     ) {
     }
 
@@ -28,7 +28,7 @@ class StatsController extends SubscriberToolController
         $payload = ['success' => true, 'data' => null, 'messages' => ['Нет данных за выбранный месяц']];
 
         try {
-            $response = $this->apiStatController->productStatistics(
+            $response = $this->statsService->productStatistics(
                 $request->duplicate([
                     'cabinet_id' => $client->id,
                     'product_id' => $product,

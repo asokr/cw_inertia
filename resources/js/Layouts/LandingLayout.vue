@@ -1,6 +1,22 @@
 <script setup>
+import { onMounted } from "vue";
 import { Link } from "@inertiajs/vue3";
+import SiteFooter from "@/components/SiteFooter.vue";
 import Button from "@/components/ui/Button.vue";
+import { useLandingSectionNav } from "@/composables/useLandingSectionNav";
+
+const landingSections = [
+    { id: "features", label: "Инструменты" },
+    { id: "tariffs", label: "Тарифы" },
+    { id: "reviews", label: "Отзывы" },
+    { id: "faq", label: "FAQ" },
+];
+
+const { navigateToSection, scrollToHashFromUrl } = useLandingSectionNav();
+
+onMounted(() => {
+    scrollToHashFromUrl();
+});
 
 defineProps({
     authenticated: { type: Boolean, default: false },
@@ -18,15 +34,20 @@ defineProps({
 
         <div class="relative z-10 flex min-h-screen flex-col">
             <header class="landing-page__fade mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-6 sm:px-6 lg:px-8">
-                <Link href="/" class="text-sm font-semibold tracking-tight text-foreground/90 transition hover:text-primary">
+                <Link href="/" class="text-base font-semibold tracking-tight text-foreground/90 transition hover:text-primary">
                     CW Platform
                 </Link>
 
                 <nav class="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
-                    <Link href="/#features" class="transition hover:text-foreground">Инструменты</Link>
-                    <Link href="/#tariffs" class="transition hover:text-foreground">Тарифы</Link>
-                    <Link href="/#reviews" class="transition hover:text-foreground">Отзывы</Link>
-                    <Link href="/#faq" class="transition hover:text-foreground">FAQ</Link>
+                    <a
+                        v-for="section in landingSections"
+                        :key="section.id"
+                        :href="`#${section.id}`"
+                        class="transition hover:text-foreground"
+                        @click="navigateToSection(section.id, $event)"
+                    >
+                        {{ section.label }}
+                    </a>
                     <Link href="/blog" class="transition hover:text-foreground">Блог</Link>
                 </nav>
 
@@ -51,16 +72,7 @@ defineProps({
                 <slot />
             </main>
 
-            <footer class="landing-page__fade border-t border-border/60 bg-card/40 backdrop-blur">
-                <div class="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-                    <p>© {{ new Date().getFullYear() }} CW Platform — инструменты для селлеров WB и Ozon</p>
-                    <div class="flex flex-wrap gap-4">
-                        <a href="tel:88005513342" class="hover:text-foreground">8-800-551-33-42</a>
-                        <a href="mailto:support@cwplatform.ru" class="hover:text-foreground">support@cwplatform.ru</a>
-                        <Link href="/blog" class="hover:text-foreground">Блог</Link>
-                    </div>
-                </div>
-            </footer>
+            <SiteFooter />
         </div>
     </div>
 </template>

@@ -2,6 +2,7 @@
 
 namespace App\Services\Ai;
 
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -38,18 +39,21 @@ class AiMediaStorageService
         $path = $prefix . '/' . $userPart . $datePath . '/' . Str::uuid() . '.' . $extension;
 
         $diskName = (string) config('services.ai_media.disk', 'private');
-        $putResult = $this->putPrivateFileWithFallback($diskName, $path, $binary, $mimeType);
+        $putResult = $this->safePut($diskName, $path, $binary, [
+            'visibility' => 'private',
+            'ContentType' => $mimeType,
+        ]);
 
         if (! $putResult) {
             throw new RuntimeException('Не удалось сохранить изображение в хранилище');
         }
 
-        $internalUrl = $this->buildSubscriberMediaUrl($path);
+        $mediaUrl = $this->buildAccessibleMediaUrl($path);
 
         return [
             'path' => $path,
-            'signed_url' => $internalUrl,
-            'url_preview' => $internalUrl,
+            'signed_url' => $mediaUrl,
+            'url_preview' => $mediaUrl,
             'mime_type' => $mimeType,
             'size' => $size,
         ];
@@ -98,21 +102,60 @@ class AiMediaStorageService
         $path = $prefix . '/' . $userPart . $datePath . '/' . Str::uuid() . '.' . $extension;
 
         $diskName = (string) config('services.ai_media.disk', 'private');
-        $putResult = $this->putPrivateFileWithFallback($diskName, $path, $binary, $mimeType);
+        $putResult = $this->safePut($diskName, $path, $binary, [
+            'visibility' => 'private',
+            'ContentType' => $mimeType,
+        ]);
 
         if (! $putResult) {
             throw new RuntimeException('Не удалось сохранить видео в хранилище');
         }
 
-        $internalUrl = $this->buildSubscriberMediaUrl($path);
+        $mediaUrl = $this->buildAccessibleMediaUrl($path);
 
         return [
             'path' => $path,
-            'signed_url' => $internalUrl,
-            'url_preview' => $internalUrl,
+            'signed_url' => $mediaUrl,
+            'url_preview' => $mediaUrl,
             'mime_type' => $mimeType,
             'size' => $size,
         ];
+    }
+
+    public function buildAccessibleMediaUrl(string $path): string
+    {
+        return $this->buildPanelMediaUrl($path);
+    }
+
+    /**
+     * @return array{disk:Filesystem,disk_name:string}|null
+     */
+    public function resolveDiskForPath(string $path): ?array
+    {
+        $normalizedPath = trim($path, '/');
+        if ($normalizedPath === '') {
+            return null;
+        }
+
+        $diskName = (string) config('services.ai_media.disk', 'private');
+
+        try {
+            $disk = Storage::disk($diskName);
+            if ($disk->exists($normalizedPath)) {
+                return [
+                    'disk' => $disk,
+                    'disk_name' => $diskName,
+                ];
+            }
+        } catch (\Throwable $exception) {
+            Log::warning('AI media storage disk lookup failed', [
+                'disk' => $diskName,
+                'path' => $normalizedPath,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        return null;
     }
 
     public function buildPanelMediaUrl(string $path): string
@@ -131,7 +174,7 @@ class AiMediaStorageService
     {
         $storagePath = trim((string) $path);
         if ($storagePath !== '') {
-            return $this->buildPanelMediaUrl($storagePath);
+            return $this->buildAccessibleMediaUrl($storagePath);
         }
 
         $rawUrl = trim((string) $url);
@@ -140,7 +183,11 @@ class AiMediaStorageService
         }
 
         if (str_starts_with($rawUrl, '/panel/ai/media/')) {
-            return $rawUrl;
+            $storagePathFromUrl = $this->resolveStoragePathFromMediaUrl($rawUrl);
+
+            return $storagePathFromUrl !== null
+                ? $this->buildAccessibleMediaUrl($storagePathFromUrl)
+                : $rawUrl;
         }
 
         if (str_starts_with($rawUrl, '/api/subscriber/ai/media/')) {
@@ -150,17 +197,33 @@ class AiMediaStorageService
                 array_filter(explode('/', $relative), static fn (string $segment): bool => $segment !== ''),
             );
 
-            return $this->buildPanelMediaUrl(implode('/', $decodedSegments));
+            $storagePath = implode('/', $decodedSegments);
+            if (
+                ! str_starts_with($storagePath, 'ai/')
+                && (
+                    str_starts_with($storagePath, 'source-images/')
+                    || str_starts_with($storagePath, 'generated-videos/')
+                )
+            ) {
+                $storagePath = 'ai/' . $storagePath;
+            }
+
+            return $this->buildAccessibleMediaUrl($storagePath);
         }
 
         if (str_starts_with($rawUrl, 'http://') || str_starts_with($rawUrl, 'https://')) {
             $parsedPath = (string) (parse_url($rawUrl, PHP_URL_PATH) ?? '');
+            $resolved = $this->resolvePanelMediaUrl($parsedPath);
 
-            return $this->resolvePanelMediaUrl($parsedPath);
+            if ($resolved === null || $resolved === '') {
+                return $rawUrl;
+            }
+
+            return $resolved;
         }
 
         if ($this->isStorageRelativeMediaPath($rawUrl)) {
-            return $this->buildPanelMediaUrl($rawUrl);
+            return $this->buildAccessibleMediaUrl($rawUrl);
         }
 
         return $rawUrl;
@@ -177,18 +240,6 @@ class AiMediaStorageService
             || str_starts_with($normalized, 'source-images/');
     }
 
-    private function buildSubscriberMediaUrl(string $path): string
-    {
-        return '/api/subscriber/ai/media/' . $this->encodePathForRoute($path);
-    }
-
-    private function encodePathForRoute(string $path): string
-    {
-        $segments = array_filter(explode('/', trim($path, '/')), static fn(string $segment): bool => $segment !== '');
-
-        return implode('/', array_map(static fn(string $segment): string => rawurlencode($segment), $segments));
-    }
-
     /**
      * @return array{0:string,1:string}
      */
@@ -197,6 +248,11 @@ class AiMediaStorageService
         $trimmed = trim($imageInput);
         if ($trimmed === '') {
             throw new RuntimeException('Изображение не передано');
+        }
+
+        $storagePath = $this->resolveStoragePathFromMediaUrl($trimmed);
+        if ($storagePath !== null) {
+            return $this->readBinaryFromStoragePath($storagePath);
         }
 
         if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
@@ -244,6 +300,81 @@ class AiMediaStorageService
         throw new RuntimeException('Неподдерживаемый формат изображения');
     }
 
+    private function resolveStoragePathFromMediaUrl(string $url): ?string
+    {
+        $trimmed = trim($url);
+        if (str_contains($trimmed, '?')) {
+            $trimmed = strstr($trimmed, '?', true) ?: $trimmed;
+        }
+
+        if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
+            $parsedPath = (string) (parse_url($trimmed, PHP_URL_PATH) ?? '');
+            if ($parsedPath !== '') {
+                $trimmed = $parsedPath;
+            }
+        }
+
+        if (str_starts_with($trimmed, '/panel/ai/media/')) {
+            $relative = substr($trimmed, strlen('/panel/ai/media/'));
+        } elseif (str_starts_with($trimmed, '/api/subscriber/ai/media/')) {
+            $relative = substr($trimmed, strlen('/api/subscriber/ai/media/'));
+        } else {
+            return null;
+        }
+
+        $segments = array_map(
+            static fn (string $segment): string => rawurldecode($segment),
+            array_filter(explode('/', $relative), static fn (string $segment): bool => $segment !== ''),
+        );
+
+        if ($segments === []) {
+            return null;
+        }
+
+        $normalizedPath = implode('/', $segments);
+
+        if (
+            ! str_starts_with($normalizedPath, 'ai/')
+            && (
+                str_starts_with($normalizedPath, 'source-images/')
+                || str_starts_with($normalizedPath, 'generated-videos/')
+            )
+        ) {
+            $normalizedPath = 'ai/' . $normalizedPath;
+        }
+
+        return $normalizedPath;
+    }
+
+    /**
+     * @return array{0:string,1:string}
+     */
+    private function readBinaryFromStoragePath(string $path): array
+    {
+        $resolvedDisk = $this->resolveDiskForPath($path);
+        if ($resolvedDisk === null) {
+            throw new RuntimeException('Файл изображения не найден');
+        }
+
+        $disk = $resolvedDisk['disk'];
+
+        $binary = $disk->get($path);
+        if (! is_string($binary) || $binary === '') {
+            throw new RuntimeException('Изображение пустое');
+        }
+
+        $mimeType = $this->normalizeMime((string) ($disk->mimeType($path) ?: ''));
+        if ($mimeType === null) {
+            $mimeType = match (mb_strtolower((string) pathinfo($path, PATHINFO_EXTENSION))) {
+                'png' => 'image/png',
+                'webp' => 'image/webp',
+                default => 'image/jpeg',
+            };
+        }
+
+        return [$binary, $mimeType];
+    }
+
     private function normalizeMime(string $mimeType): ?string
     {
         return match (mb_strtolower(trim($mimeType))) {
@@ -278,36 +409,6 @@ class AiMediaStorageService
             'video/webm' => 'webm',
             default => 'mp4',
         };
-    }
-
-    private function putPrivateFileWithFallback(string $diskName, string $path, string $binary, string $mimeType): bool
-    {
-        $options = [
-            'visibility' => 'private',
-            'ContentType' => $mimeType,
-        ];
-
-        $primaryPutResult = $this->safePut($diskName, $path, $binary, $options);
-        if ($primaryPutResult) {
-            return true;
-        }
-
-        if ($diskName === 'private') {
-            return false;
-        }
-
-        $fallbackPutResult = $this->safePut('private', $path, $binary, $options);
-        if ($fallbackPutResult) {
-            Log::warning('AI media storage fallback to private disk used', [
-                'primary_disk' => $diskName,
-                'fallback_disk' => 'private',
-                'path' => $path,
-            ]);
-
-            return true;
-        }
-
-        return false;
     }
 
     public function deleteFileByPath(?string $path): void
@@ -371,7 +472,12 @@ class AiMediaStorageService
     private function safePut(string $diskName, string $path, string $binary, array $options): bool
     {
         try {
-            return (bool) Storage::disk($diskName)->put($path, $binary, $options);
+            $saved = (bool) Storage::disk($diskName)->put($path, $binary, $options);
+            if ($saved) {
+                $this->ensureLocalFileReadable($diskName, $path);
+            }
+
+            return $saved;
         } catch (\Throwable $exception) {
             Log::warning('AI media storage put failed', [
                 'disk' => $diskName,
@@ -380,6 +486,45 @@ class AiMediaStorageService
             ]);
 
             return false;
+        }
+    }
+
+    private function ensureLocalFileReadable(string $diskName, string $path): void
+    {
+        if ((string) config("filesystems.disks.{$diskName}.driver") !== 'local') {
+            return;
+        }
+
+        try {
+            $fullPath = Storage::disk($diskName)->path($path);
+            if (! is_string($fullPath) || $fullPath === '') {
+                return;
+            }
+
+            if (is_file($fullPath)) {
+                @chmod($fullPath, 0644);
+            }
+
+            $directory = dirname($fullPath);
+            $root = rtrim((string) Storage::disk($diskName)->path(''), DIRECTORY_SEPARATOR);
+            while ($directory !== '' && $directory !== '.' && str_starts_with($directory, $root)) {
+                if (is_dir($directory)) {
+                    @chmod($directory, 0755);
+                }
+
+                $parent = dirname($directory);
+                if ($parent === $directory) {
+                    break;
+                }
+
+                $directory = $parent;
+            }
+        } catch (\Throwable $exception) {
+            Log::warning('AI media storage chmod failed', [
+                'disk' => $diskName,
+                'path' => $path,
+                'error' => $exception->getMessage(),
+            ]);
         }
     }
 }

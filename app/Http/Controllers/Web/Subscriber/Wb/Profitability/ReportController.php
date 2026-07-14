@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Profitability;
 
-use App\Http\Controllers\Api\Subscriber\Wb\Profitability\ProfitabilityController as ApiProfitabilityController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresWbProfitabilityCabinetOwnership;
+use App\Services\Subscriber\Wb\WbProfitabilityReportService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreProfitabilityReportRequest;
 use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
@@ -18,7 +18,7 @@ class ReportController extends SubscriberToolController
     use EnsuresWbProfitabilityCabinetOwnership;
 
     public function __construct(
-        private readonly ApiProfitabilityController $apiProfitabilityController,
+        private readonly WbProfitabilityReportService $reportService,
     ) {
     }
 
@@ -27,12 +27,12 @@ class ReportController extends SubscriberToolController
         $this->ensureCabinetOwnership($cabinet);
 
         $statusPayload = $this->decodeApiResponse(
-            $this->apiProfitabilityController->status($request, $cabinet->id)
+            $this->reportService->status($request, $cabinet->id)
         );
         $jobStatus = $this->buildJobStatus($statusPayload);
 
         $reportPayload = $this->decodeApiResponse(
-            $this->apiProfitabilityController->show($request, $cabinet->id)
+            $this->reportService->show($request, $cabinet->id)
         );
 
         $report = null;
@@ -71,7 +71,7 @@ class ReportController extends SubscriberToolController
         }
 
         $widgetPayload = $this->decodeApiResponse(
-            $this->apiProfitabilityController->widget($request, $cabinet->id)
+            $this->reportService->widget($request, $cabinet->id)
         );
         $widget = (($widgetPayload['success'] ?? false) === true)
             ? ($widgetPayload['data'] ?? null)
@@ -94,7 +94,7 @@ class ReportController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiProfitabilityController->store(
+        $response = $this->reportService->store(
             $this->apiRequestWith($request, array_merge(
                 $request->validated(),
                 ['cabinet_id' => $cabinet->id]
@@ -116,7 +116,7 @@ class ReportController extends SubscriberToolController
         $this->ensureCabinetOwnership($cabinet);
 
         try {
-            return $this->apiProfitabilityController->exportXlsx($request, $cabinet);
+            return $this->reportService->exportXlsx($request, $cabinet);
         } catch (\Throwable) {
             return back()->with('error', 'Не удалось скачать отчёт');
         }

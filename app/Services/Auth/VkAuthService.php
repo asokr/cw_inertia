@@ -27,22 +27,35 @@ class VkAuthService
     {
         try {
             $client = new Client();
+
+            $tokenFormParams = [
+                'grant_type' => 'authorization_code',
+                'code' => $payload['code'],
+                'code_verifier' => $payload['code_verifier'],
+                'client_id' => config('services.vk.client_id'),
+                'device_id' => $payload['device_id'],
+                'redirect_uri' => $payload['redirect_uri'],
+                'state' => $payload['state'],
+            ];
+
+            $clientSecret = config('services.vk.client_secret');
+            if (! empty($clientSecret)) {
+                $tokenFormParams['client_secret'] = $clientSecret;
+            }
+
             $tokenResponse = $client->post('https://id.vk.com/oauth2/auth', [
-                'form_params' => [
-                    'grant_type' => 'authorization_code',
-                    'code' => $payload['code'],
-                    'code_verifier' => $payload['code_verifier'],
-                    'client_id' => config('services.vk.client_id'),
-                    'device_id' => $payload['device_id'],
-                    'redirect_uri' => $payload['redirect_uri'],
-                    'state' => $payload['state'],
-                ],
+                'http_errors' => false,
+                'form_params' => $tokenFormParams,
             ]);
 
             $tokenData = json_decode($tokenResponse->getBody()->getContents(), true);
+            $tokenStatusCode = $tokenResponse->getStatusCode();
 
-            if (! isset($tokenData['access_token'])) {
-                Log::error('VK Auth Token Error', ['response' => $tokenData]);
+            if ($tokenStatusCode >= 400 || ! isset($tokenData['access_token'])) {
+                Log::error('VK Auth Token Error', [
+                    'status' => $tokenStatusCode,
+                    'response' => $tokenData,
+                ]);
 
                 return [
                     'success' => false,
@@ -52,6 +65,7 @@ class VkAuthService
             }
 
             $userResponse = $client->post('https://id.vk.com/oauth2/user_info', [
+                'http_errors' => false,
                 'form_params' => [
                     'access_token' => $tokenData['access_token'],
                     'client_id' => config('services.vk.client_id'),
@@ -61,8 +75,11 @@ class VkAuthService
             $userData = json_decode($userResponse->getBody()->getContents(), true);
             $vkUser = $userData['user'] ?? null;
 
-            if (! $vkUser || ! isset($vkUser['user_id'])) {
-                Log::error('VK Auth User Info Error', ['response' => $userData]);
+            if ($userResponse->getStatusCode() >= 400 || ! $vkUser || ! isset($vkUser['user_id'])) {
+                Log::error('VK Auth User Info Error', [
+                    'status' => $userResponse->getStatusCode(),
+                    'response' => $userData,
+                ]);
 
                 return [
                     'success' => false,

@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer;
 
-use App\Http\Controllers\Api\Subscriber\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerAiAnalysesController as ApiAiAnalysesController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresAiCabinetAnalyzerOwnership;
+use App\Services\Subscriber\Wb\WbAiCabinetAnalyzerAiAnalysesService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\RegenerateAiCabinetAnalyzerAiAnalysisRequest;
 use App\Http\Requests\Web\Subscriber\StartAiCabinetAnalyzerAiAnalysisRequest;
@@ -18,13 +18,13 @@ class AiAnalysesController extends SubscriberToolController
     use EnsuresAiCabinetAnalyzerOwnership;
 
     public function __construct(
-        private readonly ApiAiAnalysesController $apiAiAnalysesController,
+        private readonly WbAiCabinetAnalyzerAiAnalysesService $aiAnalysesService,
     ) {
     }
 
     public function start(StartAiCabinetAnalyzerAiAnalysisRequest $request): RedirectResponse
     {
-        $response = $this->apiAiAnalysesController->start($request);
+        $response = $this->aiAnalysesService->start($request);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -38,7 +38,7 @@ class AiAnalysesController extends SubscriberToolController
     {
         $this->ensureAnalysisOwnership($analysis);
 
-        $response = $this->apiAiAnalysesController->regenerate(
+        $response = $this->aiAnalysesService->regenerate(
             $request->duplicate(null, $request->validated()),
             (string) $analysis->id
         );
@@ -55,7 +55,7 @@ class AiAnalysesController extends SubscriberToolController
     {
         $this->ensureAnalysisOwnership($analysis);
 
-        $response = $this->apiAiAnalysesController->show($request, (string) $analysis->id);
+        $response = $this->aiAnalysesService->show($request, (string) $analysis->id);
         $payload = $this->decodeApiResponse($response);
 
         return response()->json($payload);
@@ -66,7 +66,7 @@ class AiAnalysesController extends SubscriberToolController
         $this->ensureAnalysisOwnership($analysis);
 
         try {
-            return $this->apiAiAnalysesController->download($request, (string) $analysis->id);
+            return $this->aiAnalysesService->download($request, (string) $analysis->id);
         } catch (\Throwable) {
             return back()->with('error', 'Не удалось скачать PDF');
         }

@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from "vue";
-import { Head, router, useForm } from "@inertiajs/vue3";
+import { Head, Link, router, useForm } from "@inertiajs/vue3";
 import { Pencil, Trash2 } from "lucide-vue-next";
 import CabinetForm from "@/components/subscriber/tools/CabinetForm.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
@@ -97,7 +97,7 @@ function confirmDelete() {
                     class="flex flex-col justify-between p-4"
                 >
                     <div class="space-y-2">
-                        <a :href="cabinet.href" class="font-medium hover:text-primary">{{ cabinet.name }}</a>
+                        <Link :href="cabinet.href" class="font-medium hover:text-primary">{{ cabinet.name }}</Link>
                         <p v-if="cabinet.created_at" class="text-sm text-muted-foreground">
                             Добавлен: {{ cabinet.created_at }}
                         </p>

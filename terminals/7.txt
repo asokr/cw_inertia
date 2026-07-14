@@ -3,7 +3,7 @@ pid: 18668
 cwd: "C:\OSPanel\home\subs-back.local\cw_inertia"
 command: "cd \"C:\\OSPanel\\home\\subs-back.local\\cw_inertia\"; php artisan test --filter=PlansTest 2>&1"
 started_at: 2026-07-10T11:02:25.676Z
-running_for_ms: 84955000 
+running_for_ms: 124344978
 ---
 
    PASS  Tests\Feature\Web\Subscriber\PlansTest
@@ -15,3 +15,9 @@ running_for_ms: 84955000
   Tests:    4 passed (42 assertions)
   Duration: 16.86s
 
+
+---
+exit_code: -1
+elapsed_ms: 124344978
+ended_at: 2026-07-11T21:35:05.673Z
+---

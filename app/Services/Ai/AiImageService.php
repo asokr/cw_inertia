@@ -7,6 +7,7 @@ use App\Enums\AiTaskType;
 use App\Models\AiImageGenerationTask;
 use App\Models\AiRequestLog;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,11 +39,11 @@ class AiImageService
         $resolution = $this->resolveResolution($rawResolution);
         $resolutionLimitCost = $this->resolveImageLimitCost($resolution);
         $geminiImageSize = $this->resolveGeminiImageSize($resolution);
-        $aspectRatio = $this->resolveAspectRatio((string) $request->input('aspectRatio', '3:4'));
+        $aspectRatio = $this->resolveAspectRatio($request->input('aspectRatio'));
         $prompt = $this->resolveImagePrompt($request);
 
         $generation = $this->aiImageGenerationService->resolveForStart(
-            $request->filled('generation_id') ? (int) $request->input('generation_id') : null,
+            $request->filled('generation_uuid') ? (string) $request->input('generation_uuid') : null,
             $subscriberId,
             $userId,
             $prompt,
@@ -50,11 +51,16 @@ class AiImageService
 
         $sourceImagesMeta = $this->storeSourceImages($request, $taskType, $userId);
 
-        $options = $this->geminiApiClient->buildImageOptions([
+        $imageOptions = [
             'responseModalities' => ['IMAGE', 'TEXT'],
-            'aspectRatio' => $aspectRatio,
             'imageSize' => $geminiImageSize,
-        ]);
+        ];
+
+        if ($aspectRatio !== null) {
+            $imageOptions['aspectRatio'] = $aspectRatio;
+        }
+
+        $options = $this->geminiApiClient->buildImageOptions($imageOptions);
 
         if ($taskType === AiTaskType::EDIT_IMAGE->value) {
             $response = $this->geminiApiClient->editImage(
@@ -165,6 +171,7 @@ class AiImageService
                 'messages' => [$publicMessage],
                 'data' => [
                     'generation_id' => $generation->id,
+                    'generation_uuid' => $generation->uuid,
                 ],
                 'meta' => [
                     'moderation' => $isModerationError,
@@ -196,6 +203,7 @@ class AiImageService
                 'messages' => ['Не удалось сохранить изображения в хранилище'],
                 'data' => [
                     'generation_id' => $generation->id,
+                    'generation_uuid' => $generation->uuid,
                 ],
             ], 200);
         }
@@ -244,10 +252,13 @@ class AiImageService
 
         $mappedTask = $this->aiImageGenerationService->mapTaskForFrontend($task);
 
-        $imageUrls = array_values(array_filter(
-            array_map(static fn (array $item): string => (string) ($item['url'] ?? $item['url_preview'] ?? ''), $storedImages),
-            static fn (string $item): bool => $item !== ''
-        ));
+        $imageUrls = array_values(array_filter(array_map(
+            fn (array $item): ?string => $this->aiMediaStorageService->resolvePanelMediaUrl(
+                url: (string) ($item['url'] ?? $item['url_preview'] ?? $item['signed_url'] ?? ''),
+                path: (string) ($item['path'] ?? ''),
+            ),
+            $storedImages,
+        )));
 
         return response()->json([
             'success' => true,
@@ -256,6 +267,7 @@ class AiImageService
             'limits' => $limits,
             'data' => [
                 'generation_id' => $generation->id,
+                'generation_uuid' => $generation->uuid,
                 'task' => $mappedTask,
             ],
         ], 200);
@@ -395,6 +407,10 @@ class AiImageService
      */
     private function getLimits(SubscribersSubscriptions $subscription): array
     {
+        if (ToolLimits::bypassesFor(auth()->user())) {
+            return ToolLimits::unlimitedAiLimits();
+        }
+
         $textBase = $this->getRawMonthLimitValue($subscription, 'ai_text_query');
         $textExtra = $this->getRawExtraMonthLimitValue($subscription, 'ai_text_query');
         $imageBase = $this->getRawMonthLimitValue($subscription, 'ai_image_query');
@@ -464,11 +480,15 @@ class AiImageService
         };
     }
 
-    private function resolveAspectRatio(string $aspectRatio): string
+    private function resolveAspectRatio(mixed $aspectRatio): ?string
     {
-        $normalized = trim($aspectRatio);
+        if ($aspectRatio === null) {
+            return null;
+        }
 
-        return $normalized !== '' ? $normalized : '3:4';
+        $normalized = trim((string) $aspectRatio);
+
+        return $normalized !== '' ? $normalized : null;
     }
 
     /**
@@ -495,7 +515,7 @@ class AiImageService
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function generateImagesByGrokFallback(Request $request, string $taskType, string $prompt, string $aspectRatio, int $count): array
+    private function generateImagesByGrokFallback(Request $request, string $taskType, string $prompt, ?string $aspectRatio, int $count): array
     {
         if ($count <= 0) {
             return [];
@@ -514,13 +534,17 @@ class AiImageService
 
         $result = [];
 
+        $fallbackOptions = [];
+
+        if ($aspectRatio !== null) {
+            $fallbackOptions['aspect_ratio'] = $aspectRatio;
+        }
+
         for ($i = 0; $i < $count; $i++) {
             $fallbackResponse = $this->grokImageApiClient->generateOrEditImage(
                 prompt: $prompt,
                 images: $inputImages,
-                options: [
-                    'aspect_ratio' => $aspectRatio,
-                ]
+                options: $fallbackOptions,
             );
 
             if (! ($fallbackResponse['success'] ?? false)) {

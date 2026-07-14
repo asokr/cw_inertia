@@ -202,21 +202,37 @@ Route::middleware(['permission:subscriber wb promo calculator'])
         Route::post('/repricer', [WbPromoCalculatorController::class, 'sendToRepricer'])->name('repricer');
     });
 
-Route::middleware(['permission:subscriber ai'])
-    ->prefix('ai')
+Route::prefix('ai')
     ->name('subscriber.ai.')
     ->group(function () {
+        Route::get('/media/{path}', [AiMediaController::class, 'show'])
+            ->where('path', '.*')
+            ->withoutMiddleware(['auth', 'verified', 'panel.access'])
+            ->name('media');
+
+        Route::middleware(['permission:subscriber ai'])->group(function () {
         Route::get('/', [AiMarketplaceController::class, 'index'])->name('index');
         Route::get('/text', [AiMarketplaceController::class, 'text'])->name('text');
         Route::get('/image', [AiMarketplaceController::class, 'image'])->name('image');
         Route::get('/image/history', [AiMarketplaceController::class, 'imageHistory'])->name('image.history');
+        Route::get('/image/{uuid}', [AiMarketplaceController::class, 'imageGeneration'])
+            ->whereUuid('uuid')
+            ->name('image.generation');
         Route::get('/video', [AiMarketplaceController::class, 'video'])->name('video');
+        Route::get('/video/history', [AiMarketplaceController::class, 'videoHistory'])->name('video.history');
+        Route::get('/video/{uuid}', [AiMarketplaceController::class, 'videoGeneration'])
+            ->whereUuid('uuid')
+            ->name('video.generation');
         Route::post('/marketplace', [AiMarketplaceController::class, 'marketplace'])->name('marketplace');
         Route::post('/image/start', [AiMarketplaceController::class, 'imageStart'])->name('image.start');
         Route::get('/image/generations', [AiMarketplaceController::class, 'imageGenerationsIndex'])->name('image.generations.index');
         Route::post('/image/generations', [AiMarketplaceController::class, 'imageGenerationsStore'])->name('image.generations.store');
-        Route::get('/image/generations/{id}', [AiMarketplaceController::class, 'imageGenerationsShow'])->name('image.generations.show');
-        Route::delete('/image/generations/{id}', [AiMarketplaceController::class, 'imageGenerationsDestroy'])->name('image.generations.destroy');
+        Route::get('/image/generations/{uuid}', [AiMarketplaceController::class, 'imageGenerationsShow'])
+            ->whereUuid('uuid')
+            ->name('image.generations.show');
+        Route::delete('/image/generations/{uuid}', [AiMarketplaceController::class, 'imageGenerationsDestroy'])
+            ->whereUuid('uuid')
+            ->name('image.generations.destroy');
         Route::post('/video/start', [AiMarketplaceController::class, 'videoStart'])->name('video.start');
         Route::post('/video/reference/start', [AiMarketplaceController::class, 'videoReferenceStart'])->name('video.reference.start');
         Route::get('/video/status/{requestId}', [AiMarketplaceController::class, 'videoStatus'])
@@ -224,10 +240,12 @@ Route::middleware(['permission:subscriber ai'])
             ->name('video.status');
         Route::get('/video/generations', [AiMarketplaceController::class, 'videoGenerationsIndex'])->name('video.generations.index');
         Route::post('/video/generations', [AiMarketplaceController::class, 'videoGenerationsStore'])->name('video.generations.store');
-        Route::get('/video/generations/{id}', [AiMarketplaceController::class, 'videoGenerationsShow'])->name('video.generations.show');
-        Route::delete('/video/generations/{id}', [AiMarketplaceController::class, 'videoGenerationsDestroy'])->name('video.generations.destroy');
+        Route::get('/video/generations/{uuid}', [AiMarketplaceController::class, 'videoGenerationsShow'])
+            ->whereUuid('uuid')
+            ->name('video.generations.show');
+        Route::delete('/video/generations/{uuid}', [AiMarketplaceController::class, 'videoGenerationsDestroy'])
+            ->whereUuid('uuid')
+            ->name('video.generations.destroy');
         Route::post('/limits', [AiMarketplaceController::class, 'refreshLimits'])->name('limits');
-        Route::get('/media/{path}', [AiMediaController::class, 'show'])
-            ->where('path', '.*')
-            ->name('media');
+        });
     });

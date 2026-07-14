@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer;
 
-use App\Http\Controllers\Api\Subscriber\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerAiAnalysesController as ApiAiAnalysesController;
-use App\Http\Controllers\Api\Subscriber\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerReportsController as ApiReportsController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresAiCabinetAnalyzerOwnership;
+use App\Services\Subscriber\Wb\WbAiCabinetAnalyzerAiAnalysesService;
+use App\Services\Subscriber\Wb\WbAiCabinetAnalyzerReportsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StartAiCabinetAnalyzerReportRequest;
 use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerCabinet;
@@ -19,8 +19,8 @@ class WorkspaceController extends SubscriberToolController
     use EnsuresAiCabinetAnalyzerOwnership;
 
     public function __construct(
-        private readonly ApiReportsController $apiReportsController,
-        private readonly ApiAiAnalysesController $apiAiAnalysesController,
+        private readonly WbAiCabinetAnalyzerReportsService $reportsService,
+        private readonly WbAiCabinetAnalyzerAiAnalysesService $aiAnalysesService,
     ) {
     }
 
@@ -69,7 +69,7 @@ class WorkspaceController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiReportsController->start(
+        $response = $this->reportsService->start(
             $request->duplicate(null, array_merge(
                 $request->validated(),
                 ['cabinet_id' => $cabinet->id]
@@ -111,7 +111,7 @@ class WorkspaceController extends SubscriberToolController
             }
 
             $payload = $this->decodeApiResponse(
-                $this->apiReportsController->show($request, (string) $report->id)
+                $this->reportsService->show($request, (string) $report->id)
             );
 
             return ($payload['success'] ?? false) === true ? ($payload['data'] ?? null) : null;
@@ -125,7 +125,7 @@ class WorkspaceController extends SubscriberToolController
 
         if ($processing) {
             $payload = $this->decodeApiResponse(
-                $this->apiReportsController->show($request, (string) $processing->id)
+                $this->reportsService->show($request, (string) $processing->id)
             );
 
             if (($payload['success'] ?? false) === true) {
@@ -134,7 +134,7 @@ class WorkspaceController extends SubscriberToolController
         }
 
         $latestPayload = $this->decodeApiResponse(
-            $this->apiReportsController->latestByCabinet($request, (string) $cabinet->id)
+            $this->reportsService->latestByCabinet($request, (string) $cabinet->id)
         );
 
         if (($latestPayload['success'] ?? false) === true && ($latestPayload['data'] ?? null) !== null) {
@@ -151,7 +151,7 @@ class WorkspaceController extends SubscriberToolController
         }
 
         $payload = $this->decodeApiResponse(
-            $this->apiReportsController->show($request, (string) $fallback->id)
+            $this->reportsService->show($request, (string) $fallback->id)
         );
 
         return ($payload['success'] ?? false) === true ? ($payload['data'] ?? null) : null;
@@ -175,7 +175,7 @@ class WorkspaceController extends SubscriberToolController
 
         if ($status === AiCabinetAnalyzerReport::STATUS_PROCESSING && $reportId > 0) {
             $statusPayload = $this->decodeApiResponse(
-                $this->apiReportsController->status($request, (string) $reportId)
+                $this->reportsService->status($request, (string) $reportId)
             );
 
             if (($statusPayload['success'] ?? false) === true) {
@@ -241,8 +241,8 @@ class WorkspaceController extends SubscriberToolController
         $subRequest = $request->duplicate($query);
 
         $response = $hasSearch
-            ? $this->apiReportsController->searchNomenclatures($subRequest, (string) $reportId)
-            : $this->apiReportsController->nomenclatures($subRequest, (string) $reportId);
+            ? $this->reportsService->searchNomenclatures($subRequest, (string) $reportId)
+            : $this->reportsService->nomenclatures($subRequest, (string) $reportId);
 
         $payload = $this->decodeApiResponse($response);
 
@@ -268,7 +268,7 @@ class WorkspaceController extends SubscriberToolController
      */
     private function buildTemplatesProp(): array
     {
-        $payload = $this->decodeApiResponse($this->apiAiAnalysesController->templates());
+        $payload = $this->decodeApiResponse($this->aiAnalysesService->templates());
 
         if (($payload['success'] ?? false) !== true) {
             return [];
@@ -303,7 +303,7 @@ class WorkspaceController extends SubscriberToolController
         }
 
         $payload = $this->decodeApiResponse(
-            $this->apiAiAnalysesController->indexByReport(
+            $this->aiAnalysesService->indexByReport(
                 $request->duplicate(['per_page' => 15]),
                 (string) $report['id']
             )

@@ -17,13 +17,11 @@ class VkOAuthController extends Controller
     {
         $codeVerifier = Str::random(64);
         $state = Str::random(32);
-        $deviceId = Str::uuid()->toString();
         $redirectUri = route('auth.vk.callback');
 
         Session::put('vk_oauth', [
             'code_verifier' => $codeVerifier,
             'state' => $state,
-            'device_id' => $deviceId,
             'redirect_uri' => $redirectUri,
             'coupon_code' => $request->query('coupon_code'),
         ]);
@@ -47,10 +45,15 @@ class VkOAuthController extends Controller
     {
         $sessionData = Session::pull('vk_oauth', []);
 
+        if ($request->filled('error')) {
+            return redirect()->route('login')->withErrors([
+                'email' => $request->query('error_description', 'Авторизация VK отменена'),
+            ]);
+        }
+
         if (
             empty($sessionData['code_verifier'])
             || empty($sessionData['state'])
-            || empty($sessionData['device_id'])
             || $request->query('state') !== $sessionData['state']
         ) {
             return redirect()->route('login')->withErrors([
@@ -64,10 +67,16 @@ class VkOAuthController extends Controller
             ]);
         }
 
+        if (! $request->filled('device_id')) {
+            return redirect()->route('login')->withErrors([
+                'email' => 'Не получен device_id от VK',
+            ]);
+        }
+
         $result = $vkAuthService->authenticate([
             'code' => $request->query('code'),
             'code_verifier' => $sessionData['code_verifier'],
-            'device_id' => $sessionData['device_id'],
+            'device_id' => $request->query('device_id'),
             'state' => $sessionData['state'],
             'redirect_uri' => $sessionData['redirect_uri'],
             'coupon_code' => $sessionData['coupon_code'] ?? null,

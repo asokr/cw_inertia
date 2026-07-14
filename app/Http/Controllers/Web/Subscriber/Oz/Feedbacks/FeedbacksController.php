@@ -2,15 +2,16 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Oz\Feedbacks;
 
-use App\Http\Controllers\Api\Subscriber\Ai\AiController as ApiAiController;
-use App\Http\Controllers\Api\Subscriber\Ozon\Feedbacks\FeedbacksClientsController as ApiFeedbacksClientsController;
-use App\Http\Controllers\Api\Subscriber\Ozon\Feedbacks\FeedbacksController as ApiFeedbacksController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresOzonFeedbacksCabinetOwnership;
+use App\Services\Subscriber\Ai\SubscriberAiTextService;
+use App\Services\Subscriber\Oz\OzFeedbacksClientsService;
+use App\Services\Subscriber\Oz\OzFeedbacksService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\SendFeedbackRequest;
 use App\Http\Requests\Web\Subscriber\UpdateOzAiDataRequest;
 use App\Models\Subscribers\Oz\Feedbacks\FeedbacksClients;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,9 +23,9 @@ class FeedbacksController extends SubscriberToolController
     use EnsuresOzonFeedbacksCabinetOwnership;
 
     public function __construct(
-        private readonly ApiFeedbacksController $apiFeedbacksController,
-        private readonly ApiFeedbacksClientsController $apiClientsController,
-        private readonly ApiAiController $apiAiController,
+        private readonly OzFeedbacksService $feedbacksService,
+        private readonly OzFeedbacksClientsService $clientsService,
+        private readonly SubscriberAiTextService $aiTextService,
     ) {
     }
 
@@ -34,10 +35,10 @@ class FeedbacksController extends SubscriberToolController
 
         $reviewsPayload = $this->loadReviews($request, $cabinet);
         $aiPayload = $this->decodeApiResponse(
-            $this->apiClientsController->getAiData($request, (string) $cabinet->id)
+            $this->clientsService->getAiData($request, (string) $cabinet->id)
         );
         $countPayload = $this->decodeApiResponse(
-            $this->apiFeedbacksController->countFeedbacks(
+            $this->feedbacksService->countFeedbacks(
                 $this->apiRequestWith($request, ['cabinet_id' => $cabinet->id])
             )
         );
@@ -57,7 +58,7 @@ class FeedbacksController extends SubscriberToolController
             'lastId' => $reviewsPayload['last_id'],
             'unprocessedCount' => ($countPayload['success'] ?? false) ? ($countPayload['data'] ?? null) : null,
             'aiSettings' => ($aiPayload['success'] ?? false) ? ($aiPayload['data'] ?? null) : null,
-            'aiLimit' => $subscription ? (int) ($subscription->getMonthLimit('feedbacks_gpt_query') ?: 0) : 0,
+            'aiLimit' => ToolLimits::monthLimitValue($request->user(), $subscription, 'feedbacks_gpt_query'),
         ]);
     }
 
@@ -82,7 +83,7 @@ class FeedbacksController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiFeedbacksController->answerFeedback(
+        $response = $this->feedbacksService->answerFeedback(
             $request->duplicate(null, [
                 'cabinet_id' => $cabinet->id,
                 'id' => $request->validated('id'),
@@ -100,12 +101,12 @@ class FeedbacksController extends SubscriberToolController
             ->with('success', $this->apiMessage($payload, 'Ответ отправлен'));
     }
 
-    public function updateAi(UpdateOzAiDataRequest $request, FeedbacksClients $cabinet): RedirectResponse
+    public function updateAi(UpdateOzAiDataRequest $request, FeedbacksClients $cabinet): JsonResponse
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiClientsController->updateAiData(
-            $request->duplicate(null, [
+        $response = $this->clientsService->updateAiData(
+            $this->apiRequestWith($request, [
                 'cabinet_id' => $cabinet->id,
                 'status' => $request->validated('status'),
                 'ratings' => $request->validated('ratings'),
@@ -113,13 +114,8 @@ class FeedbacksController extends SubscriberToolController
                 'signature' => $request->input('signature'),
             ])
         );
-        $payload = $this->decodeApiResponse($response);
 
-        if (($payload['success'] ?? false) !== true) {
-            return back()->with('error', $this->apiMessage($payload, 'Не удалось сохранить настройки ИИ'));
-        }
-
-        return back()->with('success', $this->apiMessage($payload, 'Настройки ИИ сохранены'));
+        return response()->json($this->decodeApiResponse($response));
     }
 
     public function generateAi(Request $request, FeedbacksClients $cabinet): JsonResponse
@@ -154,7 +150,7 @@ class FeedbacksController extends SubscriberToolController
             ]);
         }
 
-        $response = $this->apiAiController->ask($aiRequest);
+        $response = $this->aiTextService->ask($aiRequest);
         $payload = $this->decodeApiResponse($response);
 
         return response()->json($payload, 200);
@@ -170,7 +166,7 @@ class FeedbacksController extends SubscriberToolController
             $params['last_id'] = $lastId;
         }
 
-        $response = $this->apiFeedbacksController->getFeedbacksList(
+        $response = $this->feedbacksService->getFeedbacksList(
             $this->apiRequestWith($request, $params)
         );
         $payload = $this->decodeApiResponse($response);

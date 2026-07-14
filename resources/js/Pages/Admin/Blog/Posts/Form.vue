@@ -153,7 +153,7 @@ async function onCoverSelected(event) {
             URL.revokeObjectURL(coverPreviewLocalUrl.value);
         }
 
-        coverPreviewLocalUrl.value = result.data.url;
+        coverPreviewLocalUrl.value = result.data.public_path || result.data.url;
     }
 }
 
@@ -163,8 +163,10 @@ async function onMarkdownUpload(files, callback) {
     for (const file of files) {
         const result = await uploadImage(file);
 
-        if (result.success && result.data?.url) {
-            uploadedUrls.push(result.data.url);
+        const imageUrl = result.data?.public_path || result.data?.url;
+
+        if (result.success && imageUrl) {
+            uploadedUrls.push(imageUrl);
         }
     }
 

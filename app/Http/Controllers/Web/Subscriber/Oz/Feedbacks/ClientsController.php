@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Oz\Feedbacks;
 
-use App\Http\Controllers\Api\Subscriber\Ozon\Feedbacks\FeedbacksClientsController as ApiFeedbacksClientsController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresOzonFeedbacksCabinetOwnership;
+use App\Services\Subscriber\Oz\OzFeedbacksClientsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreCabinetRequest;
 use App\Http\Requests\Web\Subscriber\UpdateOzCabinetRequest;
 use App\Models\Subscribers\Oz\Feedbacks\FeedbacksClients;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -19,13 +20,13 @@ class ClientsController extends SubscriberToolController
     use EnsuresOzonFeedbacksCabinetOwnership;
 
     public function __construct(
-        private readonly ApiFeedbacksClientsController $apiClientsController,
+        private readonly OzFeedbacksClientsService $clientsService,
     ) {
     }
 
     public function index(Request $request): Response
     {
-        $response = $this->apiClientsController->index();
+        $response = $this->clientsService->index();
         $payload = $this->decodeApiResponse($response);
 
         $cabinets = [];
@@ -45,15 +46,14 @@ class ClientsController extends SubscriberToolController
             }
         }
 
-        $limits = ['oz_feedbacks_clients' => null];
         $subscription = SubscribersSubscriptions::query()
             ->where('subscribers_id', $request->user()->subscriber?->id)
             ->where('status', 1)
             ->first();
 
-        if ($subscription && isset($subscription->limits_plan['oz_feedbacks_clients'])) {
-            $limits['oz_feedbacks_clients'] = (int) $subscription->limits_plan['oz_feedbacks_clients'];
-        }
+        $limits = [
+            'oz_feedbacks_clients' => ToolLimits::planLimitValue($request->user(), $subscription, 'oz_feedbacks_clients'),
+        ];
 
         return Inertia::render('Subscriber/Oz/Feedbacks/Index', [
             'cabinets' => $cabinets,
@@ -63,7 +63,7 @@ class ClientsController extends SubscriberToolController
 
     public function store(StoreCabinetRequest $request): RedirectResponse
     {
-        $response = $this->apiClientsController->store($request);
+        $response = $this->clientsService->store($request);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -81,7 +81,7 @@ class ClientsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiClientsController->update(
+        $response = $this->clientsService->update(
             $request->duplicate(null, [
                 'name' => $request->validated('name'),
                 'apikey' => $request->validated('apikey'),
@@ -105,7 +105,7 @@ class ClientsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiClientsController->destroy((string) $cabinet->id);
+        $response = $this->clientsService->destroy((string) $cabinet->id);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {

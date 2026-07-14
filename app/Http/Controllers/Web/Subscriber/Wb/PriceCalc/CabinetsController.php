@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\PriceCalc;
 
-use App\Http\Controllers\Api\Subscriber\Wb\PriceCalculation\PriceCalcCabinetsController as ApiPriceCalcCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresWbPriceCalcCabinetOwnership;
+use App\Services\Subscriber\Wb\WbPriceCalcCabinetsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreCabinetRequest;
 use App\Http\Requests\Web\Subscriber\UpdateWbPriceCalcCabinetRequest;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,13 +20,13 @@ class CabinetsController extends SubscriberToolController
     use EnsuresWbPriceCalcCabinetOwnership;
 
     public function __construct(
-        private readonly ApiPriceCalcCabinetsController $apiCabinetsController,
+        private readonly WbPriceCalcCabinetsService $cabinetsService,
     ) {
     }
 
     public function index(Request $request): Response
     {
-        $response = $this->apiCabinetsController->index();
+        $response = $this->cabinetsService->index();
         $payload = $this->decodeApiResponse($response);
 
         $cabinets = [];
@@ -42,14 +43,13 @@ class CabinetsController extends SubscriberToolController
             }
         }
 
-        $limits = ['price_calc_clients' => null];
         $subscription = SubscribersSubscriptions::query()
             ->where('subscribers_id', $request->user()->subscriber?->id)
             ->first();
 
-        if ($subscription && isset($subscription->limits_plan['price_calc_clients'])) {
-            $limits['price_calc_clients'] = (int) $subscription->limits_plan['price_calc_clients'];
-        }
+        $limits = [
+            'price_calc_clients' => ToolLimits::planLimitValue($request->user(), $subscription, 'price_calc_clients'),
+        ];
 
         return Inertia::render('Subscriber/Wb/PriceCalc/Index', [
             'cabinets' => $cabinets,
@@ -59,7 +59,7 @@ class CabinetsController extends SubscriberToolController
 
     public function store(StoreCabinetRequest $request): RedirectResponse
     {
-        $response = $this->apiCabinetsController->store($request);
+        $response = $this->cabinetsService->store($request);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -77,7 +77,7 @@ class CabinetsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiCabinetsController->update(
+        $response = $this->cabinetsService->update(
             $request->duplicate(null, [
                 'name' => $request->validated('name'),
                 'apikey' => $request->validated('apikey'),
@@ -99,7 +99,7 @@ class CabinetsController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $response = $this->apiCabinetsController->destroy((string) $cabinet->id);
+        $response = $this->cabinetsService->destroy((string) $cabinet->id);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {

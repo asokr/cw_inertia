@@ -2,7 +2,6 @@
 
 namespace App\Providers;
 
-use Laravel\Passport\Passport;
 use App\Mail\EmailVerification;
 use App\Services\PaymentService;
 use App\Services\Gemini\GeminiApiClient;
@@ -19,9 +18,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
-        Passport::ignoreRoutes();
-
         $this->app->bind(PaymentService::class, function ($app) {
             return new PaymentService();
         });

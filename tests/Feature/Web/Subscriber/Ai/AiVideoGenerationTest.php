@@ -31,6 +31,39 @@ class AiVideoGenerationTest extends WebAuthTestCase
         ]);
     }
 
+    public function test_guest_cannot_access_video_history_page(): void
+    {
+        $this->get('/panel/ai/video/history')->assertRedirect('/login');
+    }
+
+    public function test_subscriber_can_access_video_history_page(): void
+    {
+        $user = $this->createSubscriberUser(withAiPermission: true);
+
+        $this->actingAs($user)
+            ->get('/panel/ai/video/history')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Subscriber/Ai/VideoHistory'));
+    }
+
+    public function test_subscriber_can_access_video_generation_page_by_uuid(): void
+    {
+        $user = $this->createSubscriberUser(withAiPermission: true);
+
+        $generation = AiVideoGeneration::query()->create([
+            'subscriber_id' => (int) $user->subscriber->id,
+            'user_id' => $user->id,
+            'title' => 'UUID page',
+        ]);
+
+        $this->actingAs($user)
+            ->get('/panel/ai/video/' . $generation->uuid)
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Ai/Video')
+                ->where('generationUuid', $generation->uuid));
+    }
+
     public function test_guest_cannot_list_generations(): void
     {
         $this->getJson('/panel/ai/video/generations')->assertUnauthorized();
@@ -76,6 +109,7 @@ class AiVideoGenerationTest extends WebAuthTestCase
             ->assertJsonPath('success', true)
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $generation->id)
+            ->assertJsonPath('data.0.uuid', $generation->uuid)
             ->assertJsonPath('data.0.title', 'Тестовая генерация')
             ->assertJsonPath('data.0.tasks_count', 1);
     }
@@ -104,16 +138,22 @@ class AiVideoGenerationTest extends WebAuthTestCase
             'status' => AiVideoGenerationTask::STATUS_DONE,
             'result_video' => [
                 'path' => $videoPath,
-                'signed_url' => '/api/subscriber/ai/media/' . rawurlencode($videoPath),
+                'signed_url' => '/panel/ai/media/' . rawurlencode($videoPath),
             ],
         ]);
 
-        $this->actingAs($user)
-            ->getJson('/panel/ai/video/generations/' . $generation->id)
+        $response = $this->actingAs($user)
+            ->getJson('/panel/ai/video/generations/' . $generation->uuid)
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.tasks.0.status', 'done')
-            ->assertJsonPath('data.tasks.0.video.url', '/panel/ai/media/generated-videos/user-' . $user->id . '/2026/demo.mp4');
+            ->assertJsonPath('data.uuid', $generation->uuid)
+            ->assertJsonPath('data.tasks.0.status', 'done');
+
+        $videoUrl = (string) $response->json('data.tasks.0.video.url');
+        $this->assertSame(
+            '/panel/ai/media/generated-videos/user-' . $user->id . '/2026/demo.mp4',
+            $videoUrl,
+        );
     }
 
     public function test_subscriber_can_open_generation_with_tasks(): void
@@ -140,10 +180,11 @@ class AiVideoGenerationTest extends WebAuthTestCase
         ]);
 
         $this->actingAs($user)
-            ->getJson('/panel/ai/video/generations/' . $generation->id)
+            ->getJson('/panel/ai/video/generations/' . $generation->uuid)
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.id', $generation->id)
+            ->assertJsonPath('data.uuid', $generation->uuid)
             ->assertJsonCount(1, 'data.tasks')
             ->assertJsonPath('data.tasks.0.request_id', 'req-open')
             ->assertJsonPath('data.tasks.0.status', 'pending');
@@ -188,7 +229,7 @@ class AiVideoGenerationTest extends WebAuthTestCase
         ]);
 
         $this->actingAs($user)
-            ->deleteJson('/panel/ai/video/generations/' . $generation->id)
+            ->deleteJson('/panel/ai/video/generations/' . $generation->uuid)
             ->assertOk()
             ->assertJsonPath('success', true);
 
@@ -210,7 +251,7 @@ class AiVideoGenerationTest extends WebAuthTestCase
         ]);
 
         $this->actingAs($intruder)
-            ->deleteJson('/panel/ai/video/generations/' . $generation->id)
+            ->deleteJson('/panel/ai/video/generations/' . $generation->uuid)
             ->assertNotFound();
     }
 
@@ -279,10 +320,27 @@ class AiVideoGenerationTest extends WebAuthTestCase
         if (! Schema::hasTable('ai_video_generations')) {
             Schema::create('ai_video_generations', function (Blueprint $table) {
                 $table->id();
+                $table->uuid('uuid')->nullable()->unique();
                 $table->unsignedBigInteger('subscriber_id')->index();
                 $table->unsignedBigInteger('user_id')->index();
                 $table->string('title', 120)->nullable();
                 $table->timestamps();
+            });
+        } elseif (! Schema::hasColumn('ai_video_generations', 'uuid')) {
+            Schema::table('ai_video_generations', function (Blueprint $table) {
+                $table->uuid('uuid')->nullable()->unique()->after('id');
+            });
+        }
+
+        if (! Schema::hasTable('balances')) {
+            Schema::create('balances', function (Blueprint $table) {
+                $table->id();
+                $table->morphs('payable');
+                $table->decimal('value', 16, 8)->default(0);
+                $table->decimal('value_pending', 16, 8)->default(0);
+                $table->decimal('value_on_hold', 16, 8)->default(0);
+                $table->string('currency', 10)->index();
+                $table->unique(['payable_id', 'payable_type', 'currency'], 'unique_balance');
             });
         }
 

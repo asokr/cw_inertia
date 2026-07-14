@@ -4,7 +4,6 @@ namespace App\Http\Traits;
 
 use GuzzleHttp;
 use Illuminate\Support\Facades\Log;
-use App\Services\Wb\WbSearchService;
 
 trait WBApiTrait
 {
@@ -128,27 +127,6 @@ trait WBApiTrait
         $result = $this->retryEmptyResponse(fn() => $this->wbGetRequest($url, $params));
 
         return $result ? (array) json_decode($result["response"]) : null;
-    }
-
-    public function publicGetCompetitors(int $nmId)
-    {
-        $service = app(WbSearchService::class);
-
-        return $service->recommendations($nmId);
-    }
-
-    public function publicSearchCatalog(string $query)
-    {
-        Log::warning('publicSearchCatalog is deprecated. Use async flow with WbSearchService::dispatchSearch');
-
-        return null;
-    }
-
-    public function wbSearchHealth(): ?array
-    {
-        $service = app(WbSearchService::class);
-
-        return $service->health();
     }
 
     private function retryEmptyResponse(callable $callback)

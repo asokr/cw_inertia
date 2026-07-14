@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\PromoCalculator;
 
-use App\Http\Controllers\Api\Subscriber\Wb\PriceCalculation\PriceCalcCabinetsController as ApiPriceCalcCabinetsController;
-use App\Http\Controllers\Api\Subscriber\Wb\PromoCalculator\PromoCalculatorController as ApiPromoCalculatorController;
-use App\Http\Controllers\Api\Subscriber\Wb\RePricer\RepricerCabinetsController as ApiRepricerCabinetsController;
+use App\Services\Subscriber\Wb\WbPriceCalcCabinetsService;
+use App\Services\Subscriber\Wb\WbPromoCalculatorService;
+use App\Services\Subscriber\Wb\RepricerCabinetsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\CalculatePromoCalculatorRequest;
 use App\Http\Requests\Web\Subscriber\ExportPromoCalculatorRequest;
@@ -20,9 +20,9 @@ use Inertia\Response;
 class PromoCalculatorController extends SubscriberToolController
 {
     public function __construct(
-        private readonly ApiPromoCalculatorController $apiPromoCalculatorController,
-        private readonly ApiPriceCalcCabinetsController $apiPriceCalcCabinetsController,
-        private readonly ApiRepricerCabinetsController $apiRepricerCabinetsController,
+        private readonly WbPromoCalculatorService $promoCalculatorService,
+        private readonly WbPriceCalcCabinetsService $priceCalcCabinetsService,
+        private readonly RepricerCabinetsService $repricerCabinetsService,
     ) {
     }
 
@@ -37,7 +37,7 @@ class PromoCalculatorController extends SubscriberToolController
 
     public function upload(UploadPromoCalculatorFileRequest $request): JsonResponse
     {
-        $response = $this->apiPromoCalculatorController->upload($request);
+        $response = $this->promoCalculatorService->upload($request);
 
         return response()->json($this->decodeApiResponse($response));
     }
@@ -47,14 +47,14 @@ class PromoCalculatorController extends SubscriberToolController
         $cabinet = PriceCalculationCabinets::query()->findOrFail($request->integer('cabinet_id'));
         $this->ensurePriceCalcCabinetOwnership($cabinet);
 
-        $response = $this->apiPromoCalculatorController->calculate($request);
+        $response = $this->promoCalculatorService->calculate($request);
 
         return response()->json($this->decodeApiResponse($response));
     }
 
     public function export(ExportPromoCalculatorRequest $request): JsonResponse
     {
-        $response = $this->apiPromoCalculatorController->getPromoXlsx($request);
+        $response = $this->promoCalculatorService->getPromoXlsx($request);
 
         return response()->json($this->decodeApiResponse($response));
     }
@@ -64,7 +64,7 @@ class PromoCalculatorController extends SubscriberToolController
         $cabinet = RepricerCabinets::query()->findOrFail($request->integer('cabinet_id'));
         $this->ensureRepricerCabinetOwnership($cabinet);
 
-        $response = $this->apiPromoCalculatorController->sendToRepricer($request);
+        $response = $this->promoCalculatorService->sendToRepricer($request);
 
         return response()->json($this->decodeApiResponse($response));
     }
@@ -78,7 +78,7 @@ class PromoCalculatorController extends SubscriberToolController
             return [];
         }
 
-        $response = $this->apiPriceCalcCabinetsController->index();
+        $response = $this->priceCalcCabinetsService->index();
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -104,7 +104,7 @@ class PromoCalculatorController extends SubscriberToolController
             return [];
         }
 
-        $response = $this->apiRepricerCabinetsController->index();
+        $response = $this->repricerCabinetsService->index();
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {

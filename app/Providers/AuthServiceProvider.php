@@ -6,7 +6,7 @@ use App\Models\User;
 use App\Support\HomeRedirect;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Gate;
-use Laravel\Passport\Passport;
+
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -25,8 +25,6 @@ class AuthServiceProvider extends ServiceProvider
     {
         $this->registerPolicies();
 
-        // $this->loadRoutesFrom(__DIR__ . '/../../vendor/laravel/passport/routes/web.php');
-
         Gate::before(function (User $user, string $ability) {
             if (HomeRedirect::hasFullAdminAccess($user)) {
                 return true;
@@ -39,11 +37,6 @@ class AuthServiceProvider extends ServiceProvider
             return null;
         });
 
-        Passport::ignoreRoutes();
-
-        if (!$this->app->routesAreCached()) {
-            Passport::tokensExpireIn(now()->addDays(15));
-        }
     }
 
     private static function isPanelAbility(string $ability): bool

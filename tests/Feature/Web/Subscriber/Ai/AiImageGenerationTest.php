@@ -7,10 +7,12 @@ use App\Models\AiImageGenerationTask;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
+use App\Services\Ai\AiMediaStorageService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Web\Auth\WebAuthTestCase;
@@ -44,6 +46,24 @@ class AiImageGenerationTest extends WebAuthTestCase
             ->get('/panel/ai/image/history')
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('Subscriber/Ai/ImageHistory'));
+    }
+
+    public function test_subscriber_can_access_image_generation_page_by_uuid(): void
+    {
+        $user = $this->createSubscriberUser(withAiPermission: true);
+
+        $generation = AiImageGeneration::query()->create([
+            'subscriber_id' => (int) $user->subscriber->id,
+            'user_id' => $user->id,
+            'title' => 'UUID page',
+        ]);
+
+        $this->actingAs($user)
+            ->get('/panel/ai/image/' . $generation->uuid)
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Ai/Image')
+                ->where('generationUuid', $generation->uuid));
     }
 
     public function test_guest_cannot_list_generations(): void
@@ -98,8 +118,58 @@ class AiImageGenerationTest extends WebAuthTestCase
             ->assertJsonPath('success', true)
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $generation->id)
+            ->assertJsonPath('data.0.uuid', $generation->uuid)
             ->assertJsonPath('data.0.title', 'Тестовая генерация')
             ->assertJsonPath('data.0.tasks_count', 1);
+    }
+
+    public function test_open_done_generation_returns_source_images_before_results(): void
+    {
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $subscriberId = (int) $user->subscriber->id;
+        $sourcePath = 'ai/source-images/user-' . $user->id . '/2026/source.jpg';
+        $resultPath = 'ai/source-images/user-' . $user->id . '/2026/result.png';
+
+        $generation = AiImageGeneration::query()->create([
+            'subscriber_id' => $subscriberId,
+            'user_id' => $user->id,
+            'title' => 'С исходником',
+        ]);
+
+        AiImageGenerationTask::query()->create([
+            'image_generation_id' => $generation->id,
+            'subscriber_id' => $subscriberId,
+            'user_id' => $user->id,
+            'task_type' => 'generate_image',
+            'prompt' => 'Prompt',
+            'image_variants' => 1,
+            'resolution' => 'default',
+            'status' => AiImageGenerationTask::STATUS_DONE,
+            'source_images' => [[
+                'path' => $sourcePath,
+                'url_preview' => '/panel/ai/media/' . $sourcePath,
+            ]],
+            'result_images' => [[
+                'path' => $resultPath,
+                'url' => '/panel/ai/media/' . $resultPath,
+            ]],
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/panel/ai/image/generations/' . $generation->uuid)
+            ->assertOk();
+
+        $sourceImageUrl = (string) $response->json('data.tasks.0.source_images.0');
+        $resultImageUrl = (string) $response->json('data.tasks.0.images.0');
+
+        $this->assertSame(
+            '/panel/ai/media/source-images/user-' . $user->id . '/2026/source.jpg',
+            $sourceImageUrl,
+        );
+        $this->assertSame(
+            '/panel/ai/media/source-images/user-' . $user->id . '/2026/result.png',
+            $resultImageUrl,
+        );
     }
 
     public function test_open_done_generation_returns_resolved_image_url(): void
@@ -125,16 +195,22 @@ class AiImageGenerationTest extends WebAuthTestCase
             'status' => AiImageGenerationTask::STATUS_DONE,
             'result_images' => [[
                 'path' => $imagePath,
-                'signed_url' => '/api/subscriber/ai/media/' . rawurlencode($imagePath),
+                'signed_url' => '/panel/ai/media/' . rawurlencode($imagePath),
             ]],
         ]);
 
-        $this->actingAs($user)
-            ->getJson('/panel/ai/image/generations/' . $generation->id)
+        $response = $this->actingAs($user)
+            ->getJson('/panel/ai/image/generations/' . $generation->uuid)
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.tasks.0.status', 'done')
-            ->assertJsonPath('data.tasks.0.images.0', '/panel/ai/media/source-images/user-' . $user->id . '/2026/demo.png');
+            ->assertJsonPath('data.uuid', $generation->uuid)
+            ->assertJsonPath('data.tasks.0.status', 'done');
+
+        $imageUrl = (string) $response->json('data.tasks.0.images.0');
+        $this->assertSame(
+            '/panel/ai/media/source-images/user-' . $user->id . '/2026/demo.png',
+            $imageUrl,
+        );
     }
 
     public function test_delete_generation_removes_tasks_and_media_files(): void
@@ -175,7 +251,7 @@ class AiImageGenerationTest extends WebAuthTestCase
         ]);
 
         $this->actingAs($user)
-            ->deleteJson('/panel/ai/image/generations/' . $generation->id)
+            ->deleteJson('/panel/ai/image/generations/' . $generation->uuid)
             ->assertOk()
             ->assertJsonPath('success', true);
 
@@ -197,7 +273,7 @@ class AiImageGenerationTest extends WebAuthTestCase
         ]);
 
         $this->actingAs($intruder)
-            ->deleteJson('/panel/ai/image/generations/' . $generation->id)
+            ->deleteJson('/panel/ai/image/generations/' . $generation->uuid)
             ->assertNotFound();
     }
 
@@ -211,6 +287,23 @@ class AiImageGenerationTest extends WebAuthTestCase
             ])
             ->assertOk()
             ->assertJsonPath('success', false);
+    }
+
+    public function test_store_image_accepts_panel_media_url(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $existingPath = 'ai/source-images/user-' . $user->id . '/2026/existing.png';
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+        Storage::disk('private')->put($existingPath, $png);
+
+        $panelUrl = '/panel/ai/media/source-images/user-' . $user->id . '/2026/existing.png';
+        $stored = app(AiMediaStorageService::class)->storeImageAndGetSignedUrl($panelUrl, $user->id);
+
+        $this->assertNotSame('', (string) ($stored['path'] ?? ''));
+        $this->assertNotSame($existingPath, (string) ($stored['path'] ?? ''));
+        Storage::disk('private')->assertExists((string) $stored['path']);
     }
 
     private function createSubscriberUser(bool $withAiPermission = false): User
@@ -278,11 +371,23 @@ class AiImageGenerationTest extends WebAuthTestCase
         if (! Schema::hasTable('ai_image_generations')) {
             Schema::create('ai_image_generations', function (Blueprint $table) {
                 $table->id();
+                $table->uuid('uuid')->unique();
                 $table->unsignedBigInteger('subscriber_id')->index();
                 $table->unsignedBigInteger('user_id')->index();
                 $table->string('title', 120)->nullable();
                 $table->timestamps();
             });
+        } elseif (! Schema::hasColumn('ai_image_generations', 'uuid')) {
+            Schema::table('ai_image_generations', function (Blueprint $table) {
+                $table->uuid('uuid')->nullable()->unique()->after('id');
+            });
+
+            AiImageGeneration::query()
+                ->whereNull('uuid')
+                ->orderBy('id')
+                ->each(function (AiImageGeneration $generation): void {
+                    $generation->forceFill(['uuid' => (string) Str::uuid()])->save();
+                });
         }
 
         if (! Schema::hasTable('balances')) {

@@ -2,15 +2,16 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Feedbacks;
 
-use App\Http\Controllers\Api\Subscriber\Ai\AiController as ApiAiController;
-use App\Http\Controllers\Api\Subscriber\Wb\Feedbacks\FeedbacksClientsController as ApiFeedbacksClientsController;
-use App\Http\Controllers\Api\Subscriber\Wb\Feedbacks\FeedbacksController as ApiFeedbacksController;
-use App\Http\Controllers\Api\Subscriber\Wb\Feedbacks\FeedbacksStatController as ApiFeedbacksStatController;
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresFeedbacksClientOwnership;
+use App\Services\Subscriber\Ai\SubscriberAiTextService;
+use App\Services\Subscriber\Wb\WbFeedbacksClientsService;
+use App\Services\Subscriber\Wb\WbFeedbacksService;
+use App\Services\Subscriber\Wb\WbFeedbacksStatsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\SendFeedbackRequest;
 use App\Http\Requests\Web\Subscriber\UpdateAiDataRequest;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Support\ToolLimits;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -23,10 +24,10 @@ class FeedbacksController extends SubscriberToolController
     use EnsuresFeedbacksClientOwnership;
 
     public function __construct(
-        private readonly ApiFeedbacksController $apiFeedbacksController,
-        private readonly ApiFeedbacksClientsController $apiClientsController,
-        private readonly ApiFeedbacksStatController $apiStatController,
-        private readonly ApiAiController $apiAiController,
+        private readonly WbFeedbacksService $feedbacksService,
+        private readonly WbFeedbacksClientsService $clientsService,
+        private readonly WbFeedbacksStatsService $statsService,
+        private readonly SubscriberAiTextService $aiTextService,
     ) {
     }
 
@@ -36,14 +37,14 @@ class FeedbacksController extends SubscriberToolController
 
         $feedbacksPayload = $this->loadFeedbacks($request, $client, 0);
         $aiPayload = $this->decodeApiResponse(
-            $this->apiClientsController->getAiData(
-                $request->duplicate(['client_id' => $client->id])
+            $this->clientsService->getAiData(
+                $this->apiRequestWith($request, ['client_id' => $client->id])
             )
         );
         $answeredPayload = ['success' => true, 'data' => []];
         try {
             $answeredPayload = $this->decodeApiResponse(
-                $this->apiStatController->answeredReviews(
+                $this->statsService->answeredReviews(
                     $request->duplicate(['cabinet_id' => $client->id, 'limit' => 5])
                 )
             );
@@ -64,7 +65,7 @@ class FeedbacksController extends SubscriberToolController
             'feedbacks' => $feedbacksPayload['feedbacks'],
             'feedbacksError' => $feedbacksPayload['error'],
             'aiSettings' => ($aiPayload['success'] ?? false) ? ($aiPayload['data'] ?? null) : null,
-            'aiLimit' => $subscription ? (int) ($subscription->getMonthLimit('feedbacks_gpt_query') ?: 0) : 0,
+            'aiLimit' => ToolLimits::monthLimitValue($request->user(), $subscription, 'feedbacks_gpt_query'),
             'answeredReviews' => ($answeredPayload['success'] ?? false) ? ($answeredPayload['data'] ?? []) : [],
             'ratingType' => ($aiPayload['data']['review_type'] ?? null),
         ]);
@@ -91,8 +92,8 @@ class FeedbacksController extends SubscriberToolController
     {
         $this->ensureClientOwnership($client);
 
-        $response = $this->apiFeedbacksController->sendFeedbackToWb(
-            $request->duplicate(null, [
+        $response = $this->feedbacksService->sendFeedbackToWb(
+            $this->apiRequestWith($request, [
                 'client_id' => $client->id,
                 'id' => $request->validated('id'),
                 'text' => $request->validated('text'),
@@ -109,25 +110,20 @@ class FeedbacksController extends SubscriberToolController
             ->with('success', $this->apiMessage($payload, 'Ответ отправлен'));
     }
 
-    public function updateAi(UpdateAiDataRequest $request, FeedbacksClients $client): RedirectResponse
+    public function updateAi(UpdateAiDataRequest $request, FeedbacksClients $client): JsonResponse
     {
         $this->ensureClientOwnership($client);
 
-        $response = $this->apiClientsController->updateAiData(
-            $request->duplicate(null, [
+        $response = $this->clientsService->updateAiData(
+            $this->apiRequestWith($request, [
                 'client_id' => $client->id,
                 'status' => $request->validated('status'),
                 'ratings' => $request->validated('ratings'),
                 'review_type' => $request->input('review_type'),
             ])
         );
-        $payload = $this->decodeApiResponse($response);
 
-        if (($payload['success'] ?? false) !== true) {
-            return back()->with('error', $this->apiMessage($payload, 'Не удалось сохранить настройки ИИ'));
-        }
-
-        return back()->with('success', $this->apiMessage($payload, 'Настройки ИИ сохранены'));
+        return response()->json($this->decodeApiResponse($response));
     }
 
     public function generateAi(Request $request, FeedbacksClients $client): JsonResponse
@@ -185,7 +181,7 @@ class FeedbacksController extends SubscriberToolController
             ]);
         }
 
-        $response = $this->apiAiController->ask($aiRequest);
+        $response = $this->aiTextService->ask($aiRequest);
         $payload = $this->decodeApiResponse($response);
 
         return response()->json($payload, 200);
@@ -196,7 +192,7 @@ class FeedbacksController extends SubscriberToolController
      */
     private function loadFeedbacks(Request $request, FeedbacksClients $client, int $skip): array
     {
-        $response = $this->apiFeedbacksController->getFeedbacksList(
+        $response = $this->feedbacksService->getFeedbacksList(
             $this->apiRequestWith($request, [
                 'client_id' => $client->id,
                 'skip' => $skip,

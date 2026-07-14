@@ -74,18 +74,4 @@ trait HandlesApiResponses
 
         return back()->with('error', $this->apiMessage($payload, $fallback));
     }
-
-    protected function redirectWithApiError(string $to, HttpResponse $response, string $fallback = 'Не удалось выполнить операцию'): RedirectResponse
-    {
-        $payload = $this->decodeApiResponse($response);
-
-        return redirect()->to($to)->with('error', $this->apiMessage($payload, $fallback));
-    }
-
-    protected function redirectWithApiSuccess(string $to, HttpResponse $response, string $fallback = 'Готово'): RedirectResponse
-    {
-        $payload = $this->decodeApiResponse($response);
-
-        return redirect()->to($to)->with('success', $this->apiMessage($payload, $fallback));
-    }
 }

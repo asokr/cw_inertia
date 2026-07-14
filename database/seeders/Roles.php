@@ -33,7 +33,6 @@ class Roles extends Seeder
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb profitability']); //Доступы к модулю рентабельности
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb ai cabinet analyzer']); //Доступы к модулю AiCabinet Analyzer
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber ai']); //Доступы к модулю ИИ
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'manager fullfilment']); //Доступы к просмотру заказов фулфилмента
 
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'administrator']); //доступ к всякому на фронте, чего не сделать на ларавель
 
@@ -48,9 +47,6 @@ class Roles extends Seeder
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'blog.delete']);
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'blog.publish']);
 
-
-        // User::find(173)->givePermissionTo('manager fullfilment');
-        // User::find(161)->givePermissionTo('manager fullfilment');
 
         // User::all()->each(function ($user) {
         //     $user->givePermissionTo('subscriber oz price calc');
