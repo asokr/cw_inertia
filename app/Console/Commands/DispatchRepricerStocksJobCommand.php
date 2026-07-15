@@ -29,6 +29,10 @@ class DispatchRepricerStocksJobCommand extends Command
 
             $user = $subscription->getUser();
 
+            if (! $user) {
+                continue;
+            }
+
             $cabinets = RepricerCabinets::where('user_id', $user->id)
                 ->where(function ($query) {
                     $query->whereNull('error_code')

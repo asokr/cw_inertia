@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use Illuminate\Support\Facades\Artisan;
 
 class Kernel extends ConsoleKernel
 {
@@ -22,13 +23,11 @@ class Kernel extends ConsoleKernel
         Commands\UpdateWbFeedbacksReviewCategoryStatistics::class,
         Commands\SubscriberNotifyNotEnoughFunds::class,
         Commands\WbRepricerBot::class,
-        // Commands\WbStocksRepricerBot::class,
         Commands\DispatchRepricerStocksJobCommand::class,
         Commands\DispatchRepricerStrategyOneJobCommand::class,
         Commands\OzFeedbacksAnswer::class,
         Commands\DispatchRepricerCompetitorsJobCommand::class,
         Commands\ResetStuckProfitabilityReportsCommand::class,
-        Commands\CleanupAiMediaPreviousMonthCommand::class,
         Commands\AggregateAiCosts::class,
     ];
 
@@ -53,13 +52,15 @@ class Kernel extends ConsoleKernel
         // Очистка логов AI маркетплейса старше 1 месяца
         $schedule->command('model:prune --model="App\\Models\\AiRequestLog"')->daily()->at('04:10');
         // Агрегация расходов AI за текущий день в постоянную таблицу
-        $schedule->command('ai:aggregate-costs --date=' . now()->toDateString())
+        $schedule->call(function () {
+            Artisan::call('ai:aggregate-costs', [
+                '--date' => now()->toDateString(),
+            ]);
+        })
+            ->name('ai:aggregate-costs')
             ->everyThirtyMinutes()
             ->withoutOverlapping()
-            ->onOneServer()
-            ->runInBackground();
-        // Очистка AI-медиа файлов за предыдущий месяц
-        $schedule->command('ai-media:cleanup-previous-month')->monthlyOn(20, '04:20')->withoutOverlapping()->onOneServer()->runInBackground();
+            ->onOneServer();
 
         /*
         /   Задачи для сервиса подписок
@@ -81,14 +82,14 @@ class Kernel extends ConsoleKernel
 
         // Еженедельная статистика (запуск каждый понедельник в 2:00)
         $schedule->command('update:wb-feedbacks-statistics --weekly')
-            ->dailyAt('02:00') // Понедельник (1), время 2:00
+            ->weeklyOn(1, '02:00')
             ->withoutOverlapping()
             ->onOneServer()
             ->runInBackground();
 
-        // Ежемесячная статистика (запуск каждое 1-е число в 2:00)
+        // Ежемесячная статистика (запуск каждое 1-е число в 2:02)
         $schedule->command('update:wb-feedbacks-statistics --monthly')
-            ->dailyAt('02:02') // Первое число, время 2:00
+            ->monthlyOn(1, '02:02')
             ->withoutOverlapping()
             ->onOneServer()
             ->runInBackground();
@@ -110,10 +111,6 @@ class Kernel extends ConsoleKernel
 
         // Репрайсер по времени
         $schedule->command('subscriber:wb-repricer-bot')->withoutOverlapping()->everyMinute();
-
-        // Репрайсер по остаткам
-        // $schedule->command('subscriber:wb-stocks-repricer-bot')->withoutOverlapping()->everyThirtyMinutes();
-        // $schedule->command('subscriber:wb-stocks-repricer-bot')->everyTenMinutes()->withoutOverlapping()->runInBackground();
 
         // Постановка задач обновления остатков
         $schedule->command('subscriber:dispatch-wb-stocks-jobs')->everyThirtyMinutes()->withoutOverlapping()->runInBackground();

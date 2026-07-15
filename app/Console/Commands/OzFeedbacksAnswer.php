@@ -261,7 +261,7 @@ class OzFeedbacksAnswer extends Command
 
             if (count($reviews) < 90 && $resp['data']["has_next"]) {
                 $this->info("Недостаточно отзывов для обработки, получено: " . count($reviews));
-                $this->setUnprocessedReviews($filtered_reviews, $last_id);
+                $this->setUnprocessedReviews($reviews, $last_id);
                 return;
             }
             $this->info("Теперь достаточно отзывов для работы:  " . count($reviews));
@@ -336,15 +336,22 @@ class OzFeedbacksAnswer extends Command
 
         $prompt = "Это отзыв на товар: " . $this->current_product['name'] . ", покупатель поставил " . $this->current_review['rating'] . " звёзд из 5, помоги ответить на него не более 300 символов. Если текста отзыва нет или ты его не понял (сленг) - ответь общими словами. Не предлагай: обмен, возврат товара, возмещение средств, обратиться в поддержку. Не используй эмодзи. Вот текст отзыва: " . $this->current_review['text'];
 
-        $aiResponse = $this->askToChatGptWithMeta($type, $prompt);
-        $this->lastAiResponseMeta = is_array($aiResponse) ? $aiResponse : [];
+        $maxAttempts = 3;
 
-        if (! ($aiResponse['success'] ?? false)) {
-            sleep(1);
-            return $this->generateAiAnswer();
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            $aiResponse = $this->askToChatGptWithMeta($type, $prompt);
+            $this->lastAiResponseMeta = is_array($aiResponse) ? $aiResponse : [];
+
+            if ($aiResponse['success'] ?? false) {
+                return (string) ($aiResponse['text'] ?? '');
+            }
+
+            if ($attempt < $maxAttempts) {
+                sleep(1);
+            }
         }
 
-        return (string) ($aiResponse['text'] ?? '');
+        return false;
     }
 
     private function setProducts()
@@ -360,6 +367,7 @@ class OzFeedbacksAnswer extends Command
 
         $resp = $this->parseApiResponse($this->getProductInfo($this->api_key, $this->client_id, $params), $this->cabinet);
         if ($resp['success']) {
+            $products = [];
             foreach ($resp['data']['items'] as $product) {
                 $products[] = [
                     'name' => $product['name'],

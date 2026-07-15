@@ -3,7 +3,7 @@ pid: 15676
 cwd: "C:\OSPanel\home\subs-back.local\cw_inertia"
 command: "cd \"C:\\OSPanel\\home\\subs-back.local\\cw_inertia\"; npm install markdown-it-task-lists --save 2>&1"
 started_at: 2026-07-14T08:07:27.132Z
-running_for_ms: 2035015  
+running_for_ms: 2145015  
 ---
 
 added 1 package, and audited 254 packages in 38s

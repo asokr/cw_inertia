@@ -85,6 +85,10 @@ class UpdateWbFeedbacksStatistics extends Command
         foreach ($subscriptions as $subscription) {
             $modelPlan = SubscribersPlans::find($subscription->plan_id);
 
+            if (! $modelPlan) {
+                continue;
+            }
+
             if (in_array('subscriber wb feedbacks', $modelPlan->permissions)) {
                 $subscriberSubscriptions[] = $subscription;
             }

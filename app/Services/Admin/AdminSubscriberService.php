@@ -11,8 +11,6 @@ use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use O21\LaravelWallet\Exception\InsufficientFundsException;
 use O21\LaravelWallet\Models\Transaction;
 use O21\Numeric\Numeric as NumericValue;
 
@@ -361,7 +359,11 @@ class AdminSubscriberService
             return;
         }
 
-        $subscription = SubscribersSubscriptions::where('subscribers_id', $subscriber->id)->first();
+        $subscription = SubscribersSubscriptions::query()
+            ->where('subscribers_id', $subscriber->id)
+            ->where('status', 1)
+            ->orderByDesc('id')
+            ->first();
         $user = $subscriber->user;
 
         if (! $subscription) {
@@ -385,39 +387,46 @@ class AdminSubscriberService
             return;
         }
 
-        if ($plan->price > $subscription->plan->price) {
-            $endDate = Carbon::createFromDate($subscription->end_date);
-            $remainingDays = $endDate->diffInDays(Carbon::now());
-            $newDayCost = $plan->price / $plan->duration;
-            $oldDayCost = $subscription->plan->price / $subscription->plan->duration;
-            $oldRemainingValue = $remainingDays * $oldDayCost;
-            $addDaysToPlan = round($oldRemainingValue / $newDayCost);
-
-            $remainingMonthLimits = [];
-            foreach ($plan->limits_month as $key => $value) {
-                $remainingMonthLimits[$key] = (int) $value + (int) ($subscription->limits_month[$key] ?? 0);
-            }
-
-            $remainingPlanLimits = [];
-            foreach ($plan->limits_plan as $key => $value) {
-                $planCount = $this->getUsedLimits($subscriber->id, $key);
-                if ($planCount) {
-                    $remainingPlanLimits[$key] = (int) $value - (int) $planCount;
-                    if ($remainingPlanLimits[$key] < 0) {
-                        throw new \InvalidArgumentException('Не хватает лимита: ' . $key);
-                    }
-                } else {
-                    $remainingPlanLimits[$key] = (int) $value;
-                }
-            }
-
-            $subscription->plan_id = $plan->id;
-            $subscription->limits_plan = $remainingPlanLimits;
-            $subscription->limits_month = $remainingMonthLimits;
-            $subscription->start_date = Carbon::now();
-            $subscription->end_date = Carbon::now()->addDays($plan->duration + $addDaysToPlan);
-            $subscription->save();
+        if ((int) $subscription->plan_id === (int) $plan->id) {
+            return;
         }
+
+        $currentPlan = SubscribersPlans::find($subscription->plan_id);
+        if (! $currentPlan) {
+            throw new \InvalidArgumentException('Текущий тариф подписки не найден');
+        }
+
+        $endDate = Carbon::createFromDate($subscription->end_date);
+        $remainingDays = $endDate->diffInDays(Carbon::now());
+        $newDayCost = max(0.01, (float) $plan->price / max(1, (int) $plan->duration));
+        $oldDayCost = max(0.01, (float) $currentPlan->price / max(1, (int) $currentPlan->duration));
+        $oldRemainingValue = $remainingDays * $oldDayCost;
+        $addDaysToPlan = (int) round($oldRemainingValue / $newDayCost);
+
+        $remainingMonthLimits = [];
+        foreach ($plan->limits_month as $key => $value) {
+            $remainingMonthLimits[$key] = (int) $value + (int) ($subscription->limits_month[$key] ?? 0);
+        }
+
+        $remainingPlanLimits = [];
+        foreach ($plan->limits_plan as $key => $value) {
+            $planCount = $this->getUsedLimits($subscriber->id, $key);
+            if ($planCount) {
+                $remainingPlanLimits[$key] = (int) $value - (int) $planCount;
+                if ($remainingPlanLimits[$key] < 0) {
+                    throw new \InvalidArgumentException('Не хватает лимита: ' . $key);
+                }
+            } else {
+                $remainingPlanLimits[$key] = (int) $value;
+            }
+        }
+
+        $subscription->plan_id = $plan->id;
+        $subscription->limits_plan = $remainingPlanLimits;
+        $subscription->limits_month = $remainingMonthLimits;
+        $subscription->start_date = Carbon::now();
+        $subscription->end_date = Carbon::now()->addDays($plan->duration + $addDaysToPlan);
+        $subscription->save();
     }
 
     private function normalizeNumeric(mixed $value): float
