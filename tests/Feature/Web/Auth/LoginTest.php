@@ -3,6 +3,7 @@
 namespace Tests\Feature\Web\Auth;
 
 use App\Models\User;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 
 class LoginTest extends WebAuthTestCase
@@ -79,6 +80,43 @@ class LoginTest extends WebAuthTestCase
 
         $response->assertSessionHasErrors('email');
         $this->assertGuest();
+    }
+
+    public function test_login_with_remember_me_sets_remember_cookie(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'subscriber@example.com',
+            'password' => Hash::make('password'),
+        ]);
+        $user->assignRole('Подписчик');
+
+        $response = $this->post('/login', [
+            'email' => 'subscriber@example.com',
+            'password' => 'password',
+            'remember' => true,
+        ]);
+
+        $response->assertRedirect('/panel');
+        $this->assertAuthenticatedAs($user);
+        $response->assertCookie(Auth::guard()->getRecallerName());
+    }
+
+    public function test_login_without_remember_me_does_not_set_remember_cookie(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'subscriber@example.com',
+            'password' => Hash::make('password'),
+        ]);
+        $user->assignRole('Подписчик');
+
+        $response = $this->post('/login', [
+            'email' => 'subscriber@example.com',
+            'password' => 'password',
+        ]);
+
+        $response->assertRedirect('/panel');
+        $this->assertAuthenticatedAs($user);
+        $response->assertCookieMissing(Auth::guard()->getRecallerName());
     }
 
     public function test_unverified_user_is_redirected_to_verification_notice(): void

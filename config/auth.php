@@ -112,4 +112,15 @@ return [
 
     'password_timeout' => 10800,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Remember Me Lifetime
+    |--------------------------------------------------------------------------
+    |
+    | Number of minutes the "remember me" cookie remains valid.
+    |
+    */
+
+    'remember_lifetime' => (int) env('REMEMBER_ME_LIFETIME', 20160),
+
 ];

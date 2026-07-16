@@ -22,6 +22,8 @@ class UpdateSubscriberRequest extends FormRequest
             'user.phone' => 'nullable|string|max:50',
             'subscriptions' => 'nullable|array',
             'subscriptions.*.id' => 'required|integer',
+            'subscriptions.*.limits_plan' => 'nullable|array',
+            'subscriptions.*.limits_month' => 'nullable|array',
             'subscriptions.*.extra_limits_month' => 'nullable|array',
         ];
     }

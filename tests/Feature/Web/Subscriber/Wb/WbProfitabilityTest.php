@@ -10,6 +10,7 @@ use App\Models\Subscribers\Wb\Profitability\Item;
 use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
 use App\Models\Subscribers\Wb\Profitability\Report;
 use App\Models\User;
+
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -276,6 +277,44 @@ class WbProfitabilityTest extends WebAuthTestCase
         $this->assertTrue(array_is_list($groups));
         $this->assertTrue(array_is_list($groups[0]['items']));
         $this->assertSame('TEST-001', $groups[0]['items'][0]['sa_name']);
+    }
+
+    public function test_cabinet_export_downloads_non_empty_xlsx_when_report_exists(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Export Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 1,
+            'sales_amount' => 1000,
+            'itog' => 500,
+            'margin' => 500,
+            'total_profitability' => 50,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 123456,
+            'sa_name' => 'TEST-001',
+            'supplier_oper_name' => 'Продажа',
+            'quantity' => 1,
+            'sum_to_transfer' => 1000,
+            'margin' => 500,
+            'profitability_percent' => 50,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get("/panel/wb/profitability/cabinets/{$cabinet->id}/export");
+
+        $response->assertOk();
+        $response->assertDownload();
+
+        $content = $response->baseResponse->getFile()->getContent();
+        $this->assertGreaterThan(1000, strlen($content), 'Exported XLSX should contain report data');
+        $this->assertSame('PK', substr($content, 0, 2), 'Exported file should be a valid XLSX archive');
     }
 
     public function test_cabinet_show_keeps_group_items_while_job_processing(): void

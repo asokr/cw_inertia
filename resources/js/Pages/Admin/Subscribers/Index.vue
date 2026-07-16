@@ -1,8 +1,10 @@
 <script setup>
 import { Head, router } from "@inertiajs/vue3";
-import { h, ref } from "vue";
+import { h, reactive, ref } from "vue";
 import { actionsColumn, renderRowActions } from "@/lib/tableActions";
+import LimitList from "@/components/admin/widgets/LimitList.vue";
 import OAuthProviderBadge from "@/components/admin/OAuthProviderBadge.vue";
+import { formatLimitLabel } from "@/utils/limitLabels";
 import AdminLayout from "@/Layouts/AdminLayout.vue";
 import PageHeader from "@/components/admin/PageHeader.vue";
 import SubscribersSubnav from "@/components/admin/SubscribersSubnav.vue";
@@ -21,6 +23,62 @@ const props = defineProps({
 
 const search = ref(props.filters.search ?? "");
 const planId = ref(props.filters.plan_id ?? "");
+const tooltip = reactive({ visible: false, x: 0, y: 0, subscription: null });
+
+function hasLimits(obj) {
+    return obj && Object.keys(obj).length > 0;
+}
+
+function countLimits(obj) {
+    return obj ? Object.keys(obj).length : 0;
+}
+
+function limitsSummary(subscription) {
+    if (!subscription) return "—";
+
+    const planCount = countLimits(subscription.limits_plan);
+    const monthCount = countLimits(subscription.limits_month);
+    const extraCount = countLimits(subscription.extra_limits_month);
+
+    if (!planCount && !monthCount && !extraCount) {
+        return "Нет лимитов";
+    }
+
+    const parts = [];
+    if (planCount) parts.push(`${planCount} план.`);
+    if (monthCount) parts.push(`${monthCount} мес.`);
+    if (extraCount) parts.push(`+${extraCount} доп.`);
+
+    return parts.join(" / ");
+}
+
+function firstLimitPreview(subscription) {
+    const subscriptionLimits = subscription?.limits_plan ?? {};
+    const tariffLimits = subscription?.plan?.limits_plan ?? {};
+    const firstEntry = Object.entries(subscriptionLimits)[0];
+    if (!firstEntry) return null;
+
+    const [key, value] = firstEntry;
+    const tariffValue = tariffLimits[key];
+    if (tariffValue !== undefined) {
+        return `${formatLimitLabel(key)}: ${value} / ${tariffValue}`;
+    }
+
+    return `${formatLimitLabel(key)}: ${value}`;
+}
+
+function openTooltip(subscription, event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    tooltip.visible = true;
+    tooltip.subscription = subscription;
+    tooltip.x = rect.left + rect.width / 2;
+    tooltip.y = rect.bottom + 8;
+}
+
+function closeTooltip() {
+    tooltip.visible = false;
+    tooltip.subscription = null;
+}
 
 const formatCurrency = (amount) => new Intl.NumberFormat("ru-RU", {
     style: "currency",
@@ -69,6 +127,32 @@ const columns = [
             return h("div", { class: "text-xs space-y-0.5" }, subs.map((s) =>
                 h("div", `${s.plan?.name ?? "—"} до ${s.end_date ?? "—"}`)
             ));
+        },
+    },
+    {
+        id: "limits",
+        header: "Лимиты",
+        cell: ({ row }) => {
+            const subscription = row.original.subscriptions?.[0];
+            if (!subscription) return "—";
+
+            const preview = firstLimitPreview(subscription);
+
+            return h(
+                "button",
+                {
+                    type: "button",
+                    class: "text-left text-xs text-primary hover:underline",
+                    onMouseenter: (event) => openTooltip(subscription, event),
+                    onMouseleave: closeTooltip,
+                    onFocus: (event) => openTooltip(subscription, event),
+                    onBlur: closeTooltip,
+                },
+                [
+                    h("div", limitsSummary(subscription)),
+                    preview ? h("div", { class: "text-muted-foreground" }, preview) : null,
+                ],
+            );
         },
     },
     {
@@ -158,5 +242,35 @@ function applyFilters() {
                 </div>
             </div>
         </Card>
+
+        <Teleport to="body">
+            <div
+                v-if="tooltip.visible && tooltip.subscription"
+                class="pointer-events-none fixed z-50 w-72 max-w-[90vw] rounded-lg border bg-card p-3 text-sm shadow-lg"
+                :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px`, transform: 'translateX(-50%)' }"
+            >
+                <div class="mb-1 font-semibold">Тарифные лимиты</div>
+                <p class="mb-2 text-xs text-muted-foreground">остаток / по тарифу</p>
+                <div v-if="hasLimits(tooltip.subscription.limits_plan) || hasLimits(tooltip.subscription.extra_limits_plan) || hasLimits(tooltip.subscription.plan?.limits_plan)">
+                    <LimitList
+                        :base="tooltip.subscription.limits_plan"
+                        :extra="tooltip.subscription.extra_limits_plan"
+                        :tariff="tooltip.subscription.plan?.limits_plan"
+                    />
+                </div>
+                <div v-else class="mb-2 text-muted-foreground">Нет плановых лимитов</div>
+
+                <div class="mb-1 font-semibold">Месячные лимиты</div>
+                <p class="mb-2 text-xs text-muted-foreground">остаток / по тарифу + доп.</p>
+                <div v-if="hasLimits(tooltip.subscription.limits_month) || hasLimits(tooltip.subscription.extra_limits_month) || hasLimits(tooltip.subscription.plan?.limits_month)">
+                    <LimitList
+                        :base="tooltip.subscription.limits_month"
+                        :extra="tooltip.subscription.extra_limits_month"
+                        :tariff="tooltip.subscription.plan?.limits_month"
+                    />
+                </div>
+                <div v-else class="text-muted-foreground">Нет месячных лимитов</div>
+            </div>
+        </Teleport>
     </AdminLayout>
 </template>

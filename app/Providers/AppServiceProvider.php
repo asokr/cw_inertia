@@ -6,6 +6,7 @@ use App\Mail\EmailVerification;
 use App\Services\PaymentService;
 use App\Services\Gemini\GeminiApiClient;
 use App\Services\Grok\GrokVideoApiClient;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
@@ -50,6 +51,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Auth::guard('web')->setRememberDuration((int) config('auth.remember_lifetime', 20160));
+
         // Override the email notification for verifying email
         VerifyEmail::toMailUsing(function ($notifiable) {
             $verifyUrl = URL::temporarySignedRoute(

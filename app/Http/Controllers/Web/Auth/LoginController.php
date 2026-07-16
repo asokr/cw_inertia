@@ -25,6 +25,7 @@ class LoginController extends Controller
         $result = $authService->attemptLogin(
             $request->validated('email'),
             $request->validated('password'),
+            $request->boolean('remember'),
         );
 
         if ($result['needs_verification']) {

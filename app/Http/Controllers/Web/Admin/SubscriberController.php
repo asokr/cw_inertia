@@ -11,6 +11,7 @@ use App\Http\Requests\Admin\WithdrawSubscriberRequest;
 use App\Models\Subscribers\Subscribers;
 use App\Services\Admin\AdminPlanService;
 use App\Services\Admin\AdminSubscriberService;
+use App\Support\SubscriberLimitLabels;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -79,6 +80,7 @@ class SubscriberController extends Controller
             'payments' => $detail['payments'],
             'totalDeposits' => $detail['total_deposits'],
             'plans' => $this->planService->available(),
+            'limitKeys' => array_keys(SubscriberLimitLabels::all()),
         ]);
     }
 

@@ -111,7 +111,7 @@ class AdminSubscriberService
                     'limits_month', 'extra_limits_month', 'start_date', 'end_date', 'status',
                 ])
                     ->with(['plan' => function ($query) {
-                        $query->select(['id', 'name', 'price', 'duration']);
+                        $query->select(['id', 'name', 'price', 'duration', 'limits_plan', 'limits_month']);
                     }]);
             },
         ]);
@@ -175,9 +175,8 @@ class AdminSubscriberService
         if (is_array($data['subscriptions'] ?? null)) {
             foreach ($data['subscriptions'] as $subscriptionPayload) {
                 $subscriptionId = data_get($subscriptionPayload, 'id');
-                $extraLimits = data_get($subscriptionPayload, 'extra_limits_month');
 
-                if (! $subscriptionId || ! is_array($extraLimits)) {
+                if (! $subscriptionId) {
                     continue;
                 }
 
@@ -190,21 +189,33 @@ class AdminSubscriberService
                     continue;
                 }
 
-                $normalized = [];
-                foreach ($extraLimits as $limitName => $limitValue) {
-                    if ($limitName === null || $limitName === '') {
-                        continue;
-                    }
+                $hasChanges = false;
 
-                    if (is_array($limitValue)) {
-                        $limitValue = reset($limitValue);
+                if (is_array(data_get($subscriptionPayload, 'limits_plan'))) {
+                    $normalized = $this->normalizeLimitMap(data_get($subscriptionPayload, 'limits_plan'));
+                    if (($subscription->limits_plan ?? []) !== $normalized) {
+                        $subscription->limits_plan = $normalized;
+                        $hasChanges = true;
                     }
-
-                    $normalized[$limitName] = max(0, (int) ($limitValue ?? 0));
                 }
 
-                if (($subscription->extra_limits_month ?? []) !== $normalized) {
-                    $subscription->extra_limits_month = $normalized;
+                if (is_array(data_get($subscriptionPayload, 'limits_month'))) {
+                    $normalized = $this->normalizeLimitMap(data_get($subscriptionPayload, 'limits_month'));
+                    if (($subscription->limits_month ?? []) !== $normalized) {
+                        $subscription->limits_month = $normalized;
+                        $hasChanges = true;
+                    }
+                }
+
+                if (is_array(data_get($subscriptionPayload, 'extra_limits_month'))) {
+                    $normalized = $this->normalizeLimitMap(data_get($subscriptionPayload, 'extra_limits_month'));
+                    if (($subscription->extra_limits_month ?? []) !== $normalized) {
+                        $subscription->extra_limits_month = $normalized;
+                        $hasChanges = true;
+                    }
+                }
+
+                if ($hasChanges) {
                     $subscription->save();
                 }
             }
@@ -396,8 +407,9 @@ class AdminSubscriberService
             throw new \InvalidArgumentException('Текущий тариф подписки не найден');
         }
 
-        $endDate = Carbon::createFromDate($subscription->end_date);
-        $remainingDays = $endDate->diffInDays(Carbon::now());
+        $rawEndDate = $subscription->getRawOriginal('end_date');
+        $endDate = $rawEndDate ? Carbon::parse($rawEndDate) : Carbon::now();
+        $remainingDays = max(0, (int) round(Carbon::now()->diffInDays($endDate, false)));
         $newDayCost = max(0.01, (float) $plan->price / max(1, (int) $plan->duration));
         $oldDayCost = max(0.01, (float) $currentPlan->price / max(1, (int) $currentPlan->duration));
         $oldRemainingValue = $remainingDays * $oldDayCost;
@@ -427,6 +439,29 @@ class AdminSubscriberService
         $subscription->start_date = Carbon::now();
         $subscription->end_date = Carbon::now()->addDays($plan->duration + $addDaysToPlan);
         $subscription->save();
+    }
+
+    /**
+     * @param  array<string, mixed>  $limits
+     * @return array<string, int>
+     */
+    private function normalizeLimitMap(array $limits): array
+    {
+        $normalized = [];
+
+        foreach ($limits as $limitName => $limitValue) {
+            if ($limitName === null || $limitName === '') {
+                continue;
+            }
+
+            if (is_array($limitValue)) {
+                $limitValue = reset($limitValue);
+            }
+
+            $normalized[$limitName] = max(0, (int) ($limitValue ?? 0));
+        }
+
+        return $normalized;
     }
 
     private function normalizeNumeric(mixed $value): float

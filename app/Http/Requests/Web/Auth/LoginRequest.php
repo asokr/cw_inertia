@@ -19,6 +19,7 @@ class LoginRequest extends FormRequest
         return [
             'email' => ['required', 'string', 'email', 'max:190'],
             'password' => ['required', 'string', 'between:6,190'],
+            'remember' => ['sometimes', 'boolean'],
         ];
     }
 

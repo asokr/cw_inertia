@@ -7,6 +7,7 @@ import Button from "@/components/ui/Button.vue";
 import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
 import Card from "@/components/ui/Card.vue";
+import Checkbox from "@/components/ui/Checkbox.vue";
 
 defineProps({
     vkEnabled: Boolean,
@@ -16,6 +17,7 @@ defineProps({
 const form = useForm({
     email: "",
     password: "",
+    remember: false,
 });
 
 function submit() {
@@ -24,10 +26,12 @@ function submit() {
 </script>
 
 <template>
+
     <Head title="Вход" />
 
     <GuestLayout>
-        <Card class="landing-page__fade landing-page__fade--2 w-full border-border/70 bg-card/90 p-6 shadow-xl shadow-primary/5 backdrop-blur sm:p-8">
+        <Card
+            class="landing-page__fade landing-page__fade--2 w-full border-border/70 bg-card/90 p-6 shadow-xl shadow-primary/5 backdrop-blur sm:p-8">
             <div class="mb-6 space-y-1 text-center sm:text-left">
                 <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">Вход</h1>
                 <p class="text-sm text-muted-foreground sm:text-base">Рады видеть вас снова!</p>
@@ -36,13 +40,8 @@ function submit() {
             <form class="space-y-4" @submit.prevent="submit">
                 <div class="space-y-2">
                     <Label for="email">Email</Label>
-                    <Input
-                        id="email"
-                        v-model="form.email"
-                        type="email"
-                        autocomplete="email"
-                        :error="!!form.errors.email"
-                    />
+                    <Input id="email" v-model="form.email" type="email" autocomplete="email"
+                        :error="!!form.errors.email" />
                     <p v-if="form.errors.email" class="text-xs text-destructive">{{ form.errors.email }}</p>
                 </div>
 
@@ -53,15 +52,15 @@ function submit() {
                             Забыли пароль?
                         </Link>
                     </div>
-                    <Input
-                        id="password"
-                        v-model="form.password"
-                        type="password"
-                        autocomplete="current-password"
-                        :error="!!form.errors.password"
-                    />
+                    <Input id="password" v-model="form.password" type="password" autocomplete="current-password"
+                        :error="!!form.errors.password" />
                     <p v-if="form.errors.password" class="text-xs text-destructive">{{ form.errors.password }}</p>
                 </div>
+
+                <label class="flex cursor-pointer items-center gap-2">
+                    <Checkbox id="remember" v-model="form.remember" />
+                    <span class="text-sm text-muted-foreground">Запомнить меня</span>
+                </label>
 
                 <Button type="submit" class="w-full" size="lg" :disabled="form.processing">
                     Войти

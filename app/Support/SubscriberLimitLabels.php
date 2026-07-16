@@ -21,4 +21,12 @@ class SubscriberLimitLabels
     {
         return self::LABELS[$key] ?? $key;
     }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function all(): array
+    {
+        return self::LABELS;
+    }
 }

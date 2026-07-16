@@ -16,12 +16,14 @@ import TabsTrigger from "@/components/ui/TabsTrigger.vue";
 import TabsContent from "@/components/ui/TabsContent.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import Badge from "@/components/ui/Badge.vue";
+import SubscriberLimitsEditor from "@/components/admin/SubscriberLimitsEditor.vue";
 
 const props = defineProps({
     subscriber: { type: Object, required: true },
     payments: { type: Array, default: () => [] },
     totalDeposits: { type: Number, default: 0 },
     plans: { type: Array, default: () => [] },
+    limitKeys: { type: Array, default: () => [] },
 });
 
 const activeTab = ref("profile");
@@ -39,6 +41,8 @@ const form = useForm({
     },
     subscriptions: (props.subscriber.subscriptions ?? []).map((s) => ({
         id: s.id,
+        limits_plan: { ...(s.limits_plan ?? {}) },
+        limits_month: { ...(s.limits_month ?? {}) },
         extra_limits_month: { ...(s.extra_limits_month ?? {}) },
     })),
 });
@@ -61,6 +65,11 @@ const currentBalance = computed(() => {
 });
 
 const activeSubscription = computed(() => (props.subscriber.subscriptions ?? []).find((s) => s.status) ?? null);
+
+const activeSubscriptionForm = computed(() => {
+    if (!activeSubscription.value) return null;
+    return form.subscriptions.find((s) => s.id === activeSubscription.value.id) ?? null;
+});
 
 function saveProfile() {
     form.put(`/cw-page/subscribers/${props.subscriber.id}`);
@@ -146,6 +155,20 @@ const paymentStatusLabel = (status) => ({
                             <p class="font-medium mb-2">Текущая подписка</p>
                             <p>{{ activeSubscription.plan?.name }} — до {{ activeSubscription.end_date }}</p>
                         </div>
+
+                        <div v-if="activeSubscriptionForm" class="rounded-md border p-4">
+                            <p class="mb-3 text-sm font-medium">Лимиты подписки</p>
+                            <SubscriberLimitsEditor
+                                v-model="activeSubscriptionForm"
+                                :limit-keys="limitKeys"
+                                :plan-limits="{
+                                    limits_plan: activeSubscription?.plan?.limits_plan ?? {},
+                                    limits_month: activeSubscription?.plan?.limits_month ?? {},
+                                }"
+                                editable
+                            />
+                        </div>
+                        <p v-else class="text-sm text-muted-foreground">Нет активной подписки для редактирования лимитов</p>
 
                         <div>
                             <label class="mb-1 block text-sm">Сменить тариф (апгрейд)</label>

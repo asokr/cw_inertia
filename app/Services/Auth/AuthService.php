@@ -19,14 +19,14 @@ class AuthService
     /**
      * @return array{success: bool, user: ?User, needs_verification: bool, errors: array<int, string>}
      */
-    public function attemptLogin(string $email, string $password): array
+    public function attemptLogin(string $email, string $password, bool $remember = false): array
     {
         $credentials = [
             'email' => $email,
             'password' => $password,
         ];
 
-        if (! Auth::attempt($credentials)) {
+        if (! Auth::attempt($credentials, $remember)) {
             return [
                 'success' => false,
                 'user' => null,

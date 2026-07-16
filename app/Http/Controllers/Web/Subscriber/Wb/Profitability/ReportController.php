@@ -11,7 +11,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ReportController extends SubscriberToolController
 {
@@ -111,13 +111,15 @@ class ReportController extends SubscriberToolController
         return back()->with('success', $this->apiMessage($payload, 'Обновление поставлено в очередь'));
     }
 
-    public function export(Request $request, ProfitabilityCabinet $cabinet): StreamedResponse|RedirectResponse
+    public function export(Request $request, ProfitabilityCabinet $cabinet): BinaryFileResponse|RedirectResponse
     {
         $this->ensureCabinetOwnership($cabinet);
 
         try {
             return $this->reportService->exportXlsx($request, $cabinet);
-        } catch (\Throwable) {
+        } catch (\Throwable $exception) {
+            report($exception);
+
             return back()->with('error', 'Не удалось скачать отчёт');
         }
     }
