@@ -35,56 +35,99 @@ class FeedbacksController extends SubscriberToolController
     {
         $this->ensureClientOwnership($client);
 
-        $feedbacksPayload = $this->loadFeedbacks($request, $client, 0);
+        $filters = $this->parseFeedbackFilters($request);
+        $feedbacksPayload = $this->loadFeedbacks($request, $client, 0, $filters);
         $aiPayload = $this->decodeApiResponse(
             $this->clientsService->getAiData(
                 $this->apiRequestWith($request, ['client_id' => $client->id])
             )
         );
-        $answeredPayload = ['success' => true, 'data' => []];
-        try {
-            $answeredPayload = $this->decodeApiResponse(
-                $this->statsService->answeredReviews(
-                    $request->duplicate(['cabinet_id' => $client->id, 'limit' => 5])
-                )
-            );
-        } catch (\Throwable) {
-            $answeredPayload = ['success' => true, 'data' => []];
-        }
 
         $subscription = SubscribersSubscriptions::query()
             ->where('subscribers_id', $request->user()->subscriber?->id)
             ->where('status', 1)
             ->first();
 
+        $allFeedbacks = $feedbacksPayload['feedbacks'];
+        $total = count($allFeedbacks);
+        $perPage = $filters['per_page'];
+        $page = $filters['page'];
+
+        if ($perPage === 0) {
+            $pageItems = $allFeedbacks;
+            $pageCount = 1;
+            $page = 1;
+        } else {
+            $pageCount = max(1, (int) ceil($total / $perPage));
+            $page = min($page, $pageCount);
+            $offset = ($page - 1) * $perPage;
+            $pageItems = array_slice($allFeedbacks, $offset, $perPage);
+        }
+
+        $brands = $this->parseBrandsList($client->brands);
+
         return Inertia::render('Subscriber/Wb/Feedbacks/Client/Show', [
             'client' => [
                 'id' => $client->id,
                 'name' => $client->name,
+                'brands' => $client->brands ?? '',
             ],
-            'feedbacks' => $feedbacksPayload['feedbacks'],
+            'feedbacks' => array_values($pageItems),
             'feedbacksError' => $feedbacksPayload['error'],
+            'feedbacksMeta' => [
+                'total' => $total,
+                'page' => $page,
+                'per_page' => $perPage,
+                'page_count' => $pageCount,
+                'count_from_wb' => $feedbacksPayload['countFromWb'],
+                'wb_count_unanswered' => $feedbacksPayload['wbCountUnanswered'],
+                'pages_fetched' => $feedbacksPayload['pagesFetched'],
+                'truncated' => $feedbacksPayload['truncated'],
+                'brand_filter_active' => $brands !== [],
+                'brands' => $brands,
+                'skipped_by_brand' => $feedbacksPayload['skippedByBrand'],
+            ],
+            'filters' => [
+                'nmId' => $filters['nmId'],
+                'ratings' => $filters['ratings'],
+                'page' => $page,
+                'per_page' => $perPage,
+            ],
             'aiSettings' => ($aiPayload['success'] ?? false) ? ($aiPayload['data'] ?? null) : null,
             'aiLimit' => ToolLimits::monthLimitValue($request->user(), $subscription, 'feedbacks_gpt_query'),
-            'answeredReviews' => ($answeredPayload['success'] ?? false) ? ($answeredPayload['data'] ?? []) : [],
             'ratingType' => ($aiPayload['data']['review_type'] ?? null),
         ]);
+    }
+
+    public function answered(Request $request, FeedbacksClients $client): JsonResponse
+    {
+        $this->ensureClientOwnership($client);
+
+        // Merge onto the live request so service auth + input bags stay consistent.
+        $request->merge([
+            'cabinet_id' => $client->id,
+        ]);
+
+        return $this->statsService->answeredReviews($request);
     }
 
     public function refresh(Request $request, FeedbacksClients $client): RedirectResponse
     {
         $this->ensureClientOwnership($client);
 
-        $feedbacksPayload = $this->loadFeedbacks($request, $client, 0);
+        $filters = $this->parseFeedbackFilters($request);
+        $feedbacksPayload = $this->loadFeedbacks($request, $client, 0, $filters);
+
+        $query = $this->filtersToQuery($filters);
 
         if ($feedbacksPayload['error']) {
             return redirect()
-                ->route('subscriber.wb.feedbacks.clients.show', $client)
+                ->route('subscriber.wb.feedbacks.clients.show', array_merge(['client' => $client], $query))
                 ->with('error', $feedbacksPayload['error']);
         }
 
         return redirect()
-            ->route('subscriber.wb.feedbacks.clients.show', $client)
+            ->route('subscriber.wb.feedbacks.clients.show', array_merge(['client' => $client], $query))
             ->with('success', 'Данные обновлены');
     }
 
@@ -190,15 +233,108 @@ class FeedbacksController extends SubscriberToolController
     }
 
     /**
-     * @return array{feedbacks: array<int, mixed>, error: ?string}
+     * @return array{
+     *     nmId: ?int,
+     *     ratings: list<int>,
+     *     page: int,
+     *     per_page: int
+     * }
      */
-    private function loadFeedbacks(Request $request, FeedbacksClients $client, int $skip): array
+    private function parseFeedbackFilters(Request $request): array
     {
+        $nmIdRaw = $request->input('nmId');
+        $nmId = null;
+        if ($nmIdRaw !== null && $nmIdRaw !== '' && is_numeric($nmIdRaw)) {
+            $nmId = max(1, (int) $nmIdRaw);
+        }
+
+        $ratings = collect($request->input('ratings', []))
+            ->map(fn ($v) => (int) $v)
+            ->filter(fn ($v) => $v >= 1 && $v <= 5)
+            ->unique()
+            ->sortDesc()
+            ->values()
+            ->all();
+
+        $page = max(1, (int) $request->input('page', 1));
+        $perPage = (int) $request->input('per_page', 10);
+        if (! in_array($perPage, [0, 10, 20, 50], true)) {
+            $perPage = 10;
+        }
+
+        return [
+            'nmId' => $nmId,
+            'ratings' => $ratings,
+            'page' => $page,
+            'per_page' => $perPage,
+        ];
+    }
+
+    /**
+     * @param  array{nmId: ?int, ratings: list<int>, page: int, per_page: int}  $filters
+     * @return array<string, mixed>
+     */
+    private function filtersToQuery(array $filters): array
+    {
+        $query = [
+            'page' => $filters['page'],
+            'per_page' => $filters['per_page'],
+        ];
+
+        if ($filters['nmId']) {
+            $query['nmId'] = $filters['nmId'];
+        }
+        if ($filters['ratings'] !== []) {
+            $query['ratings'] = $filters['ratings'];
+        }
+
+        return $query;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function parseBrandsList(?string $brands): array
+    {
+        if ($brands === null || trim($brands) === '') {
+            return [];
+        }
+
+        return collect(explode(',', $brands))
+            ->map(fn ($b) => trim((string) $b))
+            ->filter(fn ($b) => $b !== '')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  array{nmId: ?int, ratings: list<int>, page: int, per_page: int}  $filters
+     * @return array{
+     *     feedbacks: array<int, mixed>,
+     *     error: ?string,
+     *     countFromWb: int,
+     *     wbCountUnanswered: ?int,
+     *     pagesFetched: int,
+     *     truncated: bool,
+     *     skippedByBrand: int
+     * }
+     */
+    private function loadFeedbacks(Request $request, FeedbacksClients $client, int $skip, array $filters = []): array
+    {
+        $params = [
+            'client_id' => $client->id,
+            'skip' => $skip,
+        ];
+
+        if (! empty($filters['nmId'])) {
+            $params['nmId'] = $filters['nmId'];
+        }
+        if (! empty($filters['ratings'])) {
+            $params['ratings'] = $filters['ratings'];
+        }
+
         $response = $this->feedbacksService->getFeedbacksList(
-            $this->apiRequestWith($request, [
-                'client_id' => $client->id,
-                'skip' => $skip,
-            ])
+            $this->apiRequestWith($request, $params)
         );
         $payload = $this->decodeApiResponse($response);
 
@@ -206,12 +342,24 @@ class FeedbacksController extends SubscriberToolController
             return [
                 'feedbacks' => [],
                 'error' => $this->apiMessage($payload, 'Не удалось загрузить отзывы'),
+                'countFromWb' => 0,
+                'wbCountUnanswered' => null,
+                'pagesFetched' => 0,
+                'truncated' => false,
+                'skippedByBrand' => 0,
             ];
         }
 
         return [
             'feedbacks' => $payload['data']['feedbacks'] ?? [],
             'error' => null,
+            'countFromWb' => (int) ($payload['data']['countFromWb'] ?? 0),
+            'wbCountUnanswered' => isset($payload['data']['wbCountUnanswered'])
+                ? (int) $payload['data']['wbCountUnanswered']
+                : null,
+            'pagesFetched' => (int) ($payload['data']['pagesFetched'] ?? 0),
+            'truncated' => (bool) ($payload['data']['truncated'] ?? false),
+            'skippedByBrand' => (int) ($payload['data']['filters']['skipped_by_brand'] ?? 0),
         ];
     }
 }

@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from "vue";
 import Card from "@/components/ui/Card.vue";
+import Badge from "@/components/ui/Badge.vue";
 import FeedbackAnswerForm from "@/components/subscriber/wb/feedbacks/FeedbackAnswerForm.vue";
 import StarRating from "@/components/subscriber/wb/feedbacks/StarRating.vue";
 import Dialog from "@/components/ui/Dialog.vue";
@@ -27,19 +28,25 @@ const selectedImage = ref("");
                 class="h-36 w-full rounded-md object-cover"
             />
             <div class="space-y-3">
-                <div>
-                    <a
-                        v-if="feedback.productDetails?.nmId"
-                        :href="`https://www.wildberries.ru/catalog/${feedback.productDetails.nmId}/detail.aspx`"
-                        target="_blank"
-                        rel="noopener"
-                        class="text-base font-semibold hover:text-primary"
-                    >
-                        {{ feedback.productDetails?.productName }}
-                    </a>
-                    <p v-if="feedback.productDetails?.supplierArticle" class="text-sm text-muted-foreground">
-                        {{ feedback.productDetails.supplierArticle }}
-                    </p>
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                        <a
+                            v-if="feedback.productDetails?.nmId"
+                            :href="`https://www.wildberries.ru/catalog/${feedback.productDetails.nmId}/detail.aspx`"
+                            target="_blank"
+                            rel="noopener"
+                            class="text-base font-semibold hover:text-primary"
+                        >
+                            {{ feedback.productDetails?.productName }}
+                        </a>
+                        <p v-if="feedback.productDetails?.supplierArticle" class="text-sm text-muted-foreground">
+                            {{ feedback.productDetails.supplierArticle }}
+                        </p>
+                        <p v-if="feedback.productDetails?.nmId" class="text-xs text-muted-foreground">
+                            nmID: {{ feedback.productDetails.nmId }}
+                        </p>
+                    </div>
+                    <Badge v-if="!feedback.answer?.text" variant="warning">Без ответа</Badge>
                 </div>
 
                 <div class="text-sm text-muted-foreground">{{ feedback.createdDate }}</div>

@@ -12,7 +12,6 @@ use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 
 class WbFeedbacksService
 {
-
     use WBFeedbacksTrait;
     use WBApiTrait;
 
@@ -21,7 +20,10 @@ class WbFeedbacksService
         $validator = Validator::make($request->all(), [
             'client_id' => 'required|exists:subs_wb_feedbacks_clients,id',
             'take' => '',
-            'skip' => 'required',
+            'skip' => 'nullable|integer|min:0',
+            'nmId' => ['nullable', 'integer', 'min:1'],
+            'ratings' => ['nullable', 'array'],
+            'ratings.*' => ['integer', 'min:1', 'max:5'],
         ], [
             'client_id.exists' => 'Такого кабинета не существует'
         ]);
@@ -29,7 +31,6 @@ class WbFeedbacksService
         if ($validator->fails()) {
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
-
 
         $client = FeedbacksClients::find($request->client_id);
 
@@ -41,53 +42,57 @@ class WbFeedbacksService
         if (!$belongs)
             return response()->json(["success" => false, "messages" => ["Не хватает прав"]], 200);
 
-        $count = $this->parseApiResponse($this->apiFeedbacksCountUnanswered($client->apikey));
+        $nmId = $request->filled('nmId') ? (int) $request->input('nmId') : null;
+        $ratings = collect($request->input('ratings', []))
+            ->map(fn ($v) => (int) $v)
+            ->filter(fn ($v) => $v >= 1 && $v <= 5)
+            ->unique()
+            ->values()
+            ->all();
 
-        if ($count['success']) {
-            $take = $count['data']['countUnanswered'];
-        } else if ($count["code"] == 401) {
-            return response()->json(["success" => false, "messages" => ["Не удаётся авторизоваться с указаным API ключом"]], 200);
-        } else {
-            $take = 100;
+        $brandList = $this->parseCabinetBrands($client->brands);
+        $brandFilterActive = $brandList !== [];
+
+        $fetched = $this->fetchAllUnansweredFeedbacks($client->apikey, $nmId);
+
+        if (! $fetched['success']) {
+            return response()->json([
+                'success' => false,
+                'messages' => [$fetched['message'] ?? 'Не удалось загрузить отзывы'],
+            ], 200);
         }
 
-        $params = array(
-            'take' => $take,
-            'skip' => $request->skip,
-        );
+        $rawFeedbacks = $fetched['feedbacks'];
+        $feedbacks = [];
+        $skippedByBrand = 0;
+        $skippedByRating = 0;
 
-        $data = $this->parseApiResponse($this->apiGetFeedbacks($client->apikey, $params));
+        foreach ($rawFeedbacks as $item) {
+            $brandName = (string) ($item['productDetails']['brandName'] ?? '');
 
-        if (!$data['success']) {
-            $message = $this->extractWbErrorMessage($data['data']);
-            return response()->json(["success" => false, "messages" => [$message]], 200);
-        }
-
-        // Тут WB при ответе может давать какие-то ошибки, согласно документации
-        // Давайте здесь их и проверим
-        if (is_array($data['data']) && !empty($data['data']['error'])) {
-            return response()->json(["success" => false, "messages" => [$data['data']['errorText']]], 200);
-        }
-
-        $data = $data['data']['data'];
-        $feedbacks = array();
-        foreach ($data['feedbacks'] as $item) {
-            // Проверим, есть ли ограничения по бренду, и если есть, отфильтруем
-            if (!empty($client->brands)) {
-                $allow = false;
-                $allowed_brands = explode(',', $client->brands);
-                foreach ($allowed_brands as $value) {
-                    $feedback_brand = strtolower(trim($item['productDetails']['brandName']));
-                    $client_brand = strtolower(trim($value));
-                    if ($feedback_brand == $client_brand) {
-                        $allow = true;
-                    }
-                }
-                if (!$allow) {
-                    continue;
-                }
+            // Бренды из настроек кабинета (добавление/редактирование) — post-filter WB ответа.
+            if ($brandFilterActive && ! $this->brandAllowed($brandName, $brandList)) {
+                $skippedByBrand++;
+                continue;
             }
-            $feedbacks[] = array(
+
+            $valuation = (int) ($item['productValuation'] ?? 0);
+            // WB Feedbacks API не фильтрует по оценке — применяем на нашей стороне после ответа API.
+            if ($ratings !== [] && ! in_array($valuation, $ratings, true)) {
+                $skippedByRating++;
+                continue;
+            }
+
+            $productNmId = $item['productDetails']['nmId'] ?? null;
+            $photo = null;
+            try {
+                $images = $this->getProductImages(1, $productNmId);
+                $photo = $images[0]['imageS'] ?? null;
+            } catch (\Throwable) {
+                $photo = null;
+            }
+
+            $feedbacks[] = [
                 'id' => $item['id'],
                 'name' => $item['userName'],
                 'answer' => $item['answer'],
@@ -96,20 +101,84 @@ class WbFeedbacksService
                 'cons' => $item['cons'],
                 'createdDate' => Carbon::parse($item['createdDate'])->format('d.m.Y H:i:s'),
                 'photoLinks' => $item['photoLinks'],
-                'productValuation' => $item['productValuation'],
-                'productDetails' => array(
-                    'brandName' => $item['productDetails']['brandName'],
-                    'nmId' => $item['productDetails']['nmId'],
-                    'productName' => $item['productDetails']['productName'],
-                    'supplierArticle' => $item['productDetails']['supplierArticle'],
-                    'photo' => $this->getProductImages(1, $item['productDetails']['nmId'])[0]['imageS'],
-                ),
-            );
+                'productValuation' => $valuation,
+                'productDetails' => [
+                    'brandName' => $brandName,
+                    'nmId' => $productNmId,
+                    'productName' => $item['productDetails']['productName'] ?? null,
+                    'supplierArticle' => $item['productDetails']['supplierArticle'] ?? null,
+                    'photo' => $photo,
+                ],
+            ];
         }
 
-        $data['feedbacks'] = $feedbacks;
+        $wbCount = $fetched['wb_count_unanswered'];
+        $fetchedCount = count($rawFeedbacks);
+        $truncated = (bool) ($fetched['truncated'] ?? false);
 
-        return response()->json(["success" => true, "messages" => ["Список отзывов получен"], "data" => $data], 200);
+        return response()->json([
+            "success" => true,
+            "messages" => ["Список отзывов получен"],
+            "data" => [
+                'feedbacks' => $feedbacks,
+                'countUnanswered' => count($feedbacks),
+                'countFromWb' => $fetchedCount,
+                'wbCountUnanswered' => $wbCount,
+                'pagesFetched' => $fetched['pages'],
+                'truncated' => $truncated,
+                'filters' => [
+                    'nmId' => $nmId,
+                    'ratings' => $ratings,
+                    'brand_filter_active' => $brandFilterActive,
+                    'brands' => $brandList,
+                    'skipped_by_brand' => $skippedByBrand,
+                    'skipped_by_rating' => $skippedByRating,
+                ],
+            ],
+        ], 200);
+    }
+
+    /**
+     * Public wrapper for unit tests / callers.
+     */
+    public function extractCountUnanswered(mixed $payload): ?int
+    {
+        return $this->extractCountUnansweredPayload($payload);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function parseCabinetBrands(?string $brands): array
+    {
+        if ($brands === null || trim($brands) === '') {
+            return [];
+        }
+
+        return collect(explode(',', $brands))
+            ->map(fn ($b) => trim((string) $b))
+            ->filter(fn ($b) => $b !== '')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<string>  $allowedBrands
+     */
+    private function brandAllowed(string $feedbackBrand, array $allowedBrands): bool
+    {
+        $needle = mb_strtolower(trim($feedbackBrand));
+        if ($needle === '') {
+            return false;
+        }
+
+        foreach ($allowedBrands as $allowed) {
+            if (mb_strtolower(trim($allowed)) === $needle) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function sendFeedbackToWb(Request $request)
@@ -168,20 +237,6 @@ class WbFeedbacksService
 
     private function extractWbErrorMessage($payload): string
     {
-        if (is_array($payload)) {
-            if (!empty($payload['errorText'])) {
-                return (string) $payload['errorText'];
-            }
-
-            if (!empty($payload['error'])) {
-                return (string) $payload['error'];
-            }
-
-            return 'Ошибка при обращении к API Wildberries';
-        }
-
-        return is_string($payload) && $payload !== ''
-            ? $payload
-            : 'Ошибка при обращении к API Wildberries';
+        return $this->extractWbFeedbacksErrorMessage($payload);
     }
 }

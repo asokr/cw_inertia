@@ -57,6 +57,7 @@ Route::middleware(['permission:subscriber wb feedbacks'])
         Route::delete('/clients/{client}', [ClientsController::class, 'destroy'])->name('clients.destroy');
 
         Route::get('/clients/{client}', [FeedbacksController::class, 'show'])->name('clients.show');
+        Route::get('/clients/{client}/answered', [FeedbacksController::class, 'answered'])->name('clients.answered');
         Route::post('/clients/{client}/feedbacks', [FeedbacksController::class, 'refresh'])->name('clients.feedbacks.refresh');
         Route::post('/clients/{client}/feedbacks/send', [FeedbacksController::class, 'send'])->name('clients.feedbacks.send');
         Route::post('/clients/{client}/ai', [FeedbacksController::class, 'updateAi'])->name('clients.ai.update');

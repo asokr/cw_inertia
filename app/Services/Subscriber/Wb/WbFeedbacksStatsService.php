@@ -121,10 +121,11 @@ class WbFeedbacksStatsService
     }
 
     /**
-     * Виджет: отзывы, на которые есть ответ ИИ.
+     * Виджет: отзывы, на которые есть ответ (бот/ИИ).
      * Поддерживает фильтры:
      * - cabinet_id (int) — ID кабинета
      * - limit (int) — количество записей (по умолчанию 5, макс 100)
+     * - offset (int) — смещение для lazy-load
      * - has_text=1 — только отзывы с непустым content
      * - has_photo=1 — только отзывы, где есть фото (JSON_LENGTH(photo_links) > 0)
      */
@@ -133,12 +134,14 @@ class WbFeedbacksStatsService
         $request->validate([
             'cabinet_id' => ['nullable', 'integer', 'min:1'],
             'limit'      => ['nullable', 'integer', 'min:1', 'max:100'],
+            'offset'     => ['nullable', 'integer', 'min:0'],
             'has_text'   => ['nullable'],
             'has_photo'  => ['nullable'],
         ]);
 
-        $cabinetId     = (int) $request->get('cabinet_id');
-        $limit         = max(1, min(100, (int) $request->get('limit', 5)));
+        $cabinetId     = (int) $request->input('cabinet_id');
+        $limit         = max(1, min(100, (int) $request->input('limit', 5)));
+        $offset        = max(0, (int) $request->input('offset', 0));
         $onlyWithText  = $request->boolean('has_text');
         $onlyWithPhoto = $request->boolean('has_photo');
 
@@ -177,18 +180,25 @@ class WbFeedbacksStatsService
         // Только отзывы, у которых есть ответ (любой)
         $query->whereHas('botResponse');
 
+        $total = (clone $query)->count();
+
         // Жадная подгрузка самого ответа
         $query->with('botResponse');
 
-        $query->orderByDesc('updated_at')->limit($limit);
+        $query->orderByDesc('updated_at')->offset($offset)->limit($limit);
 
         $rows = $query->get();
 
         $data = $rows->map(function ($row) {
             $resp = $row->botResponse;
 
-            $images = $this->getProductImages(1, $row->product_id);
-            $productImage = $images[0]['imageS'] ?? null;
+            $productImage = null;
+            try {
+                $images = $this->getProductImages(1, $row->product_id);
+                $productImage = $images[0]['imageS'] ?? null;
+            } catch (\Throwable) {
+                $productImage = null;
+            }
 
             return [
                 'id'            => (int) $row->id,
@@ -211,6 +221,12 @@ class WbFeedbacksStatsService
             'success'  => true,
             'messages' => ['Данные получены'],
             'data'     => $data,
+            'meta'     => [
+                'total'    => $total,
+                'limit'    => $limit,
+                'offset'   => $offset,
+                'has_more' => ($offset + $limit) < $total,
+            ],
         ], 200);
     }
 

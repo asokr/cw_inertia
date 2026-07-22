@@ -4,8 +4,10 @@ namespace Tests\Feature\Web\Subscriber\Wb;
 
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Models\Subscribers\Wb\Feedbacks\BotResponse;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksTemplates;
+use App\Models\Subscribers\Wb\Feedbacks\Review;
 use App\Models\User;
 use App\Services\Subscriber\Ai\SubscriberAiTextService;
 use Illuminate\Http\Request;
@@ -84,9 +86,29 @@ class WbFeedbacksTest extends WebAuthTestCase
                 ->component('Subscriber/Wb/Feedbacks/Client/Show')
                 ->where('client.id', $cabinet->id)
                 ->has('feedbacks')
+                ->has('feedbacksMeta')
+                ->has('filters')
+                ->where('feedbacksMeta.brand_filter_active', false)
                 ->where('feedbacksError', fn ($error) => $error === null
                     || ! str_contains(mb_strtolower((string) $error), 'client id field is required')
                     && ! str_contains(mb_strtolower((string) $error), 'skip field is required')));
+    }
+
+    public function test_client_show_exposes_brand_filter_from_cabinet(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Brands Cabinet');
+        $cabinet->brands = 'Nike, Adidas';
+        $cabinet->save();
+
+        $this->actingAs($user)
+            ->get("/panel/wb/feedbacks/clients/{$cabinet->id}")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Wb/Feedbacks/Client/Show')
+                ->where('feedbacksMeta.brand_filter_active', true)
+                ->where('feedbacksMeta.brands', ['Nike', 'Adidas'])
+                ->where('client.brands', 'Nike, Adidas'));
     }
 
     public function test_update_ai_settings_enables_auto_replies(): void
@@ -119,6 +141,69 @@ class WbFeedbacksTest extends WebAuthTestCase
 
         $this->actingAs($intruder)
             ->get("/panel/wb/feedbacks/clients/{$cabinet->id}")
+            ->assertForbidden();
+    }
+
+    public function test_answered_reviews_endpoint_returns_data_and_meta(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Answered Cabinet');
+
+        $withText = $this->createAnsweredReview($cabinet->id, [
+            'content' => 'Отличный товар',
+            'rating' => 5,
+            'product_id' => 111,
+            'updated_at' => now()->subMinute(),
+        ], 'Спасибо!');
+
+        $withoutText = $this->createAnsweredReview($cabinet->id, [
+            'content' => '',
+            'rating' => 4,
+            'product_id' => 222,
+            'updated_at' => now(),
+        ], 'Благодарим!');
+
+        $this->actingAs($user)
+            ->getJson("/panel/wb/feedbacks/clients/{$cabinet->id}/answered?limit=10")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.limit', 10)
+            ->assertJsonPath('meta.offset', 0)
+            ->assertJsonPath('meta.has_more', false)
+            ->assertJsonCount(2, 'data');
+
+        $this->actingAs($user)
+            ->getJson("/panel/wb/feedbacks/clients/{$cabinet->id}/answered?limit=1&offset=0")
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.has_more', true)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $withoutText->id);
+
+        $this->actingAs($user)
+            ->getJson("/panel/wb/feedbacks/clients/{$cabinet->id}/answered?limit=1&offset=1")
+            ->assertOk()
+            ->assertJsonPath('meta.has_more', false)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $withText->id);
+
+        $this->actingAs($user)
+            ->getJson("/panel/wb/feedbacks/clients/{$cabinet->id}/answered?limit=10&has_text=1")
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $withText->id);
+    }
+
+    public function test_answered_reviews_forbidden_for_foreign_cabinet(): void
+    {
+        $owner = $this->createSubscriberUser(withPermission: true);
+        $intruder = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($owner, 'Foreign Answered');
+
+        $this->actingAs($intruder)
+            ->getJson("/panel/wb/feedbacks/clients/{$cabinet->id}/answered")
             ->assertForbidden();
     }
 
@@ -278,6 +363,30 @@ class WbFeedbacksTest extends WebAuthTestCase
             'bot_status' => 0,
             'ai_status' => 0,
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $reviewAttrs
+     */
+    private function createAnsweredReview(int $cabinetId, array $reviewAttrs, string $responseText): Review
+    {
+        $review = Review::query()->create(array_merge([
+            'cabinet_id' => $cabinetId,
+            'rating' => 5,
+            'product_id' => 1000,
+            'content' => null,
+            'pros' => null,
+            'cons' => null,
+            'photo_links' => null,
+        ], $reviewAttrs));
+
+        BotResponse::query()->create([
+            'review_id' => $review->id,
+            'response_text' => $responseText,
+            'is_ai_response' => 1,
+        ]);
+
+        return $review->fresh();
     }
 
     private function setupFeedbacksSchema(): void

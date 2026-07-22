@@ -23,6 +23,9 @@ class SubscriberWbFeedbacksAnswer extends Command
     use WBFeedbacksTrait;
     use ChatGptTrait;
 
+    /** Max successful answers per cabinet per mode (AI / templates) in one command run. */
+    private const MAX_ANSWERS_PER_CABINET_PASS = 150;
+
     private $end_limit_notification_num = 30;
     private $limit_ends_notification = true;
     /**
@@ -111,16 +114,18 @@ class SubscriberWbFeedbacksAnswer extends Command
                             'id' => $client['id'],
                             'name' => $client['name'],
                         ];
-                        $params = [
-                            'take' => 120,
-                            'skip' => 0,
-                        ];
 
-                        $data = $this->parseApiResponse($this->apiGetFeedbacks($client->apikey, $params), $cabinet);
+                        // Same fetch flow as panel: count-unanswered + paginated list (all pages).
+                        $fetched = $this->fetchAllUnansweredFeedbacks($client->apikey, null, $cabinet);
 
-                        if (!$data['success']) {
+                        if (! $fetched['success']) {
                             $fetchFailures++;
-                            if ($data['code'] == 401) {
+                            $this->logCommandEvent('AI fetch unanswered failed', [
+                                'cabinet_id' => $client->id,
+                                'code' => $fetched['code'] ?? null,
+                                'message' => $fetched['message'] ?? null,
+                            ]);
+                            if (($fetched['code'] ?? null) == 401) {
                                 try {
                                     $subscriber = Subscribers::find($subscription->subscribers_id);
                                     $subscriber->user->notify(new WbCabinetAuthorizationNotification([
@@ -136,7 +141,13 @@ class SubscriberWbFeedbacksAnswer extends Command
                             continue;
                         }
 
-                        $data = $data['data']['data'];
+                        $this->logCommandEvent('AI fetch unanswered ok', [
+                            'cabinet_id' => $client->id,
+                            'fetched' => count($fetched['feedbacks']),
+                            'wb_count_unanswered' => $fetched['wb_count_unanswered'],
+                            'pages' => $fetched['pages'],
+                            'truncated' => $fetched['truncated'],
+                        ]);
 
                         switch ($client->review_type) {
                             case 'stih':
@@ -149,7 +160,16 @@ class SubscriberWbFeedbacksAnswer extends Command
                         }
 
                         $type = $prof . ' задача которого отвечать на отзывы покупателей маркетплейса';
-                        foreach ($data['feedbacks'] as $item) {
+                        foreach ($fetched['feedbacks'] as $item) {
+                            if ($responsesSent >= self::MAX_ANSWERS_PER_CABINET_PASS) {
+                                $this->logCommandEvent('AI pass cap reached for cabinet', [
+                                    'cabinet_id' => $client->id,
+                                    'responses_sent' => $responsesSent,
+                                    'max_per_pass' => self::MAX_ANSWERS_PER_CABINET_PASS,
+                                ]);
+                                break;
+                            }
+
                             $limit = $subscription->getMonthLimit('feedbacks_gpt_query');
                             if (!$limit) {
                                 $limitExhausted = true;
@@ -306,6 +326,8 @@ class SubscriberWbFeedbacksAnswer extends Command
                     } finally {
                         $this->finishClientTimer('ai', $client, $clientStartedAt, [
                             'responses_sent' => $responsesSent,
+                            'max_per_pass' => self::MAX_ANSWERS_PER_CABINET_PASS,
+                            'pass_cap_hit' => $responsesSent >= self::MAX_ANSWERS_PER_CABINET_PASS,
                             'limit_exhausted' => $limitExhausted,
                             'fetch_failures' => $fetchFailures,
                             'auth_disabled' => $authDisabled,
@@ -337,16 +359,18 @@ class SubscriberWbFeedbacksAnswer extends Command
                             'id' => $client['id'],
                             'name' => $client['name'],
                         ];
-                        $params = [
-                            'take' => 120,
-                            'skip' => 0,
-                        ];
 
-                        $data = $this->parseApiResponse($this->apiGetFeedbacks($client->apikey, $params), $cabinet);
+                        // Same fetch flow as panel: count-unanswered + paginated list (all pages).
+                        $fetched = $this->fetchAllUnansweredFeedbacks($client->apikey, null, $cabinet);
 
-                        if (!$data['success']) {
+                        if (! $fetched['success']) {
                             $fetchFailures++;
-                            if ($data['code'] == 401) {
+                            $this->logCommandEvent('Template fetch unanswered failed', [
+                                'cabinet_id' => $client->id,
+                                'code' => $fetched['code'] ?? null,
+                                'message' => $fetched['message'] ?? null,
+                            ]);
+                            if (($fetched['code'] ?? null) == 401) {
                                 try {
                                     $subscriber = Subscribers::find($subscription->subscribers_id);
                                     $subscriber->user->notify(new WbCabinetAuthorizationNotification([
@@ -362,14 +386,30 @@ class SubscriberWbFeedbacksAnswer extends Command
                             continue;
                         }
 
+                        $this->logCommandEvent('Template fetch unanswered ok', [
+                            'cabinet_id' => $client->id,
+                            'fetched' => count($fetched['feedbacks']),
+                            'wb_count_unanswered' => $fetched['wb_count_unanswered'],
+                            'pages' => $fetched['pages'],
+                            'truncated' => $fetched['truncated'],
+                        ]);
+
                         $templates = FeedbacksTemplates::select('text', 'rating')
                             ->where('client_id', $client->id)
                             ->inRandomOrder()
                             ->get()
                             ->toArray();
 
-                        $data = $data['data']['data'];
-                        foreach ($data['feedbacks'] as $item) {
+                        foreach ($fetched['feedbacks'] as $item) {
+                            if ($responsesSent >= self::MAX_ANSWERS_PER_CABINET_PASS) {
+                                $this->logCommandEvent('Template pass cap reached for cabinet', [
+                                    'cabinet_id' => $client->id,
+                                    'responses_sent' => $responsesSent,
+                                    'max_per_pass' => self::MAX_ANSWERS_PER_CABINET_PASS,
+                                ]);
+                                break;
+                            }
+
                             if (isset($item['childFeedbackId']) && $item['childFeedbackId']) {
                                 continue;
                             }
@@ -475,6 +515,8 @@ class SubscriberWbFeedbacksAnswer extends Command
                     } finally {
                         $this->finishClientTimer('template', $client, $clientStartedAt, [
                             'responses_sent' => $responsesSent,
+                            'max_per_pass' => self::MAX_ANSWERS_PER_CABINET_PASS,
+                            'pass_cap_hit' => $responsesSent >= self::MAX_ANSWERS_PER_CABINET_PASS,
                             'fetch_failures' => $fetchFailures,
                             'auth_disabled' => $authDisabled,
                             'subscription_id' => $subscription->id,

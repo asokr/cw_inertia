@@ -72,7 +72,16 @@
 
 ## Технические детали
 
-- WB Feedbacks API через `WBFeedbacksTrait`
-- Фильтрация по брендам: поле `brands` в кабинете (через запятую)
+- WB Feedbacks API через `WBFeedbacksTrait` (`GET /api/v1/feedbacks`)
+- Неотвеченные отзывы (страница кабинета):
+  - count: `GET /api/v1/feedbacks/count-unanswered` (за всё время)
+  - list: `GET /api/v1/feedbacks?isAnswered=false&take&skip` — **постраничная догрузка** (page size 1000, cap 25000), без dateFrom/dateTo
+  - общая логика: `WBFeedbacksTrait::fetchAllUnansweredFeedbacks` — UI (`WbFeedbacksService`) и команда `subscriber:wb-feedbacks-answer` (AI + шаблоны)
+  - автоответчик: макс. **150 успешных ответов на кабинет за один проход** (AI и шаблоны отдельно); остальное — на следующих запусках cron
+  - `nmId` передаётся в API WB как точный артикул товара (UI-фильтр)
+  - фильтр по оценке (1–5) — на бэкенде после ответа WB (в API WB нет multi-rating); в боте — `ai_ratings` / шаблоны
+  - UI-пагинация и фильтры — query-параметры Inertia (`nmId`, `ratings[]`, `page`, `per_page`)
+- Фильтрация по брендам: поле `brands` в кабинете (через запятую при создании/редактировании). Ответ WB пост-фильтруется по `productDetails.brandName` (case-insensitive) **после** полной догрузки. Если бренды не заданы — показываются все.
 - Бот-статус и AI-рейтинги хранятся в `FeedbacksClients`
 - Статистика агрегируется в `ReviewStatistic` / `ReviewCategoryStatistic`
+- Обработанные отзывы: `GET /panel/wb/feedbacks/clients/{client}/answered` (limit/offset/has_text/has_photo)
