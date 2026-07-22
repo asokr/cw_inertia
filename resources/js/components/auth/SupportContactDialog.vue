@@ -60,47 +60,26 @@ function submit() {
 </script>
 
 <template>
-    <Dialog
-        :open="open"
-        title="Написать в поддержку"
-        description="Опишите проблему — мы ответим на support@cwplatform.ru"
-        @update:open="emit('update:open', $event)"
-    >
+    <Dialog :open="open" title="Написать в поддержку" description="Опишите проблему — мы обязательно поможем вам"
+        @update:open="emit('update:open', $event)">
         <form class="space-y-4" @submit.prevent="submit">
             <div class="space-y-2">
                 <Label for="support_name">Имя</Label>
-                <Input
-                    id="support_name"
-                    v-model="form.name"
-                    autocomplete="name"
-                    :error="!!form.errors.name"
-                />
+                <Input id="support_name" v-model="form.name" autocomplete="name" :error="!!form.errors.name" />
                 <p v-if="form.errors.name" class="text-xs text-destructive">{{ form.errors.name }}</p>
             </div>
 
             <div class="space-y-2">
                 <Label for="support_phone">Телефон</Label>
-                <Input
-                    id="support_phone"
-                    v-model="form.phone"
-                    type="tel"
-                    placeholder="+79991234567"
-                    autocomplete="tel"
-                    :error="!!form.errors.phone"
-                    @keypress="onPhoneKeypress"
-                />
+                <Input id="support_phone" v-model="form.phone" type="tel" placeholder="+79991234567" autocomplete="tel"
+                    :error="!!form.errors.phone" @keypress="onPhoneKeypress" />
                 <p v-if="form.errors.phone" class="text-xs text-destructive">{{ form.errors.phone }}</p>
             </div>
 
             <div class="space-y-2">
                 <Label for="support_message">Сообщение</Label>
-                <Textarea
-                    id="support_message"
-                    v-model="form.message"
-                    rows="4"
-                    placeholder="Опишите проблему с подтверждением почты"
-                    :error="!!form.errors.message"
-                />
+                <Textarea id="support_message" v-model="form.message" rows="4"
+                    placeholder="Опишите проблему с подтверждением почты" :error="!!form.errors.message" />
                 <p v-if="form.errors.message" class="text-xs text-destructive">{{ form.errors.message }}</p>
             </div>
 

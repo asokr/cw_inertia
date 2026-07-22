@@ -11,6 +11,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Throwable;
+use App\Services\Subscriber\Wb\WbProfitabilityReportService;
 use App\Services\Wb\ProfitabilityApiService;
 use App\Models\Subscribers\Wb\Profitability\Item;
 use App\Models\Subscribers\Wb\Profitability\Report;
@@ -466,6 +467,8 @@ class ProcessProfitabilityReport implements ShouldQueue
 
             Cache::forget("profitability_widget_{$cabinet->id}");
             $this->forgetProfitabilityReportCache($cabinet->id);
+            app(WbProfitabilityReportService::class)
+                ->invalidateExportCache((int) $cabinet->id);
 
             JobStatus::where('id', $this->statusRecordId)->update([
                 'status' => 'done',

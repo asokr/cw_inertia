@@ -1,33 +1,33 @@
 export const PROFITABILITY_JOB_STAGES = [
     {
         key: "queued",
-        label: "В очереди",
-        description: "Запрос принят, ожидаем запуск обработки",
+        label: "Скоро начнём",
+        description: "Запрос принят, готовимся к работе",
     },
     {
         key: "preparing",
-        label: "Подготовка",
-        description: "Проверяем кабинет и данные себестоимости",
+        label: "Готовим данные",
+        description: "Проверяем кабинет и себестоимость",
     },
     {
         key: "fetching",
-        label: "Загрузка данных",
-        description: "Получаем операции из Wildberries",
+        label: "Загружаем данные",
+        description: "Получаем продажи и операции из Wildberries",
     },
     {
         key: "analyzing",
-        label: "Обработка",
-        description: "Группируем продажи, возвраты и логистику",
+        label: "Разбираем операции",
+        description: "Сортируем продажи, возвраты и логистику",
     },
     {
         key: "calculating",
-        label: "Расчёт",
-        description: "Считаем маржу и рентабельность",
+        label: "Считаем прибыль",
+        description: "Считаем маржу и рентабельность по товарам",
     },
     {
         key: "saving",
-        label: "Сохранение",
-        description: "Записываем отчёт",
+        label: "Сохраняем отчёт",
+        description: "Записываем итог — почти готово",
     },
 ];
 
@@ -53,25 +53,15 @@ export function buildProfitabilityProgressDetail(jobStatus = {}) {
         return {
             detail: jobStatus.status_detail,
             waitingHint: jobStatus.waiting_for_api
-                ? "Ожидаем лимит API Wildberries (~1 мин). Для больших кабинетов это нормально — сервис продолжает работу."
+                ? "Ждём ответ Wildberries — обычно около минуты. Для крупных кабинетов это нормально."
                 : null,
         };
     }
 
-    const parts = [];
-
-    if (jobStatus.batch) {
-        parts.push(`Пакет ${jobStatus.batch}`);
-    }
-
     const rowsText = formatRowsCount(jobStatus.rows_loaded);
-    if (rowsText) {
-        parts.push(`загружено ${rowsText} записей`);
-    }
-
-    const detail = parts.length ? parts.join(" • ") : null;
+    const detail = rowsText ? `Уже загружено ${rowsText} операций` : null;
     const waitingHint = jobStatus.waiting_for_api
-        ? "Ожидаем лимит API Wildberries (~1 мин). Для больших кабинетов это нормально — сервис продолжает работу."
+        ? "Ждём ответ Wildberries — обычно около минуты. Для крупных кабинетов это нормально."
         : null;
 
     return { detail, waitingHint };

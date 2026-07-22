@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Web\Subscriber\Wb;
 
+use App\Jobs\ExportProfitabilityReportJob;
 use App\Jobs\ProcessProfitabilityReport;
 use App\Models\JobStatus;
 use App\Models\Subscribers\Subscribers;
@@ -88,7 +89,9 @@ class WbProfitabilityTest extends WebAuthTestCase
                 ->component('Subscriber/Wb/Profitability/Cabinet/Show')
                 ->where('cabinet.id', $cabinet->id)
                 ->has('jobStatus')
-                ->has('groups'));
+                ->has('groupMeta')
+                ->has('itemsBaseUrl')
+                ->missing('groups'));
     }
 
     public function test_cabinet_show_forbidden_for_foreign_cabinet(): void
@@ -224,7 +227,7 @@ class WbProfitabilityTest extends WebAuthTestCase
         $this->assertSame('queued', $status->data['stage'] ?? null);
     }
 
-    public function test_cabinet_show_returns_groups_as_list_when_report_exists(): void
+    public function test_cabinet_show_returns_group_meta_without_items_payload(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
         $cabinet = $this->createCabinet($user, 'Report Cabinet');
@@ -262,25 +265,137 @@ class WbProfitabilityTest extends WebAuthTestCase
 
         Cache::flush();
 
-        $response = $this->actingAs($user)
+        $this->actingAs($user)
             ->get("/panel/wb/profitability/cabinets/{$cabinet->id}")
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Subscriber/Wb/Profitability/Cabinet/Show')
-                ->has('groups', 2)
-                ->where('groups.0.supplier_oper_name', 'Продажа')
-                ->where('groups.1.supplier_oper_name', 'Логистика')
-                ->has('groups.0.items', 1)
-                ->has('report'));
-
-        $groups = $response->original->getData()['page']['props']['groups'] ?? [];
-        $this->assertTrue(array_is_list($groups));
-        $this->assertTrue(array_is_list($groups[0]['items']));
-        $this->assertSame('TEST-001', $groups[0]['items'][0]['sa_name']);
+                ->has('report')
+                ->where('groupMeta.sales', 1)
+                ->where('groupMeta.logistics', 1)
+                ->where('groupMeta.returns', 0)
+                ->missing('groups')
+                ->has('itemsBaseUrl')
+                ->has('widget'));
     }
 
-    public function test_cabinet_export_downloads_non_empty_xlsx_when_report_exists(): void
+    public function test_cabinet_items_endpoint_paginates_by_group(): void
     {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Items API Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 2,
+            'sales_amount' => 2000,
+            'itog' => 1000,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 111,
+            'sa_name' => 'SALE-A',
+            'supplier_oper_name' => 'Продажа',
+            'quantity' => 1,
+            'sum_to_transfer' => 1000,
+            'margin' => 500,
+            'profitability_percent' => 50,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 222,
+            'sa_name' => 'SALE-B',
+            'supplier_oper_name' => 'Продажа',
+            'quantity' => 1,
+            'sum_to_transfer' => 1000,
+            'margin' => 400,
+            'profitability_percent' => 40,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 111,
+            'sa_name' => 'LOG-A',
+            'supplier_oper_name' => 'Логистика',
+            'quantity' => 1,
+            'sum_to_transfer' => -50,
+            'margin' => -50,
+            'profitability_percent' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson("/panel/wb/profitability/cabinets/{$cabinet->id}/items?group=sales&per_page=1&page=1")
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.has_more', true)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.sa_name', 'SALE-A');
+
+        $this->actingAs($user)
+            ->getJson("/panel/wb/profitability/cabinets/{$cabinet->id}/items?group=logistics")
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.sa_name', 'LOG-A');
+    }
+
+    public function test_cabinet_items_forbidden_for_foreign_cabinet(): void
+    {
+        $owner = $this->createSubscriberUser(withPermission: true);
+        $intruder = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($owner, 'Foreign Items');
+
+        $this->actingAs($intruder)
+            ->getJson("/panel/wb/profitability/cabinets/{$cabinet->id}/items?group=sales")
+            ->assertForbidden();
+    }
+
+    public function test_cabinet_show_survives_widget_items_without_sales_rows(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Logistics Only Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 0,
+            'sales_amount' => 0,
+            'itog' => -150,
+            'margin' => -150,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 999001,
+            'sa_name' => 'LOG-ONLY',
+            'supplier_oper_name' => 'Логистика',
+            'quantity' => 1,
+            'sum_to_transfer' => -150,
+            'margin' => -150,
+            'profitability_percent' => 0,
+        ]);
+
+        Cache::flush();
+
+        $this->actingAs($user)
+            ->get("/panel/wb/profitability/cabinets/{$cabinet->id}")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Wb/Profitability/Cabinet/Show')
+                ->where('cabinet.id', $cabinet->id)
+                ->has('report')
+                ->where('groupMeta.logistics', 1)
+                ->where('groupMeta.sales', 0)
+                ->has('widget'));
+    }
+
+    public function test_cabinet_export_start_dispatches_job(): void
+    {
+        Queue::fake();
+
         $user = $this->createSubscriberUser(withPermission: true);
         $cabinet = $this->createCabinet($user, 'Export Cabinet');
 
@@ -306,15 +421,260 @@ class WbProfitabilityTest extends WebAuthTestCase
             'profitability_percent' => 50,
         ]);
 
+        $this->actingAs($user)
+            ->postJson("/panel/wb/profitability/cabinets/{$cabinet->id}/export")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('status', 'processing');
+
+        Queue::assertPushed(ExportProfitabilityReportJob::class);
+    }
+
+    public function test_cabinet_export_job_builds_file_and_download_works(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Export Job Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 1,
+            'sales_amount' => 1000,
+            'itog' => 500,
+            'margin' => 500,
+            'total_profitability' => 50,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 123456,
+            'sa_name' => 'TEST-001',
+            'supplier_oper_name' => 'Продажа',
+            'quantity' => 1,
+            'sum_to_transfer' => 1000,
+            'margin' => 500,
+            'profitability_percent' => 50,
+        ]);
+
+        Cache::flush();
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/profitability/cabinets/{$cabinet->id}/export")
+            ->assertOk()
+            ->assertJsonPath('stage', 'queued');
+
+        // Run job synchronously for test
+        (new ExportProfitabilityReportJob($cabinet->id, $user->id, $report->id))->handle(
+            app(\App\Services\Subscriber\Wb\WbProfitabilityReportService::class)
+        );
+
+        $expectedPath = "wb/profitability/{$user->id}/{$cabinet->id}/{$report->id}.xlsx";
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Storage::disk('private')->exists($expectedPath),
+            'Export file must be stored under private/wb/profitability'
+        );
+
+        $this->actingAs($user)
+            ->getJson("/panel/wb/profitability/cabinets/{$cabinet->id}/export/status")
+            ->assertOk()
+            ->assertJsonPath('status', 'done')
+            ->assertJsonPath('ready', true)
+            ->assertJsonPath('stage', 'done');
+
         $response = $this->actingAs($user)
-            ->get("/panel/wb/profitability/cabinets/{$cabinet->id}/export");
+            ->get("/panel/wb/profitability/cabinets/{$cabinet->id}/export/download");
 
         $response->assertOk();
-        $response->assertDownload();
-
-        $content = $response->baseResponse->getFile()->getContent();
-        $this->assertGreaterThan(1000, strlen($content), 'Exported XLSX should contain report data');
+        $content = $response->streamedContent();
         $this->assertSame('PK', substr($content, 0, 2), 'Exported file should be a valid XLSX archive');
+        $this->assertGreaterThan(1000, strlen($content));
+    }
+
+    public function test_cabinet_export_reuses_file_when_report_unchanged(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Reuse Export Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 1,
+            'sales_amount' => 1000,
+            'itog' => 500,
+            'margin' => 500,
+            'total_profitability' => 50,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 123456,
+            'sa_name' => 'TEST-001',
+            'supplier_oper_name' => 'Продажа',
+            'quantity' => 1,
+            'sum_to_transfer' => 1000,
+            'margin' => 500,
+            'profitability_percent' => 50,
+        ]);
+
+        Cache::flush();
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/profitability/cabinets/{$cabinet->id}/export")
+            ->assertOk()
+            ->assertJsonPath('status', 'processing');
+
+        (new ExportProfitabilityReportJob($cabinet->id, $user->id, $report->id))->handle(
+            app(\App\Services\Subscriber\Wb\WbProfitabilityReportService::class)
+        );
+
+        Queue::fake();
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/profitability/cabinets/{$cabinet->id}/export")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('status', 'done')
+            ->assertJsonPath('ready', true);
+
+        Queue::assertNotPushed(ExportProfitabilityReportJob::class);
+    }
+
+    public function test_cabinet_export_regenerates_after_report_update(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Stale Export Data Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 1,
+            'sales_amount' => 1000,
+            'itog' => 500,
+            'margin' => 500,
+            'total_profitability' => 50,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 123456,
+            'sa_name' => 'TEST-001',
+            'supplier_oper_name' => 'Продажа',
+            'quantity' => 1,
+            'sum_to_transfer' => 1000,
+            'margin' => 500,
+            'profitability_percent' => 50,
+        ]);
+
+        Cache::flush();
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/profitability/cabinets/{$cabinet->id}/export")
+            ->assertOk();
+
+        (new ExportProfitabilityReportJob($cabinet->id, $user->id, $report->id))->handle(
+            app(\App\Services\Subscriber\Wb\WbProfitabilityReportService::class)
+        );
+
+        $exportState = Cache::get('profitability_export_'.$cabinet->id);
+        $this->assertSame('done', $exportState['status'] ?? null);
+        $oldPath = $exportState['path'] ?? null;
+        $this->assertNotEmpty($oldPath);
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Storage::disk('private')->exists($oldPath)
+        );
+
+        // Симулируем пересчёт: тот же report_id, новые даты/данные + updated_at
+        $report->update([
+            'date_from' => '2026-02-01',
+            'date_to' => '2026-02-28',
+            'sales_quantity' => 5,
+            'sales_amount' => 9000,
+            'itog' => 4000,
+            'margin' => 4000,
+            'total_profitability' => 80,
+        ]);
+        $report->refresh();
+
+        app(\App\Services\Subscriber\Wb\WbProfitabilityReportService::class)
+            ->invalidateExportCache((int) $cabinet->id);
+
+        $this->assertFalse(
+            \Illuminate\Support\Facades\Storage::disk('private')->exists($oldPath),
+            'Старый export-файл должен быть удалён при инвалидации'
+        );
+        $this->assertNull(Cache::get('profitability_export_'.$cabinet->id));
+
+        // Даже без инвалидации fingerprint не должен reuse'ить файл —
+        // восстанавливаем «устаревший» done-state с старым report_updated_at
+        $staleUpdatedAt = now()->subDay()->utc()->format('Y-m-d\TH:i:s.u\Z');
+        $relativePath = "wb/profitability/{$user->id}/{$cabinet->id}/{$report->id}.xlsx";
+        \Illuminate\Support\Facades\Storage::disk('private')->put($relativePath, 'stale-xlsx-bytes');
+
+        Cache::put('profitability_export_'.$cabinet->id, [
+            'status' => 'done',
+            'stage' => 'done',
+            'path' => $relativePath,
+            'filename' => 'stale.xlsx',
+            'error' => null,
+            'report_id' => $report->id,
+            'report_updated_at' => $staleUpdatedAt,
+            'truncated' => false,
+            'updated_at' => now()->toIso8601String(),
+        ], 86400);
+
+        Queue::fake();
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/profitability/cabinets/{$cabinet->id}/export")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('status', 'processing')
+            ->assertJsonPath('ready', false);
+
+        Queue::assertPushed(ExportProfitabilityReportJob::class);
+    }
+
+    public function test_cabinet_export_forbidden_for_foreign_cabinet(): void
+    {
+        $owner = $this->createSubscriberUser(withPermission: true);
+        $intruder = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($owner, 'Foreign Export');
+
+        $this->actingAs($intruder)
+            ->postJson("/panel/wb/profitability/cabinets/{$cabinet->id}/export")
+            ->assertForbidden();
+    }
+
+    public function test_cabinet_export_status_marks_stale_processing_as_failed(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Stale Export Cabinet');
+
+        Cache::put('profitability_export_'.$cabinet->id, [
+            'status' => 'processing',
+            'path' => null,
+            'filename' => 'test.xlsx',
+            'error' => null,
+            'report_id' => 1,
+            'updated_at' => now()->subHours(2)->toIso8601String(),
+        ], 3600);
+
+        $this->actingAs($user)
+            ->getJson("/panel/wb/profitability/cabinets/{$cabinet->id}/export/status")
+            ->assertOk()
+            ->assertJsonPath('status', 'failed')
+            ->assertJsonPath('ready', false)
+            ->assertJson(fn ($json) => $json
+                ->whereType('error', 'string')
+                ->where('error', fn ($error) => str_contains($error, 'Попробуйте'))
+                ->etc());
     }
 
     public function test_cabinet_show_keeps_group_items_while_job_processing(): void
@@ -364,10 +724,13 @@ class WbProfitabilityTest extends WebAuthTestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('jobStatus.status', 'processing')
-                ->has('groups', 1)
-                ->has('groups.0.items', 1)
-                ->where('groups.0.items.0.sa_name', 'KEEP-001')
+                ->where('groupMeta.sales', 1)
                 ->has('report'));
+
+        $this->actingAs($user)
+            ->getJson("/panel/wb/profitability/cabinets/{$cabinet->id}/items?group=sales")
+            ->assertOk()
+            ->assertJsonPath('data.0.sa_name', 'KEEP-001');
     }
 
     public function test_cabinet_show_clears_stale_duplicate_rejection_failure(): void
@@ -436,8 +799,8 @@ class WbProfitabilityTest extends WebAuthTestCase
                 ->where('jobStatus.waiting_for_api', true)
                 ->has('jobStatus.started_at')
                 ->where('jobStatus.progress_percent', 28)
-                ->where('jobStatus.status_label', 'Ожидание ответа Wildberries')
-                ->has('jobStatus.status_detail'));
+                ->where('jobStatus.status_label', 'Ждём данные от Wildberries')
+                ->where('jobStatus.status_detail', fn ($detail) => is_string($detail) && str_contains($detail, '150 000')));
     }
 
     public function test_store_report_forbidden_for_foreign_cabinet(): void

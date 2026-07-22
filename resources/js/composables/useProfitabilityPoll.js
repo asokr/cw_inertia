@@ -17,7 +17,7 @@ export function useProfitabilityPoll(options = {}) {
 
     const poll = useToolPoll(5000, {
         requestOptions: {
-            only: ["jobStatus", "report", "groups", "widget"],
+            only: ["jobStatus", "report", "widget", "groupMeta"],
             preserveState: true,
             preserveScroll: true,
         },

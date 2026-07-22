@@ -8,6 +8,7 @@ export function useSubscriberContext() {
     const balance = computed(() => subscriber.value?.balance ?? 0);
     const promoBanner = computed(() => subscriber.value?.promo_banner ?? null);
     const subscription = computed(() => subscriber.value?.subscription ?? null);
+    const daysIndicator = computed(() => subscriber.value?.days_indicator ?? null);
     const hasSeenTour = computed(() => subscriber.value?.has_seen_tour ?? false);
 
     return {
@@ -15,6 +16,7 @@ export function useSubscriberContext() {
         balance,
         promoBanner,
         subscription,
+        daysIndicator,
         hasSeenTour,
     };
 }

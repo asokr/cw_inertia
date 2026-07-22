@@ -146,6 +146,8 @@ Web-контроллеры:
 
 Назначение: выгрузка `.xlsx` на основе последнего сохранённого отчёта.
 
+Готовый файл переиспользуется только если совпадают `report_id` **и** `report_updated_at` (fingerprint версии отчёта). На кабинет один report row (`updateOrCreate` по `cabinet_id`), поэтому одного `report_id` недостаточно. После успешного пересчёта `ProcessProfitabilityReport` сбрасывает export-cache и удаляет старый файл.
+
 ## Какие WB API используются
 
 ### Основной endpoint WB Finance API

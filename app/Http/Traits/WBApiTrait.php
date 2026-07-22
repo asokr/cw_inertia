@@ -2,6 +2,7 @@
 
 namespace App\Http\Traits;
 
+use App\Support\Wb\WbBasketHost;
 use GuzzleHttp;
 use Illuminate\Support\Facades\Log;
 
@@ -154,13 +155,10 @@ trait WBApiTrait
      */
     private function productDataApi($productId)
     {
-        $limits = [0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8];
-
         $sku = strval($productId);
-
-        $vol = strlen($sku) > 5 ? substr($sku, 0, $limits[strlen($sku)]) : 0;
-        $part = substr($sku, 0, $limits[strlen($sku) + 2]);
-        $bNum = $this->basketNumber($sku / 1e5);
+        $vol = WbBasketHost::vol($productId);
+        $part = WbBasketHost::part($productId);
+        $bNum = $this->basketNumber($vol);
         $URL = config('wbConstants.URLS.PRODUCT.CARD');
         $URL = sprintf($URL, $bNum, $vol, $part, $sku);
 
@@ -209,15 +207,9 @@ trait WBApiTrait
 
     private function getProductImages($photo_count, $productId)
     {
-        $limits = [0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8];
-
         $sku = strval($productId);
-
-        // $vol = strlen($sku) > 5 ? substr($sku, 0, $limits[strlen($sku)]) : 0;
-        // $part = substr($sku, 0, $limits[strlen($sku) + 2]);
-        $nm = intval($productId);
-        $vol = intval($nm / 1e5);
-        $part = intval($nm / 1e3);
+        $vol = WbBasketHost::vol($productId);
+        $part = WbBasketHost::part($productId);
         $bNum = $this->basketNumber($vol);
 
         $result = array();
@@ -236,52 +228,7 @@ trait WBApiTrait
 
     private function basketNumber($t)
     {
-        $t = (int) $t;
-
-        $ranges = [
-            143,
-            287,
-            431,
-            719,
-            1007,
-            1061,
-            1115,
-            1169,
-            1313,
-            1601,
-            1655,
-            1919,
-            2045,
-            2189,
-            2405,
-            2621,
-            2837,
-            3053,
-            3269,
-            3485,
-            3701,
-            3917,
-            4133,
-            4349,
-            4565,
-            4877,
-            5189,
-            5501,
-            5813,
-            6125,
-            6437,
-            6749,
-            7061,
-            7373,
-        ];
-
-        foreach ($ranges as $index => $limit) {
-            if ($t <= $limit) {
-                return str_pad((string) ($index + 1), 2, '0', STR_PAD_LEFT);
-            }
-        }
-
-        return str_pad((string) (count($ranges) + 1), 2, '0', STR_PAD_LEFT);
+        return WbBasketHost::number((int) $t);
     }
 
     private function getUserAgent()

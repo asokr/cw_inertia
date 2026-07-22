@@ -19,7 +19,7 @@ const props = defineProps({
 });
 
 const page = usePage();
-const { balance } = useSubscriberContext();
+const { balance, daysIndicator } = useSubscriberContext();
 const editingName = ref(false);
 
 const profileForm = useForm({
@@ -28,8 +28,13 @@ const profileForm = useForm({
 
 const depositPresets = [500, 1000, 3000, 5000, 10000];
 
+const renewalShortfall = computed(() => {
+    const value = Number(daysIndicator.value?.shortfall ?? 0);
+    return value > 0 ? Math.ceil(value) : 0;
+});
+
 const depositForm = useForm({
-    amount: "500",
+    amount: String(renewalShortfall.value > 0 ? renewalShortfall.value : 500),
 });
 
 const subscription = computed(() => props.subscriptionData?.subscription ?? null);
@@ -116,6 +121,16 @@ function limitEntries(limits) {
                 <h2 class="mb-4 text-base font-semibold">Баланс</h2>
                 <p class="mb-4 text-2xl font-semibold tabular-nums">{{ formattedBalance }}</p>
                 <form class="max-w-sm space-y-3" @submit.prevent="deposit">
+                    <div
+                        v-if="renewalShortfall > 0"
+                        class="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100"
+                    >
+                        Для автопродления не хватает
+                        <strong class="tabular-nums">
+                            {{ renewalShortfall.toLocaleString("ru-RU") }} ₽
+                        </strong>
+                        — сумма подставлена в поле ниже.
+                    </div>
                     <div class="space-y-2">
                         <Label for="amount">Сумма пополнения</Label>
                         <div class="flex flex-wrap gap-2">
@@ -132,6 +147,20 @@ function limitEntries(limits) {
                                 @click="selectDepositAmount(preset)"
                             >
                                 {{ preset.toLocaleString("ru-RU") }} ₽
+                            </button>
+                            <button
+                                v-if="renewalShortfall > 0 && !depositPresets.includes(renewalShortfall)"
+                                type="button"
+                                class="rounded-md border px-3 py-1.5 text-sm tabular-nums transition-colors"
+                                :class="
+                                    isDepositPresetActive(renewalShortfall)
+                                        ? 'border-amber-500 bg-amber-500/15 font-medium text-amber-800 dark:text-amber-200'
+                                        : 'border-amber-500/40 text-amber-800 hover:bg-amber-500/10 dark:text-amber-200'
+                                "
+                                @click="selectDepositAmount(renewalShortfall)"
+                            >
+                                {{ renewalShortfall.toLocaleString("ru-RU") }} ₽
+                                <span class="ml-1 text-[10px] uppercase tracking-wide opacity-80">нехватка</span>
                             </button>
                         </div>
                     </div>

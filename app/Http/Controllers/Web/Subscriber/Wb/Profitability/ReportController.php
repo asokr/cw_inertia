@@ -3,15 +3,17 @@
 namespace App\Http\Controllers\Web\Subscriber\Wb\Profitability;
 
 use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresWbProfitabilityCabinetOwnership;
-use App\Services\Subscriber\Wb\WbProfitabilityReportService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreProfitabilityReportRequest;
 use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
+use App\Services\Subscriber\Wb\WbProfitabilityReportService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends SubscriberToolController
 {
@@ -26,68 +28,80 @@ class ReportController extends SubscriberToolController
     {
         $this->ensureCabinetOwnership($cabinet);
 
-        $statusPayload = $this->decodeApiResponse(
-            $this->reportService->status($request, $cabinet->id)
+        $page = $this->reportService->getCabinetPageData(
+            (int) $cabinet->id,
+            (int) auth()->id()
         );
-        $jobStatus = $this->buildJobStatus($statusPayload);
-
-        $reportPayload = $this->decodeApiResponse(
-            $this->reportService->show($request, $cabinet->id)
-        );
-
-        $report = null;
-        $groups = [];
-
-        if (($reportPayload['success'] ?? false) === true) {
-            $reportData = $reportPayload['data'] ?? null;
-
-            if (is_array($reportData)) {
-                $report = $reportData['report'] ?? null;
-                $groups = $this->normalizeReportGroups($reportData['items'] ?? []);
-
-                if ($report !== null) {
-                    $jobStatus = array_merge($jobStatus, array_filter([
-                        'stage' => $reportData['stage'] ?? null,
-                        'batch' => $reportData['batch'] ?? null,
-                        'rows_loaded' => $reportData['rows_loaded'] ?? null,
-                        'waiting_for_api' => $reportData['waiting_for_api'] ?? null,
-                        'started_at' => $reportData['started_at'] ?? null,
-                        'progress_percent' => $reportData['progress_percent'] ?? null,
-                        'status_label' => $reportData['status_label'] ?? null,
-                        'status_detail' => $reportData['status_detail'] ?? null,
-                    ], fn ($value) => $value !== null));
-
-                    if (isset($reportData['status'])) {
-                        $jobStatus['status'] = $reportData['status'];
-                    }
-
-                    if (array_key_exists('error', $reportData)) {
-                        $jobStatus['error'] = $reportData['error'];
-                    }
-                }
-            }
-        } else {
-            session()->flash('error', $this->apiMessage($reportPayload, 'Не удалось загрузить отчёт'));
-        }
-
-        $widgetPayload = $this->decodeApiResponse(
-            $this->reportService->widget($request, $cabinet->id)
-        );
-        $widget = (($widgetPayload['success'] ?? false) === true)
-            ? ($widgetPayload['data'] ?? null)
-            : null;
 
         return Inertia::render('Subscriber/Wb/Profitability/Cabinet/Show', [
             'cabinet' => [
                 'id' => $cabinet->id,
                 'name' => $cabinet->name,
             ],
-            'jobStatus' => $jobStatus,
-            'report' => $report,
-            'groups' => $groups,
-            'widget' => $widget,
-            'exportUrl' => route('subscriber.wb.profitability.cabinets.export', $cabinet),
+            'jobStatus' => $page['jobStatus'],
+            'report' => $page['report'],
+            'widget' => $page['widget'],
+            'groupMeta' => $page['groupMeta'],
+            'itemsBaseUrl' => route('subscriber.wb.profitability.cabinets.items', $cabinet),
+            'exportStartUrl' => route('subscriber.wb.profitability.cabinets.export.start', $cabinet),
+            'exportStatusUrl' => route('subscriber.wb.profitability.cabinets.export.status', $cabinet),
+            'exportDownloadUrl' => route('subscriber.wb.profitability.cabinets.export.download', $cabinet),
         ]);
+    }
+
+    public function items(Request $request, ProfitabilityCabinet $cabinet): JsonResponse
+    {
+        $this->ensureCabinetOwnership($cabinet);
+
+        $payload = $this->reportService->getItemsPage(
+            (int) $cabinet->id,
+            (int) auth()->id(),
+            $request
+        );
+
+        return response()->json($payload);
+    }
+
+    public function exportStart(Request $request, ProfitabilityCabinet $cabinet): JsonResponse
+    {
+        $this->ensureCabinetOwnership($cabinet);
+
+        $result = $this->reportService->startExport(
+            (int) $cabinet->id,
+            (int) auth()->id()
+        );
+
+        return response()->json($result, ($result['success'] ?? false) ? 200 : 422);
+    }
+
+    public function exportStatus(Request $request, ProfitabilityCabinet $cabinet): JsonResponse
+    {
+        $this->ensureCabinetOwnership($cabinet);
+
+        return response()->json(
+            $this->reportService->exportStatus((int) $cabinet->id, (int) auth()->id())
+        );
+    }
+
+    public function exportDownload(Request $request, ProfitabilityCabinet $cabinet): StreamedResponse|JsonResponse
+    {
+        $this->ensureCabinetOwnership($cabinet);
+
+        $file = $this->reportService->resolveExportDownload(
+            (int) $cabinet->id,
+            (int) auth()->id()
+        );
+
+        if ($file === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Файл ещё не готов',
+            ], 409);
+        }
+
+        $disk = $file['disk'] ?? 'private';
+
+        return Storage::disk($disk)->download($file['path'], $file['filename']);
     }
 
     public function store(StoreProfitabilityReportRequest $request, ProfitabilityCabinet $cabinet): RedirectResponse
@@ -109,103 +123,5 @@ class ReportController extends SubscriberToolController
         }
 
         return back()->with('success', $this->apiMessage($payload, 'Обновление поставлено в очередь'));
-    }
-
-    public function export(Request $request, ProfitabilityCabinet $cabinet): BinaryFileResponse|RedirectResponse
-    {
-        $this->ensureCabinetOwnership($cabinet);
-
-        try {
-            return $this->reportService->exportXlsx($request, $cabinet);
-        } catch (\Throwable $exception) {
-            report($exception);
-
-            return back()->with('error', 'Не удалось скачать отчёт');
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $statusPayload
-     * @return array{status: string, error: string|null}
-     */
-    /**
-     * @param  mixed  $groups
-     * @return list<array{supplier_oper_name: string, items: list<array<string, mixed>>}>
-     */
-    private function normalizeReportGroups(mixed $groups): array
-    {
-        if (! is_array($groups) || $groups === []) {
-            return [];
-        }
-
-        if (array_is_list($groups)) {
-            return array_values(array_map(function (mixed $group): array {
-                if (! is_array($group)) {
-                    return ['supplier_oper_name' => '', 'items' => []];
-                }
-
-                return [
-                    'supplier_oper_name' => (string) ($group['supplier_oper_name'] ?? ''),
-                    'items' => array_values(is_array($group['items'] ?? null) ? $group['items'] : []),
-                ];
-            }, $groups));
-        }
-
-        $normalized = [];
-
-        foreach ($groups as $key => $group) {
-            if (! is_array($group)) {
-                continue;
-            }
-
-            if (isset($group['supplier_oper_name'], $group['items']) && is_array($group['items'])) {
-                $normalized[] = [
-                    'supplier_oper_name' => (string) $group['supplier_oper_name'],
-                    'items' => array_values($group['items']),
-                ];
-
-                continue;
-            }
-
-            $normalized[] = [
-                'supplier_oper_name' => is_string($key) ? $key : (string) ($group['supplier_oper_name'] ?? ''),
-                'items' => array_values($group),
-            ];
-        }
-
-        return $normalized;
-    }
-
-    private function buildJobStatus(array $statusPayload): array
-    {
-        if (($statusPayload['success'] ?? false) === true) {
-            $data = $statusPayload['data'] ?? [];
-
-            return [
-                'status' => (string) ($data['status'] ?? 'done'),
-                'error' => $data['error'] ?? null,
-                'stage' => $data['stage'] ?? null,
-                'batch' => isset($data['batch']) ? (int) $data['batch'] : null,
-                'rows_loaded' => isset($data['rows_loaded']) ? (int) $data['rows_loaded'] : null,
-                'waiting_for_api' => (bool) ($data['waiting_for_api'] ?? false),
-                'started_at' => $data['started_at'] ?? null,
-                'progress_percent' => isset($data['progress_percent']) ? (int) $data['progress_percent'] : null,
-                'status_label' => $data['status_label'] ?? null,
-                'status_detail' => $data['status_detail'] ?? null,
-            ];
-        }
-
-        return [
-            'status' => 'done',
-            'error' => null,
-            'stage' => null,
-            'batch' => null,
-            'rows_loaded' => null,
-            'waiting_for_api' => false,
-            'started_at' => null,
-            'progress_percent' => null,
-            'status_label' => null,
-            'status_detail' => null,
-        ];
     }
 }

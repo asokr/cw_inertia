@@ -168,8 +168,11 @@ Route::middleware(['permission:subscriber wb profitability'])
         Route::delete('/cabinets/{cabinet}', [WbProfitabilityCabinetsController::class, 'destroy'])->name('cabinets.destroy');
 
         Route::get('/cabinets/{cabinet}', [WbProfitabilityReportController::class, 'show'])->name('cabinets.show');
+        Route::get('/cabinets/{cabinet}/items', [WbProfitabilityReportController::class, 'items'])->name('cabinets.items');
         Route::post('/cabinets/{cabinet}/report', [WbProfitabilityReportController::class, 'store'])->name('cabinets.report.store');
-        Route::get('/cabinets/{cabinet}/export', [WbProfitabilityReportController::class, 'export'])->name('cabinets.export');
+        Route::post('/cabinets/{cabinet}/export', [WbProfitabilityReportController::class, 'exportStart'])->name('cabinets.export.start');
+        Route::get('/cabinets/{cabinet}/export/status', [WbProfitabilityReportController::class, 'exportStatus'])->name('cabinets.export.status');
+        Route::get('/cabinets/{cabinet}/export/download', [WbProfitabilityReportController::class, 'exportDownload'])->name('cabinets.export.download');
     });
 
 Route::middleware(['permission:subscriber wb ai cabinet analyzer'])

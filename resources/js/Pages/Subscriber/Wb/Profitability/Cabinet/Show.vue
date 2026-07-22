@@ -23,9 +23,15 @@ const props = defineProps({
     cabinet: { type: Object, required: true },
     jobStatus: { type: Object, default: () => ({ status: "done", error: null }) },
     report: { type: Object, default: null },
-    groups: { type: Array, default: () => [] },
     widget: { type: Object, default: null },
-    exportUrl: { type: String, required: true },
+    groupMeta: {
+        type: Object,
+        default: () => ({ sales: 0, returns: 0, logistics: 0, other: 0 }),
+    },
+    itemsBaseUrl: { type: String, required: true },
+    exportStartUrl: { type: String, required: true },
+    exportStatusUrl: { type: String, required: true },
+    exportDownloadUrl: { type: String, required: true },
 });
 
 const breadcrumbs = [
@@ -33,17 +39,6 @@ const breadcrumbs = [
     { label: "Рентабельность Wildberries", href: "/panel/wb/profitability" },
     { label: props.cabinet.name },
 ];
-
-const OPERATIONS = {
-    logistics: "Логистика",
-    returns: "Возврат",
-    sales: "Продажа",
-    storage: "Хранение",
-    penalty: "Штраф",
-    acceptance: "Платная приемка",
-    withholdings: "Удержание",
-    logistics_correction: "Коррекция логистики",
-};
 
 const { showError } = useFlashToast();
 
@@ -58,93 +53,10 @@ const hasReport = computed(() => Boolean(props.report && Object.keys(props.repor
 const progressDetail = computed(() => buildProfitabilityProgressDetail(props.jobStatus));
 const progressPercent = computed(() => resolveProfitabilityProgressPercent(props.jobStatus));
 
-function asItemList(items) {
-    if (Array.isArray(items)) {
-        return items;
-    }
-
-    if (items && typeof items === "object") {
-        return Object.values(items);
-    }
-
-    return [];
-}
-
-function normalizeGroup(group, fallbackName = "") {
-    if (!group || typeof group !== "object") {
-        return { supplier_oper_name: fallbackName, items: [] };
-    }
-
-    if ("supplier_oper_name" in group && "items" in group) {
-        return {
-            supplier_oper_name: String(group.supplier_oper_name ?? fallbackName),
-            items: asItemList(group.items),
-        };
-    }
-
-    return {
-        supplier_oper_name: String(group.supplier_oper_name ?? fallbackName),
-        items: asItemList(group),
-    };
-}
-
-function normalizeGroups(groups) {
-    if (Array.isArray(groups)) {
-        return groups.map((group) => normalizeGroup(group));
-    }
-
-    if (groups && typeof groups === "object") {
-        return Object.entries(groups).map(([key, group]) => normalizeGroup(group, key));
-    }
-
-    return [];
-}
-
-const groupsList = computed(() => normalizeGroups(props.groups));
-
-function findGroup(name) {
-    const group = groupsList.value.find((entry) => entry.supplier_oper_name === name);
-    return asItemList(group?.items);
-}
-
-const sales = computed(() => findGroup(OPERATIONS.sales));
-const returns = computed(() => findGroup(OPERATIONS.returns));
-const logistics = computed(() => findGroup(OPERATIONS.logistics));
-
-const storage = computed(() => {
-    const group = groupsList.value.find((entry) => entry.supplier_oper_name === OPERATIONS.storage);
-    if (!group) return [];
-
-    let sum = 0;
-    asItemList(group.items).forEach((item) => {
-        sum += Number(Math.round(item.sum_to_transfer));
-    });
-
-    return [{ sum_to_transfer: sum }];
-});
-
-const penalty = computed(() => findGroup(OPERATIONS.penalty));
-const acceptance = computed(() => findGroup(OPERATIONS.acceptance));
-const withholdings = computed(() => findGroup(OPERATIONS.withholdings));
-const logisticsCorrection = computed(() => findGroup(OPERATIONS.logistics_correction));
-
-const allItems = computed(() => {
-    const withType = (items, type) => asItemList(items).map((item) => ({ ...item, type }));
-
-    return [
-        ...withType(penalty.value, "Штрафы"),
-        ...withType(acceptance.value, "Платная приемка"),
-        ...withType(withholdings.value, "Удержание"),
-        ...withType(logisticsCorrection.value, "Коррекция логистики"),
-        ...withType(storage.value, "Хранение"),
-    ];
-});
-
-const showReportDetails = computed(() => hasReport.value);
-const hasSalesItems = computed(() => sales.value.length > 0);
-const hasReturnsItems = computed(() => returns.value.length > 0);
-const hasLogisticsItems = computed(() => logistics.value.length > 0);
-const hasOtherItems = computed(() => allItems.value.length > 0);
+const hasSales = computed(() => (props.groupMeta?.sales ?? 0) > 0);
+const hasReturns = computed(() => (props.groupMeta?.returns ?? 0) > 0);
+const hasLogistics = computed(() => (props.groupMeta?.logistics ?? 0) > 0);
+const hasOther = computed(() => (props.groupMeta?.other ?? 0) > 0);
 
 function onPollingStart() {
     poll.start();
@@ -179,13 +91,18 @@ function onPollingStart() {
                 :started-at="jobStatus.started_at"
             />
 
-            <template v-if="showReportDetails">
-                <ReportTotals :report="report" :export-url="exportUrl" />
+            <template v-if="hasReport">
+                <ReportTotals
+                    :report="report"
+                    :export-start-url="exportStartUrl"
+                    :export-status-url="exportStatusUrl"
+                    :export-download-url="exportDownloadUrl"
+                />
 
-                <SalesTable v-if="hasSalesItems" :items="sales" />
-                <ReturnsTable v-if="hasReturnsItems" :items="returns" />
-                <LogisticsTable v-if="hasLogisticsItems" :items="logistics" />
-                <OtherOperationsTable v-if="hasOtherItems" :items="allItems" />
+                <SalesTable v-if="hasSales" lazy :items-url="itemsBaseUrl" />
+                <ReturnsTable v-if="hasReturns" lazy :items-url="itemsBaseUrl" />
+                <LogisticsTable v-if="hasLogistics" lazy :items-url="itemsBaseUrl" />
+                <OtherOperationsTable v-if="hasOther" lazy :items-url="itemsBaseUrl" />
             </template>
         </div>
     </SubscriberLayout>

@@ -21,8 +21,8 @@ class ProfitabilityJobStatusPresenterTest extends TestCase
         $this->assertSame('processing', $payload['status']);
         $this->assertSame('queued', $payload['stage']);
         $this->assertSame(5, $payload['progress_percent']);
-        $this->assertSame('Задача в очереди', $payload['status_label']);
-        $this->assertStringContainsString('Ожидаем свободный обработчик', $payload['status_detail']);
+        $this->assertSame('Скоро начнём', $payload['status_label']);
+        $this->assertStringContainsString('Запрос принят', $payload['status_detail']);
     }
 
     public function test_presenter_increases_fetch_progress_with_batches(): void
@@ -42,8 +42,9 @@ class ProfitabilityJobStatusPresenterTest extends TestCase
         $payload = ProfitabilityJobStatusPresenter::fromRecord($record);
 
         $this->assertSame(36, $payload['progress_percent']);
-        $this->assertSame('Ожидание ответа Wildberries', $payload['status_label']);
-        $this->assertStringContainsString('Пакет 4', $payload['status_detail']);
+        $this->assertSame('Ждём данные от Wildberries', $payload['status_label']);
         $this->assertStringContainsString('120 000', $payload['status_detail']);
+        $this->assertStringContainsString('операций', $payload['status_detail']);
+        $this->assertStringNotContainsString('Пакет', $payload['status_detail']);
     }
 }

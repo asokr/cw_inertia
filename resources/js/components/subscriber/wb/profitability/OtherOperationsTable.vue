@@ -4,9 +4,18 @@ import { otherOperationsColumns } from "@/utils/profitabilityTableColumns";
 
 defineProps({
     items: { type: Array, default: () => [] },
+    lazy: { type: Boolean, default: false },
+    itemsUrl: { type: String, default: "" },
 });
 </script>
 
 <template>
-    <ProfitabilityItemsTable title="Доп.расходы и доплаты" :items="items" :columns="otherOperationsColumns" />
+    <ProfitabilityItemsTable
+        title="Доп.расходы и доплаты"
+        group="other"
+        :items="items"
+        :columns="otherOperationsColumns"
+        :lazy="lazy"
+        :items-url="itemsUrl"
+    />
 </template>

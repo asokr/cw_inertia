@@ -3,6 +3,7 @@
 namespace App\Services\Wb\AiCabinetAnalyzer;
 
 use App\Services\Wb\WbPriceCalculationService;
+use App\Support\Wb\WbBasketHost;
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
@@ -821,9 +822,9 @@ class AiCabinetAnalyzerService
             return null;
         }
 
-        $vol = (int) floor($nmid / 100000);
-        $part = (int) floor($nmid / 1000);
-        $basket = $this->resolveBasketNumberByVol($vol);
+        $vol = WbBasketHost::vol($nmid);
+        $part = WbBasketHost::part($nmid);
+        $basket = WbBasketHost::number($vol);
 
         return sprintf(
             (string) config('wbConstants.URLS.IMAGES.SMALL'),
@@ -833,54 +834,6 @@ class AiCabinetAnalyzerService
             (string) $nmid,
             1
         );
-    }
-
-    private function resolveBasketNumberByVol(int $vol): string
-    {
-        $ranges = [
-            143,
-            287,
-            431,
-            719,
-            1007,
-            1061,
-            1115,
-            1169,
-            1313,
-            1601,
-            1655,
-            1919,
-            2045,
-            2189,
-            2405,
-            2621,
-            2837,
-            3053,
-            3269,
-            3485,
-            3701,
-            3917,
-            4133,
-            4349,
-            4565,
-            4877,
-            5189,
-            5501,
-            5813,
-            6125,
-            6437,
-            6749,
-            7061,
-            7373,
-        ];
-
-        foreach ($ranges as $index => $limit) {
-            if ($vol <= $limit) {
-                return str_pad((string) ($index + 1), 2, '0', STR_PAD_LEFT);
-            }
-        }
-
-        return str_pad((string) (count($ranges) + 1), 2, '0', STR_PAD_LEFT);
     }
 
     private function throttlePersonalToken(string $tokenScope): void

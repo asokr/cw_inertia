@@ -117,7 +117,7 @@ class ProfitabilityJobStatusPresenter
     public static function resolveStatusLabel(string $status, string $stage, array $data): ?string
     {
         if ($status === 'failed') {
-            return 'Ошибка формирования отчёта';
+            return 'Не удалось подготовить отчёт';
         }
 
         if ($status === 'done') {
@@ -125,16 +125,16 @@ class ProfitabilityJobStatusPresenter
         }
 
         return match ($stage) {
-            self::STAGE_QUEUED => 'Задача в очереди',
-            self::STAGE_PREPARING => 'Подготовка данных',
+            self::STAGE_QUEUED => 'Скоро начнём',
+            self::STAGE_PREPARING => 'Готовим данные',
             self::STAGE_FETCHING => ($data['waiting_for_api'] ?? false)
-                ? 'Ожидание ответа Wildberries'
-                : 'Загрузка операций из Wildberries',
-            self::STAGE_ANALYZING => 'Обработка операций',
-            self::STAGE_CALCULATING => 'Расчёт маржи и рентабельности',
-            self::STAGE_SAVING => 'Сохранение отчёта',
+                ? 'Ждём данные от Wildberries'
+                : 'Загружаем продажи и операции',
+            self::STAGE_ANALYZING => 'Разбираем операции',
+            self::STAGE_CALCULATING => 'Считаем прибыль по товарам',
+            self::STAGE_SAVING => 'Сохраняем отчёт',
             self::STAGE_DONE => 'Отчёт готов',
-            default => $status === 'processing' ? 'Формируем отчёт' : null,
+            default => $status === 'processing' ? 'Готовим отчёт' : null,
         };
     }
 
@@ -148,42 +148,32 @@ class ProfitabilityJobStatusPresenter
         }
 
         if ($stage === self::STAGE_QUEUED) {
-            return 'Запрос принят. Ожидаем свободный обработчик — обычно это занимает несколько секунд.';
+            return 'Запрос принят — обычно старт занимает несколько секунд.';
         }
 
         if ($stage === self::STAGE_PREPARING) {
-            return 'Проверяем кабинет и данные себестоимости из инструмента «Ценообразование».';
+            return 'Проверяем кабинет и себестоимость из «Ценообразования».';
         }
 
-        $parts = [];
-
         if ($stage === self::STAGE_FETCHING) {
-            if (! empty($data['batch'])) {
-                $parts[] = 'Пакет '.(int) $data['batch'];
-            }
-
             $rowsLoaded = (int) ($data['rows_loaded'] ?? 0);
             if ($rowsLoaded > 0) {
-                $parts[] = 'загружено '.number_format($rowsLoaded, 0, ',', ' ').' записей';
+                return 'Уже загружено '.number_format($rowsLoaded, 0, ',', ' ').' операций';
             }
 
-            if ($parts !== []) {
-                return implode(' • ', $parts);
-            }
-
-            return 'Получаем детализацию операций за выбранный период.';
+            return 'Получаем данные за выбранный период.';
         }
 
         if ($stage === self::STAGE_ANALYZING) {
-            return 'Группируем продажи, возвраты, логистику и прочие операции.';
+            return 'Сортируем продажи, возвраты, логистику и прочие операции.';
         }
 
         if ($stage === self::STAGE_CALCULATING) {
-            return 'Считаем себестоимость, маржу и рентабельность по каждой позиции.';
+            return 'Считаем себестоимость, маржу и рентабельность.';
         }
 
         if ($stage === self::STAGE_SAVING) {
-            return 'Записываем итоговый отчёт в базу данных.';
+            return 'Почти готово — записываем итог.';
         }
 
         return null;
