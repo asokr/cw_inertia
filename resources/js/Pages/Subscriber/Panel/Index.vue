@@ -150,7 +150,7 @@ function markTourSeen() {
         </Card>
 
         <div class="subscriber-cabinet__fade subscriber-cabinet__fade--4 mt-6">
-            <PanelToolsGrid :cabinets-by-tool="stats.cabinets_by_tool ?? {}" />
+            <PanelToolsGrid />
         </div>
 
         <div class="subscriber-cabinet__fade subscriber-cabinet__fade--5 mt-6 grid gap-4 lg:grid-cols-2">

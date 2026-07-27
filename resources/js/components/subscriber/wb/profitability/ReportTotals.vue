@@ -240,13 +240,16 @@ async function downloadReport() {
 </script>
 
 <template>
-    <div class="space-y-4">
-        <div>
-            <p class="text-xl">
-                Отчёт за <strong>{{ report.date_from }}</strong> — <strong>{{ report.date_to }}</strong>
+    <div class="min-w-0 space-y-4">
+        <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <p class="text-base sm:text-xl">
+                Отчёт за
+                <strong class="whitespace-nowrap">{{ report.date_from }}</strong>
+                —
+                <strong class="whitespace-nowrap">{{ report.date_to }}</strong>
             </p>
-            <div class="mt-3 flex flex-wrap items-center gap-3">
-                <Button class="mt-0" size="sm" variant="outline" :disabled="exporting" @click="downloadReport">
+            <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+                <Button size="sm" variant="outline" class="w-full sm:w-auto" :disabled="exporting" @click="downloadReport">
                     <Download class="mr-1.5 h-4 w-4" />
                     {{ exporting ? "Готовим файл…" : "Скачать отчёт" }}
                 </Button>
@@ -254,64 +257,76 @@ async function downloadReport() {
             </div>
         </div>
 
-        <div class="flex flex-wrap gap-3">
-            <Card class="w-64 p-4">
-                <h3 class="mb-2 text-sm text-muted-foreground">Продажи</h3>
-                <p class="text-xl font-medium">
-                    {{ report.sales_quantity }} ед. на {{ formatNumber(report.sales_amount) }}
+        <div class="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+            <Card class="min-w-0 p-3 sm:p-4">
+                <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Продажи</h3>
+                <p class="break-words text-lg font-medium sm:text-xl">
+                    {{ report.sales_quantity }} ед.
+                    <span class="block text-base sm:inline sm:text-xl">
+                        на {{ formatNumber(report.sales_amount) }}
+                    </span>
                 </p>
             </Card>
 
-            <Card class="w-64 p-4">
-                <h3 class="mb-2 text-sm text-muted-foreground">Возвраты</h3>
-                <p class="text-xl font-medium">
-                    {{ report.returns_quantity }} ед. на {{ formatNumber(report.returns_amount) }}
+            <Card class="min-w-0 p-3 sm:p-4">
+                <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Возвраты</h3>
+                <p class="break-words text-lg font-medium sm:text-xl">
+                    {{ report.returns_quantity }} ед.
+                    <span class="block text-base sm:inline sm:text-xl">
+                        на {{ formatNumber(report.returns_amount) }}
+                    </span>
                 </p>
             </Card>
 
-            <Card class="w-32 p-4">
-                <h3 class="mb-2 text-sm text-muted-foreground">Выкуп</h3>
-                <p class="text-xl font-medium">{{ report.percent_buy }} %</p>
+            <Card class="min-w-0 p-3 sm:p-4">
+                <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Выкуп</h3>
+                <p class="text-lg font-medium sm:text-xl">{{ report.percent_buy }} %</p>
             </Card>
 
-            <Card class="w-80 p-4">
-                <div class="flex items-start justify-between gap-4">
-                    <div>
-                        <h3 class="mb-2 text-sm text-muted-foreground">Доп.расходы и доплаты</h3>
-                        <p class="text-xl font-medium">{{ formatNumber(surcharges) }}</p>
+            <Card class="min-w-0 p-3 min-[400px]:col-span-2 md:col-span-3 xl:col-span-1 sm:p-4">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                    <div class="min-w-0">
+                        <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Доп. расходы и доплаты</h3>
+                        <p class="text-lg font-medium sm:text-xl">{{ formatNumber(surcharges) }}</p>
                     </div>
-                    <ul class="space-y-1 text-xs text-muted-foreground">
-                        <li v-for="item in surchargeBreakdown" :key="item.label" class="flex justify-between gap-2">
-                            <span>{{ item.label }}</span>
-                            <span class="font-medium text-foreground">{{ formatNumber(item.value) }}</span>
+                    <ul class="min-w-0 flex-1 space-y-1 text-xs text-muted-foreground sm:max-w-[12rem]">
+                        <li
+                            v-for="item in surchargeBreakdown"
+                            :key="item.label"
+                            class="flex justify-between gap-2"
+                        >
+                            <span class="truncate">{{ item.label }}</span>
+                            <span class="shrink-0 font-medium text-foreground">{{ formatNumber(item.value) }}</span>
                         </li>
                     </ul>
                 </div>
             </Card>
 
-            <Card class="w-40 p-4">
-                <h3 class="mb-2 text-sm text-muted-foreground">Логистика</h3>
-                <p class="text-xl font-medium">{{ formatNumber(report.logistics) }}</p>
+            <Card class="min-w-0 p-3 sm:p-4">
+                <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Логистика</h3>
+                <p class="break-words text-lg font-medium sm:text-xl">{{ formatNumber(report.logistics) }}</p>
             </Card>
 
-            <Card class="w-40 p-4">
-                <h3 class="mb-2 text-sm text-muted-foreground">Себестоимость</h3>
-                <p class="text-xl font-medium">{{ Math.round(report.purchase_cost).toLocaleString("ru-RU") }}</p>
+            <Card class="min-w-0 p-3 sm:p-4">
+                <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Себестоимость</h3>
+                <p class="break-words text-lg font-medium sm:text-xl">
+                    {{ Math.round(report.purchase_cost).toLocaleString("ru-RU") }}
+                </p>
             </Card>
 
-            <Card class="w-40 p-4">
-                <h3 class="mb-2 text-sm text-muted-foreground">Итог</h3>
-                <p class="text-xl font-medium">{{ formatNumber(report.itog) }}</p>
+            <Card class="min-w-0 p-3 sm:p-4">
+                <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Итог</h3>
+                <p class="break-words text-lg font-medium sm:text-xl">{{ formatNumber(report.itog) }}</p>
             </Card>
 
-            <Card class="w-40 p-4">
-                <h3 class="mb-2 text-sm text-muted-foreground">Маржинальность</h3>
-                <p class="text-xl font-medium">{{ formatNumber(report.margin) }}</p>
+            <Card class="min-w-0 p-3 sm:p-4">
+                <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Маржинальность</h3>
+                <p class="break-words text-lg font-medium sm:text-xl">{{ formatNumber(report.margin) }}</p>
             </Card>
 
-            <Card class="w-40 p-4">
-                <h3 class="mb-2 text-sm text-muted-foreground">Рентабельность</h3>
-                <p class="text-xl font-semibold">{{ report.total_profitability }} %</p>
+            <Card class="min-w-0 p-3 sm:p-4">
+                <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Рентабельность</h3>
+                <p class="text-lg font-semibold sm:text-xl">{{ report.total_profitability }} %</p>
             </Card>
         </div>
     </div>

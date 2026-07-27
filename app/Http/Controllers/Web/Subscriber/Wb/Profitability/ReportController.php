@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Profitability;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresWbProfitabilityCabinetOwnership;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreProfitabilityReportRequest;
-use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Services\Subscriber\Wb\WbProfitabilityReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -17,16 +17,24 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends SubscriberToolController
 {
-    use EnsuresWbProfitabilityCabinetOwnership;
+    use ResolvesSelectedWbCabinet;
 
     public function __construct(
         private readonly WbProfitabilityReportService $reportService,
     ) {
     }
 
-    public function show(Request $request, ProfitabilityCabinet $cabinet): Response
+    public function show(Request $request): Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Рентабельность Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Рентабельность Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $page = $this->reportService->getCabinetPageData(
             (int) $cabinet->id,
@@ -42,16 +50,21 @@ class ReportController extends SubscriberToolController
             'report' => $page['report'],
             'widget' => $page['widget'],
             'groupMeta' => $page['groupMeta'],
-            'itemsBaseUrl' => route('subscriber.wb.profitability.cabinets.items', $cabinet),
-            'exportStartUrl' => route('subscriber.wb.profitability.cabinets.export.start', $cabinet),
-            'exportStatusUrl' => route('subscriber.wb.profitability.cabinets.export.status', $cabinet),
-            'exportDownloadUrl' => route('subscriber.wb.profitability.cabinets.export.download', $cabinet),
+            'itemsBaseUrl' => route('subscriber.wb.profitability.items'),
+            'exportStartUrl' => route('subscriber.wb.profitability.export.start'),
+            'exportStatusUrl' => route('subscriber.wb.profitability.export.status'),
+            'exportDownloadUrl' => route('subscriber.wb.profitability.export.download'),
         ]);
     }
 
-    public function items(Request $request, ProfitabilityCabinet $cabinet): JsonResponse
+    public function items(Request $request): JsonResponse
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinetJson($request);
+        if ($cabinetOrResponse instanceof JsonResponse) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $payload = $this->reportService->getItemsPage(
             (int) $cabinet->id,
@@ -62,9 +75,14 @@ class ReportController extends SubscriberToolController
         return response()->json($payload);
     }
 
-    public function exportStart(Request $request, ProfitabilityCabinet $cabinet): JsonResponse
+    public function exportStart(Request $request): JsonResponse
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinetJson($request);
+        if ($cabinetOrResponse instanceof JsonResponse) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $result = $this->reportService->startExport(
             (int) $cabinet->id,
@@ -74,18 +92,28 @@ class ReportController extends SubscriberToolController
         return response()->json($result, ($result['success'] ?? false) ? 200 : 422);
     }
 
-    public function exportStatus(Request $request, ProfitabilityCabinet $cabinet): JsonResponse
+    public function exportStatus(Request $request): JsonResponse
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinetJson($request);
+        if ($cabinetOrResponse instanceof JsonResponse) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         return response()->json(
             $this->reportService->exportStatus((int) $cabinet->id, (int) auth()->id())
         );
     }
 
-    public function exportDownload(Request $request, ProfitabilityCabinet $cabinet): StreamedResponse|JsonResponse
+    public function exportDownload(Request $request): StreamedResponse|JsonResponse
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinetJson($request);
+        if ($cabinetOrResponse instanceof JsonResponse) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $file = $this->reportService->resolveExportDownload(
             (int) $cabinet->id,
@@ -104,9 +132,17 @@ class ReportController extends SubscriberToolController
         return Storage::disk($disk)->download($file['path'], $file['filename']);
     }
 
-    public function store(StoreProfitabilityReportRequest $request, ProfitabilityCabinet $cabinet): RedirectResponse
+    public function store(StoreProfitabilityReportRequest $request): RedirectResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Рентабельность Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Рентабельность Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->reportService->store(
             $this->apiRequestWith($request, array_merge(

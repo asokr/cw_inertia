@@ -29,7 +29,7 @@ function confirmDelete(item) {
 }
 
 function destroy() {
-    router.delete(`/panel/wb/repricer/cabinets/${props.cabinetId}/stocks/${selected.value.id}`, {
+    router.delete(`/panel/wb/repricer/stocks/${selected.value.id}`, {
         preserveScroll: true,
         onSuccess: () => {
             deleteOpen.value = false;
@@ -38,7 +38,7 @@ function destroy() {
 }
 
 function reset(item) {
-    router.post(`/panel/wb/repricer/cabinets/${props.cabinetId}/stocks/${item.id}/reset`, {}, {
+    router.post(`/panel/wb/repricer/stocks/${item.id}/reset`, {}, {
         preserveScroll: true,
     });
 }

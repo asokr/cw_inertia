@@ -4,7 +4,7 @@ namespace App\Models\Subscribers\Wb\Profitability;
 
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Subscribers\Wb\Profitability\Item;
-use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
+use App\Models\Subscribers\Wb\WbCabinet;
 
 class Report extends Model
 {
@@ -60,7 +60,7 @@ class Report extends Model
      */
     public function cabinet()
     {
-        return $this->belongsTo(ProfitabilityCabinet::class, 'cabinet_id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 
     /**

@@ -31,7 +31,7 @@ function confirmDelete(item) {
 }
 
 function destroy() {
-    router.delete(`/panel/wb/repricer/cabinets/${props.cabinetId}/time/${selected.value.id}`, {
+    router.delete(`/panel/wb/repricer/time/${selected.value.id}`, {
         preserveScroll: true,
         onSuccess: () => {
             deleteOpen.value = false;

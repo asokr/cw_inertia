@@ -8,11 +8,8 @@ use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
-use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerCabinet;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients as WbFeedbacksClients;
-use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
-use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\Feedbacks\WbFeedbacksSettings;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
 use App\Services\SubscriptionService;
 use Illuminate\Support\Facades\Schema;
@@ -129,47 +126,39 @@ class PanelDashboardService
     {
         $userId = $user->id;
 
+        $wbCabinetsCount = $this->countCabinets(
+            WbCabinet::class,
+            fn ($query) => $query->where('user_id', $userId)
+        );
+
+        $ozFeedbacksCount = $this->countCabinets(
+            OzFeedbacksClients::class,
+            fn ($query) => $query->where('user_id', $userId)
+        );
+
+        $ozPriceCalcCount = $this->countCabinets(
+            OzPriceCalcCabinet::class,
+            fn ($query) => $query->where('user_id', $userId)
+        );
+
+        // Unified WB cabinets are shared across tools — report the same count per WB tool,
+        // but do not multiply them in the total.
         $cabinetsByTool = [
-            'wb_feedbacks' => $subscriberId
-                ? $this->countCabinets(
-                    WbFeedbacksClients::class,
-                    fn ($query) => $query->where('subscriber_id', $subscriberId)
-                )
-                : 0,
-            'wb_profitability' => $this->countCabinets(
-                ProfitabilityCabinet::class,
-                fn ($query) => $query->where('user_id', $userId)
-            ),
-            'wb_price_calc' => $this->countCabinets(
-                PriceCalculationCabinets::class,
-                fn ($query) => $query->where('user_id', $userId)
-            ),
-            'wb_repricer' => $this->countCabinets(
-                RepricerCabinets::class,
-                fn ($query) => $query->where('user_id', $userId)
-            ),
-            'wb_ai_cabinet_analyzer' => $this->countCabinets(
-                AiCabinetAnalyzerCabinet::class,
-                fn ($query) => $query->where('user_id', $userId)
-            ),
-            'oz_feedbacks' => $this->countCabinets(
-                OzFeedbacksClients::class,
-                fn ($query) => $query->where('user_id', $userId)
-            ),
-            'oz_price_calc' => $this->countCabinets(
-                OzPriceCalcCabinet::class,
-                fn ($query) => $query->where('user_id', $userId)
-            ),
+            'wb_feedbacks' => $wbCabinetsCount,
+            'wb_profitability' => $wbCabinetsCount,
+            'wb_price_calc' => $wbCabinetsCount,
+            'wb_repricer' => $wbCabinetsCount,
+            'wb_ai_cabinet_analyzer' => $wbCabinetsCount,
+            'oz_feedbacks' => $ozFeedbacksCount,
+            'oz_price_calc' => $ozPriceCalcCount,
         ];
 
-        $activeBots = ($subscriberId
-            ? $this->countCabinets(
-                WbFeedbacksClients::class,
-                fn ($query) => $query
-                    ->where('subscriber_id', $subscriberId)
-                    ->where('bot_status', 1)
-            )
-            : 0)
+        $activeBots = $this->countCabinets(
+            WbFeedbacksSettings::class,
+            fn ($query) => $query
+                ->where('bot_status', true)
+                ->whereHas('cabinet', fn ($q) => $q->where('user_id', $userId))
+        )
             + $this->countCabinets(
                 OzFeedbacksClients::class,
                 fn ($query) => $query
@@ -178,7 +167,7 @@ class PanelDashboardService
             );
 
         return [
-            'cabinets_total' => array_sum($cabinetsByTool),
+            'cabinets_total' => $wbCabinetsCount + $ozFeedbacksCount + $ozPriceCalcCount,
             'active_bots' => $activeBots,
             'cabinets_by_tool' => $cabinetsByTool,
         ];

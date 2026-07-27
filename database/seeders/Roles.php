@@ -32,6 +32,7 @@ class Roles extends Seeder
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb repricer']); //Доступы к модулю репрайсера
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb profitability']); //Доступы к модулю рентабельности
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb ai cabinet analyzer']); //Доступы к модулю AiCabinet Analyzer
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb ab testing']); //Доступы к модулю A/B-тестирование
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber ai']); //Доступы к модулю ИИ
 
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'administrator']); //доступ к всякому на фронте, чего не сделать на ларавель

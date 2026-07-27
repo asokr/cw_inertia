@@ -3,7 +3,7 @@
 namespace App\Jobs;
 
 use App\Http\Traits\WBadvTrait;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerLogs;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use App\Models\Subscribers\Wb\Repricer\RepricerStocks;
@@ -78,7 +78,7 @@ class ApplyRepricerStrategyOneJob implements ShouldQueue, ShouldBeUnique
 
         $cabinet = $stock->cabinet;
 
-        if (! $cabinet instanceof RepricerCabinets) {
+        if (! $cabinet instanceof WbCabinet) {
             $this->releaseUniqueLock();
 
             return;

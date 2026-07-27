@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\PriceCalc;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresWbPriceCalcCabinetOwnership;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\ImportWbPriceCalcExcelRequest;
 use App\Http\Requests\Web\Subscriber\ImportWbPriceCalcVolumeRequest;
 use App\Http\Requests\Web\Subscriber\SaveWbPriceCalcSettingsRequest;
-use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
 use App\Services\Subscriber\Wb\WbPriceCalculationV3Service;
 use Illuminate\Http\RedirectResponse;
@@ -19,16 +19,24 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WorkspaceController extends SubscriberToolController
 {
-    use EnsuresWbPriceCalcCabinetOwnership;
+    use ResolvesSelectedWbCabinet;
 
     public function __construct(
         private readonly WbPriceCalculationV3Service $v3Service,
     ) {
     }
 
-    public function show(Request $request, PriceCalculationCabinets $cabinet): Response
+    public function show(Request $request): Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Ценообразование', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Ценообразование'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $settingsPayload = $this->decodeApiResponse(
             $this->v3Service->getSettings((int) $cabinet->id)
@@ -60,9 +68,17 @@ class WorkspaceController extends SubscriberToolController
         ]);
     }
 
-    public function sync(Request $request, PriceCalculationCabinets $cabinet): RedirectResponse
+    public function sync(Request $request): RedirectResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Ценообразование', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Ценообразование'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->v3Service->syncCards(
             $this->apiRequestWith($request, ['cabinet_id' => $cabinet->id])
@@ -88,9 +104,17 @@ class WorkspaceController extends SubscriberToolController
         return back()->with('success', $message);
     }
 
-    public function saveSettings(SaveWbPriceCalcSettingsRequest $request, PriceCalculationCabinets $cabinet): RedirectResponse
+    public function saveSettings(SaveWbPriceCalcSettingsRequest $request): RedirectResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Ценообразование', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Ценообразование'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->v3Service->saveSettings(
             $this->apiRequestWith($request, array_merge(
@@ -112,9 +136,17 @@ class WorkspaceController extends SubscriberToolController
         return back()->with('success', $message);
     }
 
-    public function importVolume(ImportWbPriceCalcVolumeRequest $request, PriceCalculationCabinets $cabinet): RedirectResponse
+    public function importVolume(ImportWbPriceCalcVolumeRequest $request): RedirectResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Ценообразование', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Ценообразование'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->v3Service->importVolumes(
             $this->apiRequestWith($request, [
@@ -131,9 +163,17 @@ class WorkspaceController extends SubscriberToolController
         return back()->with('success', $this->apiMessage($payload, 'Объёмы загружены'));
     }
 
-    public function importExcel(ImportWbPriceCalcExcelRequest $request, PriceCalculationCabinets $cabinet): RedirectResponse
+    public function importExcel(ImportWbPriceCalcExcelRequest $request): RedirectResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Ценообразование', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Ценообразование'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->v3Service->importExcel(
             $this->apiRequestWith($request, [
@@ -150,9 +190,17 @@ class WorkspaceController extends SubscriberToolController
         return back()->with('success', $this->apiMessage($payload, 'Данные импортированы и рассчитаны'));
     }
 
-    public function exportExcel(Request $request, PriceCalculationCabinets $cabinet): RedirectResponse|StreamedResponse
+    public function exportExcel(Request $request): RedirectResponse|StreamedResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Ценообразование', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Ценообразование'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->v3Service->exportExcel(
             $this->apiRequestWith($request, ['cabinet_id' => $cabinet->id])

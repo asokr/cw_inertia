@@ -2,7 +2,7 @@
 
 namespace App\Services\Subscriber\Wb;
 use App\Jobs\Wb\AiCabinetAnalyzer\ProcessAiCabinetAnalyzerReport;
-use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerCabinet;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerReport;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -15,7 +15,7 @@ class WbAiCabinetAnalyzerReportsService
     public function start(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'cabinet_id' => 'required|integer|exists:wb_ai_cabinet_analyzer_cabinets,id',
+            'cabinet_id' => 'required|integer|exists:wb_cabinets,id',
             'begin_date' => 'nullable|date|required_with:end_date',
             'end_date' => 'nullable|date|required_with:begin_date|after_or_equal:begin_date',
         ]);
@@ -27,7 +27,7 @@ class WbAiCabinetAnalyzerReportsService
             ], 200);
         }
 
-        $cabinet = AiCabinetAnalyzerCabinet::find((int) $request->cabinet_id);
+        $cabinet = WbCabinet::find((int) $request->cabinet_id);
         if (!$cabinet || (int) $cabinet->user_id !== (int) $request->user()->id) {
             return response()->json([
                 'success' => false,
@@ -256,7 +256,7 @@ class WbAiCabinetAnalyzerReportsService
     public function latestByCabinet(Request $request, string $cabinetId)
     {
         $validator = Validator::make(['cabinet_id' => $cabinetId], [
-            'cabinet_id' => 'required|integer|exists:wb_ai_cabinet_analyzer_cabinets,id',
+            'cabinet_id' => 'required|integer|exists:wb_cabinets,id',
         ]);
 
         if ($validator->fails()) {
@@ -266,7 +266,7 @@ class WbAiCabinetAnalyzerReportsService
             ], 200);
         }
 
-        $cabinet = AiCabinetAnalyzerCabinet::find((int) $cabinetId);
+        $cabinet = WbCabinet::find((int) $cabinetId);
         if (!$cabinet || (int) $cabinet->user_id !== (int) $request->user()->id) {
             return response()->json([
                 'success' => false,

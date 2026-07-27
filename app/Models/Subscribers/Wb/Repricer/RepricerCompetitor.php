@@ -4,7 +4,7 @@ namespace App\Models\Subscribers\Wb\Repricer;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 
 class RepricerCompetitor extends Model
 {
@@ -38,6 +38,6 @@ class RepricerCompetitor extends Model
 
     public function cabinet(): BelongsTo
     {
-        return $this->belongsTo(RepricerCabinets::class, 'cabinet_id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 }

@@ -1,6 +1,8 @@
 <script setup>
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import Checkbox from "@/components/ui/Checkbox.vue";
+import Input from "@/components/ui/Input.vue";
+import Label from "@/components/ui/Label.vue";
 import Switch from "@/components/ui/Switch.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
 
@@ -11,7 +13,7 @@ const props = defineProps({
     updateUrl: { type: String, required: true },
 });
 
-const emit = defineEmits(["rating-type-change"]);
+const emit = defineEmits(["rating-type-change", "brands-change"]);
 
 const { showError } = useFlashToast();
 
@@ -19,6 +21,7 @@ const open = ref(false);
 const aiStatus = ref(Number(props.settings?.status ?? 0));
 const aiRatings = ref([...(props.settings?.ratings ?? [])].map(String));
 const reviewType = ref(Array.isArray(props.settings?.review_type) ? [...props.settings.review_type] : []);
+const brands = ref(props.settings?.brands ?? "");
 const saving = ref(false);
 const saved = ref(false);
 const ready = ref(false);
@@ -34,6 +37,20 @@ onUnmounted(() => {
     clearTimeout(saveTimer);
     clearTimeout(savedTimer);
 });
+
+watch(
+    () => props.settings,
+    (s) => {
+        if (!s) {
+            return;
+        }
+        aiStatus.value = Number(s.status ?? 0);
+        aiRatings.value = [...(s.ratings ?? [])].map(String);
+        reviewType.value = Array.isArray(s.review_type) ? [...s.review_type] : [];
+        brands.value = s.brands ?? "";
+    },
+    { deep: true }
+);
 
 async function persistSettings() {
     if (!ready.value || saving.value) {
@@ -55,6 +72,7 @@ async function persistSettings() {
                 status: aiStatus.value,
                 ratings: aiRatings.value.map(Number),
                 review_type: reviewType.value,
+                brands: brands.value,
             }),
             credentials: "same-origin",
         });
@@ -71,6 +89,7 @@ async function persistSettings() {
             saved.value = false;
         }, 2000);
         emit("rating-type-change", reviewType.value);
+        emit("brands-change", brands.value);
     } catch {
         showError("Не удалось сохранить настройки");
     } finally {
@@ -86,7 +105,7 @@ function queueSave() {
 }
 
 watch(
-    () => [aiStatus.value, aiRatings.value, reviewType.value],
+    () => [aiStatus.value, aiRatings.value, reviewType.value, brands.value],
     () => {
         if (!ready.value) {
             return;
@@ -131,22 +150,27 @@ function toggleRating(value) {
                 <span>{{ aiStatus ? "Включено" : "Выключено" }}</span>
             </div>
 
+            <div class="space-y-2">
+                <Label>Фильтр по брендам</Label>
+                <Input :model-value="brands" placeholder="Brand A, Brand B" @update:model-value="brands = $event" />
+                <p class="text-xs text-muted-foreground">
+                    Через запятую. Если указаны — то бот будет отвечать на отзывы в товарах только этих брендов.
+                    Оставьте
+                    пустым, чтобы работать со всеми брендами кабинета.
+                </p>
+            </div>
+
             <div v-if="aiStatus" class="space-y-3">
                 <p class="text-muted-foreground">На отзывы с какой оценкой будет отвечать ИИ:</p>
                 <div class="flex flex-wrap gap-3">
                     <label v-for="n in 5" :key="n" class="flex items-center gap-2">
-                        <Checkbox
-                            :model-value="aiRatings.includes(String(n))"
-                            @update:model-value="toggleRating(n)"
-                        />
+                        <Checkbox :model-value="aiRatings.includes(String(n))" @update:model-value="toggleRating(n)" />
                         {{ n }}
                     </label>
                 </div>
                 <label class="flex items-center gap-2">
-                    <Checkbox
-                        :model-value="reviewType.includes('stih')"
-                        @update:model-value="reviewType = $event ? ['stih'] : []"
-                    />
+                    <Checkbox :model-value="reviewType.includes('stih')"
+                        @update:model-value="reviewType = $event ? ['stih'] : []" />
                     Отвечать в стихотворной форме
                 </label>
                 <p class="text-xs text-muted-foreground">

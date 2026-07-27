@@ -59,36 +59,36 @@ const normalizedProducts = computed(() => props.products
 </script>
 
 <template>
-    <div class="rounded-2xl border border-border bg-muted/40 p-4">
-        <div class="mb-4 flex items-center justify-between">
-            <h3 class="text-sm font-semibold">{{ title }}</h3>
+    <div class="min-w-0 rounded-2xl border border-border bg-muted/40 p-3 sm:p-4">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-1 sm:mb-4">
+            <h3 class="min-w-0 text-sm font-semibold">{{ title }}</h3>
             <span v-if="subtitle" class="text-[11px] text-muted-foreground">{{ subtitle }}</span>
         </div>
 
-        <ul v-if="normalizedProducts.length" class="space-y-3">
+        <ul v-if="normalizedProducts.length" class="space-y-2 sm:space-y-3">
             <li
                 v-for="product in normalizedProducts"
                 :key="product.key"
-                class="flex items-center gap-3 rounded-xl bg-background px-3 py-2 shadow-sm ring-1 ring-border"
+                class="flex min-w-0 items-center gap-2 rounded-xl bg-background px-2.5 py-2 shadow-sm ring-1 ring-border sm:gap-3 sm:px-3"
             >
-                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted text-xs font-semibold uppercase text-muted-foreground">
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted text-xs font-semibold uppercase text-muted-foreground sm:h-10 sm:w-10">
                     <img v-if="product.image" :src="product.image" :alt="product.title" class="h-full w-full object-cover" />
                     <span v-else>{{ product.initials }}</span>
                 </div>
 
-                <div class="flex flex-1 flex-col justify-center">
+                <div class="flex min-w-0 flex-1 flex-col justify-center">
                     <span class="truncate text-sm font-medium">{{ product.title }}</span>
-                    <span v-if="product.id && product.id !== '—'" class="text-xs text-muted-foreground">id {{ product.id }}</span>
+                    <span v-if="product.id && product.id !== '—'" class="truncate text-xs text-muted-foreground">id {{ product.id }}</span>
                 </div>
 
-                <div class="flex flex-col items-end">
+                <div class="flex shrink-0 flex-col items-end">
                     <span class="text-sm font-semibold" :style="{ color: product.color }">{{ product.displayValue }}</span>
                     <span v-if="product.totalMarginDisplay" class="text-xs text-muted-foreground">{{ product.totalMarginDisplay }}</span>
                 </div>
             </li>
         </ul>
 
-        <div v-else class="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+        <div v-else class="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground sm:p-6">
             {{ emptyMessage }}
         </div>
     </div>

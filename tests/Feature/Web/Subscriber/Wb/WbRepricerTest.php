@@ -7,6 +7,7 @@ use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use App\Models\Subscribers\Wb\Repricer\RepricerStocks;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -46,7 +47,7 @@ class WbRepricerTest extends WebAuthTestCase
             ->assertForbidden();
     }
 
-    public function test_subscriber_with_permission_can_access_index(): void
+    public function test_subscriber_with_permission_sees_no_cabinet_without_unified_cabinet(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
 
@@ -54,21 +55,22 @@ class WbRepricerTest extends WebAuthTestCase
             ->get('/panel/wb/repricer')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Subscriber/Wb/Repricer/Index')
-                ->has('cabinets'));
+                ->component('Subscriber/Wb/Shared/NoCabinet')
+                ->where('toolName', 'Репрайсер цен Wildberries'));
     }
 
-    public function test_index_lists_owned_cabinets(): void
+    public function test_index_renders_workspace_for_selected_unified_cabinet(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'Test Cabinet');
+        $cabinet = $this->createUnifiedCabinet($user, 'Test Cabinet');
 
         $this->actingAs($user)
             ->get('/panel/wb/repricer')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('cabinets.0.name', 'Test Cabinet')
-                ->where('cabinets.0.id', $cabinet->id));
+                ->component('Subscriber/Wb/Repricer/Cabinet/Show')
+                ->where('cabinet.id', $cabinet->id)
+                ->where('cabinet.name', 'Test Cabinet'));
     }
 
     public function test_strategy_hub_renders_for_owner(): void
@@ -179,6 +181,20 @@ class WbRepricerTest extends WebAuthTestCase
         ]);
     }
 
+    private function createUnifiedCabinet(User $user, string $name): WbCabinet
+    {
+        $cabinet = WbCabinet::query()->create([
+            'user_id' => $user->id,
+            'name' => $name,
+            'apikey' => 'test-api-key',
+            'api_key_hash' => hash('sha256', 'test-api-key-'.$name),
+        ]);
+
+        $user->forceFill(['selected_wb_cabinet_id' => $cabinet->id])->save();
+
+        return $cabinet;
+    }
+
     private function createTimeSetting(RepricerCabinets $cabinet, int $nmId): RepricerSettings
     {
         return RepricerSettings::query()->create([
@@ -209,6 +225,25 @@ class WbRepricerTest extends WebAuthTestCase
 
     private function setupRepricerSchema(): void
     {
+        if (Schema::hasTable('users') && ! Schema::hasColumn('users', 'selected_wb_cabinet_id')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->unsignedBigInteger('selected_wb_cabinet_id')->nullable();
+            });
+        }
+
+        if (! Schema::hasTable('wb_cabinets')) {
+            Schema::create('wb_cabinets', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id')->index();
+                $table->string('name');
+                $table->text('apikey')->nullable();
+                $table->string('api_key_hash', 64)->nullable();
+                $table->integer('error_code')->nullable();
+                $table->text('error_message')->nullable();
+                $table->timestamps();
+            });
+        }
+
         if (! Schema::hasTable('wb_repricer_cabinets')) {
             Schema::create('wb_repricer_cabinets', function (Blueprint $table) {
                 $table->id();

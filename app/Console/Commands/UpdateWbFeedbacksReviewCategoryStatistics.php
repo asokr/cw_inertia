@@ -4,8 +4,8 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\Subscribers\Wb\Feedbacks\Review;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 use App\Models\Subscribers\Wb\Feedbacks\ReviewCategoryStatistic;
+use App\Support\Wb\FeedbacksRuntimeCabinetResolver;
 use Carbon\Carbon;
 
 class UpdateWbFeedbacksReviewCategoryStatistics extends Command
@@ -25,9 +25,7 @@ class UpdateWbFeedbacksReviewCategoryStatistics extends Command
 
         $this->info("Старт агрегирования категорий: {$type}. Период: {$startDate->toDateTimeString()} — {$endDate->toDateTimeString()}. Якорная дата: {$statDate->toDateString()}");
 
-        $clients = FeedbacksClients::where(function ($q) {
-            $q->where('ai_status', 1)->orWhere('bot_status', 1);
-        })->get();
+        $clients = app(FeedbacksRuntimeCabinetResolver::class)->allActiveAutomation();
 
         foreach ($clients as $client) {
             $cabinetId = $client->id;

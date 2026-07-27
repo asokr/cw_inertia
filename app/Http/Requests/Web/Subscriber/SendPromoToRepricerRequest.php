@@ -17,7 +17,7 @@ class SendPromoToRepricerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'cabinet_id' => ['required', 'integer', 'exists:wb_repricer_cabinets,id'],
+            'cabinet_id' => ['required', 'integer', 'exists:wb_cabinets,id'],
             'data' => ['required', 'array', 'min:1'],
             'data.*.nm_id' => ['required', 'integer', 'min:1'],
             'data.*.plan_price' => ['required', 'numeric', 'min:0'],

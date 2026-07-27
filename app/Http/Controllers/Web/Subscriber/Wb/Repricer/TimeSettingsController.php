@@ -2,14 +2,14 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Repricer;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresRepricerCabinetOwnership;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Services\Subscriber\Wb\RepricerTimeSettingsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreRepricerTimeSettingRequest;
 use App\Http\Requests\Web\Subscriber\UpdateRepricerTimeSettingRequest;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Support\ToolLimits;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,16 +18,24 @@ use Inertia\Response;
 
 class TimeSettingsController extends SubscriberToolController
 {
-    use EnsuresRepricerCabinetOwnership;
+    use ResolvesSelectedWbCabinet;
 
     public function __construct(
         private readonly RepricerTimeSettingsService $settingsService,
     ) {
     }
 
-    public function index(Request $request, RepricerCabinets $cabinet): Response
+    public function index(Request $request): Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->settingsService->show((string) $cabinet->id);
         $payload = $this->decodeApiResponse($response);
@@ -45,9 +53,17 @@ class TimeSettingsController extends SubscriberToolController
         ]);
     }
 
-    public function store(StoreRepricerTimeSettingRequest $request, RepricerCabinets $cabinet): RedirectResponse
+    public function store(StoreRepricerTimeSettingRequest $request): RedirectResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->settingsService->store(
             $request->duplicate(null, array_merge(
@@ -64,16 +80,27 @@ class TimeSettingsController extends SubscriberToolController
         }
 
         return redirect()
-            ->route('subscriber.wb.repricer.cabinets.time.index', $cabinet->id)
+            ->route('subscriber.wb.repricer.time.index')
             ->with('success', $this->apiMessage($payload, 'Номенклатура добавлена'));
     }
 
     public function update(
         UpdateRepricerTimeSettingRequest $request,
-        RepricerCabinets $cabinet,
         RepricerSettings $setting,
-    ): RedirectResponse {
-        $this->ensureSettingBelongsToCabinet($setting, $cabinet);
+    ): RedirectResponse|Response {
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
+
+        if ((int) $setting->cabinet_id !== (int) $cabinet->id) {
+            abort(404);
+        }
 
         $response = $this->settingsService->update(
             $request->duplicate(null, $request->validated()),
@@ -90,9 +117,21 @@ class TimeSettingsController extends SubscriberToolController
         return back()->with('success', $this->apiMessage($payload, 'Настройки обновлены'));
     }
 
-    public function destroy(RepricerCabinets $cabinet, RepricerSettings $setting): RedirectResponse
+    public function destroy(Request $request, RepricerSettings $setting): RedirectResponse|Response
     {
-        $this->ensureSettingBelongsToCabinet($setting, $cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
+
+        if ((int) $setting->cabinet_id !== (int) $cabinet->id) {
+            abort(404);
+        }
 
         $response = $this->settingsService->destroy((string) $setting->id);
         $payload = $this->decodeApiResponse($response);

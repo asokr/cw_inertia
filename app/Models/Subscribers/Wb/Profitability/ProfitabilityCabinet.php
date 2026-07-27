@@ -14,9 +14,14 @@ class ProfitabilityCabinet extends Model
         'user_id',
         'name',
         'apikey',
+        'is_migrated',
+        'migrated_at',
+        'wb_cabinet_id',
     ];
     protected $casts = [
         'apikey' => EncryptCast::class,
+        'is_migrated' => 'boolean',
+        'migrated_at' => 'datetime',
     ];
 
     public function user()

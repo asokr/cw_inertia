@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresAiCabinetAnalyzerOwnership;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Services\Subscriber\Wb\WbAiCabinetAnalyzerAiAnalysesService;
 use App\Services\Subscriber\Wb\WbAiCabinetAnalyzerReportsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StartAiCabinetAnalyzerReportRequest;
-use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerCabinet;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerReport;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,7 +16,7 @@ use Inertia\Response;
 
 class WorkspaceController extends SubscriberToolController
 {
-    use EnsuresAiCabinetAnalyzerOwnership;
+    use ResolvesSelectedWbCabinet;
 
     public function __construct(
         private readonly WbAiCabinetAnalyzerReportsService $reportsService,
@@ -24,9 +24,17 @@ class WorkspaceController extends SubscriberToolController
     ) {
     }
 
-    public function show(Request $request, AiCabinetAnalyzerCabinet $cabinet): Response
+    public function show(Request $request): Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'ИИ анализ кабинета Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'ИИ анализ кабинета Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $reportPayload = $this->resolveReportPayload($request, $cabinet);
         $report = $this->buildReportProp($request, $reportPayload);
@@ -65,9 +73,17 @@ class WorkspaceController extends SubscriberToolController
         ]);
     }
 
-    public function startReport(StartAiCabinetAnalyzerReportRequest $request, AiCabinetAnalyzerCabinet $cabinet): RedirectResponse
+    public function startReport(StartAiCabinetAnalyzerReportRequest $request): RedirectResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'ИИ анализ кабинета Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'ИИ анализ кабинета Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->reportsService->start(
             $request->duplicate(null, array_merge(
@@ -86,8 +102,7 @@ class WorkspaceController extends SubscriberToolController
         $reportId = (int) ($payload['data']['report_id'] ?? 0);
 
         return redirect()
-            ->route('subscriber.wb.ai-cabinet-analyzer.cabinets.show', [
-                'cabinet' => $cabinet->id,
+            ->route('subscriber.wb.ai-cabinet-analyzer.index', [
                 'report_id' => $reportId,
             ])
             ->with('success', $this->apiMessage($payload, 'Анализ запущен'));
@@ -96,7 +111,7 @@ class WorkspaceController extends SubscriberToolController
     /**
      * @return array<string, mixed>|null
      */
-    private function resolveReportPayload(Request $request, AiCabinetAnalyzerCabinet $cabinet): ?array
+    private function resolveReportPayload(Request $request, WbCabinet $cabinet): ?array
     {
         $reportId = $request->integer('report_id');
 

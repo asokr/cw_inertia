@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use App\Models\Subscribers\Wb\Repricer\RepricerLogs;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 
 class RepricerSettings extends Model
 {
@@ -39,7 +39,7 @@ class RepricerSettings extends Model
 
     public function cabinet()
     {
-        return $this->hasOne(RepricerCabinets::class, 'id', 'cabinet_id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 
     public function logs()
@@ -54,7 +54,7 @@ class RepricerSettings extends Model
 
     public function belong()
     {
-        return RepricerCabinets::where(['id' => $this->cabinet_id, 'user_id' => auth()->id()])->first();
+        return WbCabinet::where(['id' => $this->cabinet_id, 'user_id' => auth()->id()])->first();
     }
 
     public static function boot()

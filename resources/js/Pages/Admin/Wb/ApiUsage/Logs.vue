@@ -27,6 +27,7 @@ const localFilters = ref({ ...props.filters });
 const keysOpen = ref(false);
 const dataOpen = ref(false);
 const selectedRequestData = ref("");
+const selectedResponseData = ref("");
 
 const formatNumber = (value) => Number(value ?? 0).toLocaleString("ru-RU");
 
@@ -49,6 +50,21 @@ const truncateEndpoint = (endpoint) => {
     return endpoint.length > 50 ? `${endpoint.slice(0, 47)}...` : endpoint;
 };
 
+const hasPayload = (data) => {
+    if (data == null) return false;
+    if (typeof data === "object") return Object.keys(data).length > 0;
+    return String(data).length > 0;
+};
+
+const formatPayload = (data) => {
+    if (!hasPayload(data)) return "нет данных";
+    try {
+        return JSON.stringify(data, null, 2);
+    } catch {
+        return String(data);
+    }
+};
+
 const columns = [
     { accessorKey: "created_at", header: "Время", cell: ({ row }) => formatTime(row.original.created_at) },
     { accessorKey: "method", header: "Метод", cell: ({ row }) => row.original.method },
@@ -58,8 +74,9 @@ const columns = [
     {
         ...actionsColumn,
         cell: ({ row }) => {
-            const data = row.original.request_data;
-            if (!data || !Object.keys(data).length) {
+            const hasRequest = hasPayload(row.original.request_data);
+            const hasResponse = hasPayload(row.original.response_data);
+            if (!hasRequest && !hasResponse) {
                 return "—";
             }
             return renderRowActions([
@@ -89,7 +106,8 @@ function changePage(page) {
 }
 
 function showRequestData(row) {
-    selectedRequestData.value = JSON.stringify(row.request_data, null, 2);
+    selectedRequestData.value = formatPayload(row.request_data);
+    selectedResponseData.value = formatPayload(row.response_data);
     dataOpen.value = true;
 }
 </script>
@@ -181,8 +199,17 @@ function showRequestData(row) {
             </div>
         </Card>
 
-        <Dialog v-model:open="dataOpen" title="Данные запроса">
-            <pre class="max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap">{{ selectedRequestData }}</pre>
+        <Dialog v-model:open="dataOpen" title="Данные запроса и ответа WB">
+            <div class="space-y-4">
+                <div>
+                    <h4 class="mb-2 text-sm font-semibold">Запрос (body)</h4>
+                    <pre class="max-h-56 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap">{{ selectedRequestData }}</pre>
+                </div>
+                <div>
+                    <h4 class="mb-2 text-sm font-semibold">Ответ WB</h4>
+                    <pre class="max-h-56 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap">{{ selectedResponseData }}</pre>
+                </div>
+            </div>
         </Dialog>
 
         <Dialog v-model:open="keysOpen" title="Использованные API ключи">

@@ -6,6 +6,7 @@ class SubscriberLimitLabels
 {
     private const LABELS = [
         'adverts_clients' => 'Кабинеты рекламы',
+        'wb_cabinets' => 'Кабинеты Wildberries',
         'feedbacks_clients' => 'Кабинеты отзывов WB',
         'oz_feedbacks_clients' => 'Кабинеты отзывов Ozon',
         'price_calc_clients' => 'Кабинеты ценообразования WB',

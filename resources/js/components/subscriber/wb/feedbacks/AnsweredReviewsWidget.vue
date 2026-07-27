@@ -79,7 +79,7 @@ async function load({ append = false } = {}) {
 
     try {
         const response = await fetch(
-            `/panel/wb/feedbacks/clients/${props.clientId}/answered?${buildQuery(offset)}`,
+            `/panel/wb/feedbacks/answered?${buildQuery(offset)}`,
             {
                 headers: {
                     Accept: "application/json",
@@ -294,7 +294,7 @@ onMounted(() => load({ append: false }));
                         </div>
 
                         <Link
-                            :href="`/panel/wb/feedbacks/clients/${clientId}/products/${item.product_id}`"
+                            :href="`/panel/wb/feedbacks/products/${item.product_id}`"
                             class="inline-block text-xs text-primary hover:underline"
                         >
                             Посмотреть статистику товара

@@ -3,7 +3,7 @@
 namespace App\Models\Subscribers\Wb\Feedbacks;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\WbCabinet;
 
 class ReviewStatistic extends Model
 {
@@ -24,6 +24,6 @@ class ReviewStatistic extends Model
 
     public function cabinet()
     {
-        return $this->belongsTo(FeedbacksClients::class, 'cabinet_id', 'id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 }

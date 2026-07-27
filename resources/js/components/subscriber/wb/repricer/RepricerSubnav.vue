@@ -7,7 +7,7 @@ const props = defineProps({
 });
 
 const page = usePage();
-const base = `/panel/wb/repricer/cabinets/${props.cabinetId}`;
+const base = `/panel/wb/repricer`;
 
 const items = computed(() => [
     { label: "Стратегии", href: base, match: (url) => url === base || url === `${base}/` },

@@ -12,7 +12,7 @@ use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Support\ToolLimits;
 use App\Models\Subscribers\Wb\Repricer\RepricerLogs;
 use App\Models\Subscribers\Wb\Repricer\RepricerStocks;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 
 class RepricerStocksService
 {
@@ -42,7 +42,7 @@ class RepricerStocksService
             $request->all(),
             [
                 'name' => '',
-                'cabinet_id' => 'required|exists:wb_repricer_cabinets,id',
+                'cabinet_id' => 'required|exists:wb_cabinets,id',
                 'nmID' => 'required|integer|unique:wb_repricer_stocks,nmID',
                 'strategy' => 'required|integer',
                 'terms' => 'required|array',
@@ -60,7 +60,7 @@ class RepricerStocksService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = RepricerCabinets::find($request->cabinet_id);
+        $cabinet = WbCabinet::find($request->cabinet_id);
         // Проверим, принадлежит-ли кабинет текущему юзеру
         $belongs = $cabinet->user_id == auth()->user()->id;
         if (!$belongs)
@@ -310,7 +310,7 @@ class RepricerStocksService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = RepricerCabinets::find($request->cabinet_id);
+        $cabinet = WbCabinet::find($request->cabinet_id);
         // Проверим, принадлежит-ли кабинет текущему юзеру
         $belongs = $cabinet->user_id == auth()->user()->id;
         if (!$belongs)
@@ -424,7 +424,7 @@ class RepricerStocksService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = RepricerCabinets::find($request->cabinet_id);
+        $cabinet = WbCabinet::find($request->cabinet_id);
 
         if (! $cabinet) {
             return response()->json(["success" => false, "messages" => ["Такого кабинета не существует"]], 200);
@@ -623,7 +623,7 @@ class RepricerStocksService
     //         return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
     //     }
 
-    //     $cabinet = RepricerCabinets::find($request->cabinet_id);
+    //     $cabinet = WbCabinet::find($request->cabinet_id);
     //     // Проверим, принадлежит-ли кабинет текущему юзеру
     //     $belongs = $cabinet->user_id == auth()->user()->id;
     //     if (!$belongs)
@@ -700,7 +700,7 @@ class RepricerStocksService
     }
 
     private function fetchSellerStocksForNm(
-        RepricerCabinets $cabinet,
+        WbCabinet $cabinet,
         ?RepricerStocks $stock,
         array $wbSizes = [],
         ?string $nmId = null

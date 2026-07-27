@@ -6,7 +6,7 @@ use App\Jobs\ApplyRepricerStrategyOneJob;
 use App\Jobs\UpdateRepricerStocksJob;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerStocks;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -34,10 +34,10 @@ class DispatchRepricerStrategyOneJobCommand extends Command
                 continue;
             }
 
-            $cabinets = RepricerCabinets::where('user_id', $user->id)
+            $cabinets = WbCabinet::where('user_id', $user->id)
                 ->where(function ($query) {
                     $query->whereNull('error_code')
-                        ->orWhereNotIn('error_code', RepricerCabinets::FATAL_ERROR_CODES);
+                        ->orWhereNotIn('error_code', WbCabinet::FATAL_ERROR_CODES);
                 })
                 ->get();
 

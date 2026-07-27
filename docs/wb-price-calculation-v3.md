@@ -3,34 +3,68 @@
 ## Права доступа
 
 - Permission: `subscriber wb price calculator`
-- Middleware: `auth:api`, `verified`, `role:Подписчик`
-
-## Ключевые файлы
-
-- `app/Http/Controllers/Api/Subscriber/Wb/PriceCalculation/PriceCalculationV3Controller.php`
-- `app/Services/Wb/WbPriceCalculationService.php`
-- `app/Models/Subscribers/Wb/PriceCalculation/PriceCalculationV3Data.php`
-- `app/Models/Subscribers/Wb/PriceCalculation/PriceCalculationCabinets.php`
-- `app/Models/Subscribers/Wb/PriceCalculation/PriceCalculationV2Settings.php`
-- `app/Exports/Wb/PriceCalc/PriceCalcV3Export.php`
+- Middleware панели: `auth`, `verified`, `panel.access`, `wb.cabinets.migrated`, `permission:subscriber wb price calculator`
 
 ## Назначение
 
-Документ фиксирует текущую структуру инструмента V3 для работы с Excel-формулами:
+Инструмент V3 для работы с номенклатурой и Excel-формулами: синхронизация карточек WB, настройки, импорт/экспорт, расчёт стоп-цен и промо-цен.
 
-- таблица данных в БД;
+Кабинет WB — **единый** ([wb-cabinets.md](wb-cabinets.md)). Workspace flat: `/panel/wb/price-calc` для **активного** кабинета. Все строки `wb_price_calc_v3_data.cabinet_id` = `wb_cabinets.id`.
+
+Документ также фиксирует:
+
+- таблицу данных в БД;
 - соответствие колонок Excel (буквы) и полей БД;
 - какие поля заполняются при импорте.
 
+## Ключевые файлы
+
+### Web (Inertia)
+
+- `app/Http/Controllers/Web/Subscriber/Wb/PriceCalc/WorkspaceController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/PriceCalc/CabinetsController.php`
+- Trait: `ResolvesSelectedWbCabinet`
+
+### Services / models / export
+
+- `app/Services/Subscriber/Wb/WbPriceCalculationV3Service.php`
+- `app/Services/Subscriber/Wb/WbPriceCalcCabinetsService.php`
+- `app/Services/Wb/WbPriceCalculationService.php` (shared calc helpers, если используются)
+- `app/Models/Subscribers/Wb/WbCabinet.php`
+- `app/Models/Subscribers/Wb/PriceCalculation/PriceCalculationV3Data.php`
+- `app/Models/Subscribers/Wb/PriceCalculation/PriceCalculationCabinets.php` — legacy `wb_price_cabinets` (миграция)
+- `app/Models/Subscribers/Wb/PriceCalculation/PriceCalculationV2Settings.php`
+- `app/Exports/Wb/PriceCalc/PriceCalcV3Export.php`
+
+## Web routes (Inertia)
+
+Prefix: `/panel/wb/price-calc` · name: `subscriber.wb.price-calc.*`
+
+| Method | URL | Named route | Назначение |
+|--------|-----|-------------|------------|
+| GET | `/` | `index` | `Subscriber/Wb/PriceCalc/Cabinet/Show` |
+| POST | `/sync` | `sync` | Синхронизация карточек WB |
+| POST | `/settings` | `settings.save` | Сохранение настроек |
+| POST | `/import-volume` | `import-volume` | Импорт объёмов (xlsx/zip) |
+| POST | `/import-excel` | `import-excel` | Импорт пользовательских колонок |
+| POST | `/export-excel` | `export-excel` | Экспорт xlsx |
+
+Редирект legacy: `/cabinets/{cabinet}` → `/panel/wb/price-calc`.
+
+При отсутствии выбранного кабинета — `Subscriber/Wb/Shared/NoCabinet`.
+
+`cabinet_id` для всех операций берётся из selected cabinet на сервере.
+
 ## Таблица БД
 
-- Таблица: wb_price_calc_v3_data
-- Модель: App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data
+- Таблица: `wb_price_calc_v3_data`
+- Модель: `App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data`
+- FK: `cabinet_id` → `wb_cabinets.id` (legacy FK на `wb_price_cabinets` снят миграциями)
 
 ## Поля таблицы wb_price_calc_v3_data
 
 - id: bigint, PK
-- cabinet_id: bigint, FK -> wb_price_cabinets.id
+- cabinet_id: bigint → `wb_cabinets.id`
 - brand: string, nullable
 - subject_name: string, nullable
 - vendor_code: string, nullable
@@ -167,7 +201,7 @@
     - % за ведение, если считается от суммы продажи, учитывается только при maintenance_type=sales. (Excel: компонент `+AP` применяется только для `sales`)
     - ИРП учитывается только при use_irp=true. (Excel: компонент `+AQ` применяется только при включенном `use_irp`)
 - В calculate ценовой блок считается по формулам:
-    - MIN ЦЕНА ДЛЯ АКЦИЙ (AU): (СТОП-ЦЕНА + ИТОГОВАЯ ЛОГИСТИКА + хранение/1 продажа + (% за ведение, если считается от суммы продажи / 100 _ СТОП-ЦЕНА)) / ((100 - общий % с каждой проданной ед. на расходы WB) / 100). (Excel: `=(M + AF + AI + (AP / 100 _ M)) / ((100 - AR) / 100)`, компонент `AP`применяется только при`maintenance_type=sales`, иначе считается `0`)
+    - MIN ЦЕНА ДЛЯ АКЦИЙ (AU): (СТОП-ЦЕНА + ИТОГОВАЯ ЛОГИСТИКА + хранение/1 продажа + (% за ведение, если считается от суммы продажи / 100 * СТОП-ЦЕНА)) / ((100 - общий % с каждой проданной ед. на расходы WB) / 100). (Excel: `=(M + AF + AI + (AP / 100 * M)) / ((100 - AR) / 100)`, компонент `AP` применяется только при `maintenance_type=sales`, иначе считается `0`)
     - ЦЕНА БЕЗ АКЦИИ (AV): MIN ЦЕНА ДЛЯ АКЦИЙ / ((100 - % на участие в акции) / 100). (Excel: `=AU / ((100 - AT) / 100)`)
     - ЦЕНА ДО СКИДКИ (AW): ЦЕНА БЕЗ АКЦИИ / ((100 - стандартная скидка для покупателя, %) / 100), без округления вверх. (Excel: `=AV / ((100 - AS) / 100)`)
 
@@ -176,89 +210,44 @@
 - hide_sizes=true: по колонке Артикул WB (nm_id)
 - hide_sizes=false: по колонке Баркод (barcode)
 
-Импорт объёма (POST /subscriber/wb/price-calculation-v3/import-volume):
+Импорт объёма (`POST /panel/wb/price-calc/import-volume`):
 
-- Поддерживает загрузку файла в формате `.xlsx` или `.zip`.
+- Поддерживает `.xlsx` или `.zip`.
 - Если загружен `.zip`, внутри архива должен быть ровно один файл `.xlsx`.
-- Если в архиве нет `.xlsx` или найдено больше одного `.xlsx`, импорт возвращает ошибку.
-- Колонки для импорта остаются прежними: `Баркод` и `Объем, л.`.
+- Колонки: `Баркод` и `Объем, л.`.
 
 ## Внешние WB API (что используем и что забираем)
 
 ### 1) Карточки товаров для sync
 
 - Endpoint: `POST https://content-api.wildberries.ru/content/v2/get/cards/list?locale=ru`
-- Где используется: sync карточек (`POST /subscriber/wb/price-calculation-v3/cards/sync`)
-- Что забираем из ответа:
-    - `cards[]`
-    - `cards[].brand`
-    - `cards[].subjectName`
-    - `cards[].vendorCode`
-    - `cards[].nmID`
-    - `cards[].sizes[].wbSize`
-    - `cards[].sizes[].skus[]` (берём первый barcode)
-    - `cursor.total`, `cursor.updatedAt`, `cursor.nmID` (постраничный обход)
+- Где используется: sync карточек (`POST /panel/wb/price-calc/sync`)
+- Что забираем: `cards[]` (brand, subjectName, vendorCode, nmID, sizes.wbSize, sizes.skus), cursor pagination
 
-### 2) Продажи по складам (доля складов для средней логистики)
+### 2) Продажи по складам
 
 - Endpoint: `GET https://statistics-api.wildberries.ru/api/v1/supplier/sales`
-- Где используется: расчёт (`POST /subscriber/wb/price-calculation-v3/calculate`), блок распределения продаж по складам
-- Что забираем из ответа:
-    - `date` (фильтр по месяцу)
-    - `warehouseName` (группировка продаж по складам)
-    - `warehouseType` (оставляем только `Склад WB`)
-    - `lastChangeDate` (пагинация в сервисе при больших объёмах)
+- Блок средней логистики: `warehouseName`, `warehouseType` (только `Склад WB`), `lastChangeDate`
 
-### 3) Тарифы логистики по складам
+### 3) Тарифы логистики
 
 - Endpoint: `GET https://common-api.wildberries.ru/api/v1/tariffs/box`
-- Где используется: расчёт (`POST /subscriber/wb/price-calculation-v3/calculate`), блок `avg_base_logistics` и `avg_extra_liter_logistics`
-- Что забираем из ответа:
-    - `response.data.warehouseList[]`
-    - `warehouseList[].warehouseName`
-    - `warehouseList[].boxDeliveryBase`
-    - `warehouseList[].boxDeliveryLiter`
+- `warehouseList[].warehouseName`, `boxDeliveryBase`, `boxDeliveryLiter`
 
-### 4) Комиссии WB по предмету (источники `fbs`/`fbo`)
+### 4) Комиссии WB
 
 - Endpoint: `GET https://common-api.wildberries.ru/api/v1/tariffs/commission?locale=ru`
-- Где используется: расчёт (`POST /subscriber/wb/price-calculation-v3/calculate`), заполнение `wb_commission_percent`
-- Что забираем из ответа:
-    - `report[]`
-    - `report[].subjectName` (ключ для сопоставления с `subject_name` товара)
-    - `report[].kgvpMarketplace` (для `commission_source=fbs`)
-    - `report[].paidStorageKgvp` (для `commission_source=fbo`)
+- `report[].subjectName`, `kgvpMarketplace` (fbs), `paidStorageKgvp` (fbo)
 
-### 5) Финансовый отчёт (источник `reports` для комиссии/эквайринга)
+### 5) Финансовый отчёт
 
-- Endpoint (текущая реализация): `POST https://finance-api.wildberries.ru/api/finance/v1/sales-reports/detailed`
-- Где используется: расчёт (`POST /subscriber/wb/price-calculation-v3/calculate`), если `commission_source=reports` или `acquiring_source=reports`
-- Что забираем из ответа:
-    - `sellerOperName` (берём только `Продажа`, legacy: `supplier_oper_name`)
-    - `commissionPercent` (средняя комиссия, legacy: `commission_percent`)
-    - `acquiringPercent` (средний эквайринг, legacy: `acquiring_percent`)
+- Endpoint: `POST https://finance-api.wildberries.ru/api/finance/v1/sales-reports/detailed`
+- При `commission_source=reports` или `acquiring_source=reports`: `sellerOperName`, `commissionPercent`, `acquiringPercent`
 
-### 6) Воронка продаж по артикулам (выкупы)
+### 6) Воронка продаж
 
 - Endpoint: `POST https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products`
-- Где используется: расчёт (`POST /subscriber/wb/price-calculation-v3/calculate`), блок `buyout_percent`/`sales_count`
-- Что забираем из ответа:
-    - `data.products[]`
-    - `products[].product.nmId`
-    - `products[].statistic.selected.orderCount`
-    - `products[].statistic.selected.buyoutCount`
-    - `products[].statistic.selected.conversions.buyoutPercent`
-
-## API V3
-
-- GET /subscriber/wb/price-calculation-v3/cards/{cabinet_id}
-- POST /subscriber/wb/price-calculation-v3/cards/sync
-- POST /subscriber/wb/price-calculation-v3/import-volume (принимает `.xlsx` и `.zip` с одним `.xlsx` внутри)
-- GET /subscriber/wb/price-calculation-v3/settings/{cabinet_id}
-- POST /subscriber/wb/price-calculation-v3/settings
-- POST /subscriber/wb/price-calculation-v3/calculate
-- POST /subscriber/wb/price-calculation-v3/export-excel
-- POST /subscriber/wb/price-calculation-v3/import-excel
+- `buyout_percent` / `sales_count` по nmId
 
 ## Правила экспорта Excel
 
@@ -267,6 +256,12 @@
     - `use_storage=false`: колонка хранения (`storage_cost`) не выгружается;
     - `commission_source!=manual`: колонка комиссии WB (`wb_commission_percent`) не выгружается;
     - `acquiring_source!=manual`: колонка эквайринга (`acquiring_percent`) не выгружается;
-    - `maintenance_type=sales`: выгружается только колонка опций от суммы продажи (`options_constructor_percent_sales`), колонка от перечисления (`options_constructor_percent_transfer`) не выгружается;
-    - `maintenance_type=transfer`: выгружается только колонка опций от перечисления (`options_constructor_percent_transfer`), колонки `options_constructor_percent_sales` и `% за ведение, если считается от суммы продажи` (`maintenance_percent_sales`) не выгружаются;
+    - `maintenance_type=sales`: выгружается только колонка опций от суммы продажи (`options_constructor_percent_sales`);
+    - `maintenance_type=transfer`: выгружается только колонка опций от перечисления (`options_constructor_percent_transfer`), колонки sales-опций и `maintenance_percent_sales` не выгружаются;
     - `use_irp=false`: колонка ИРП (`irp`) не выгружается.
+
+## Связанные документы
+
+- [wb-cabinets.md](wb-cabinets.md)
+- [wb-profitability.md](wb-profitability.md) — использует V3 себестоимость
+- [wb-promo-calculator.md](wb-promo-calculator.md)

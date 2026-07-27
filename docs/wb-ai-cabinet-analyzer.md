@@ -3,7 +3,7 @@
 ## Права доступа
 
 - Permission: `subscriber wb ai cabinet analyzer`
-- Middleware: `auth:api`, `verified`, `role:Подписчик`
+- Middleware панели: `auth`, `verified`, `panel.access`, `wb.cabinets.migrated`, `permission:subscriber wb ai cabinet analyzer`
 - Admin: `role:Супер-Админ|super-admin` (без отдельного permission)
 
 ## Назначение
@@ -12,135 +12,115 @@
 
 Сценарий:
 
-1. Пользователь создаёт/выбирает кабинет WB AiCabinet Analyzer.
-2. Передаёт `cabinet_id` в запуск отчёта AiCabinet Analyzer.
-3. Запускает анализ за период.
+1. Пользователь выбирает **единый** кабинет WB в шапке ([wb-cabinets.md](wb-cabinets.md)).
+2. Открывает workspace `/panel/wb/ai-cabinet-analyzer`.
+3. Запускает анализ за период (кабинет = selected `wb_cabinets`).
 4. Backend собирает полную номенклатуру кабинета (карточки WB).
 5. Backend получает воронку продаж за период по всей номенклатуре (строгий лимит 1 запрос/мин).
 6. Backend собирает кампании, NMID и статистику по рекламе.
 7. Backend объединяет данные рекламы и воронки в `items`.
-8. Формируется snapshot-отчёт и сохраняется в `wb_ai_cabinet_analyzer_reports.result_json`.
+8. Формируется snapshot-отчёт и сохраняется в `wb_ai_cabinet_analyzer_reports.result_json` с `cabinet_id` = `wb_cabinets.id`.
+
+Отдельного CRUD «кабинетов AI Analyzer» в UI больше нет.
 
 ## Ключевые файлы
 
-- `app/Models/Subscribers/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerCabinet.php`
-- `app/Models/Subscribers/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerReport.php`
-- `app/Models/Subscribers/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerTemplate.php`
-- `app/Models/Subscribers/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerAiAnalysis.php`
+### Web (Inertia)
+
+- `app/Http/Controllers/Web/Subscriber/Wb/AiCabinetAnalyzer/WorkspaceController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/AiCabinetAnalyzer/CabinetsController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/AiCabinetAnalyzer/AiAnalysesController.php` (если выделен)
+- Trait: `ResolvesSelectedWbCabinet`
+
+### Services / Jobs
+
+- `app/Services/Subscriber/Wb/WbAiCabinetAnalyzerCabinetsService.php`
+- `app/Services/Subscriber/Wb/WbAiCabinetAnalyzerReportsService.php`
 - `app/Services/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerService.php`
 - `app/Services/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerAiAnalysisService.php`
 - `app/Services/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerPdfGenerator.php`
 - `app/Services/Wb/AiCabinetAnalyzer/ReviewProductStatisticAggregator.php`
 - `app/Jobs/Wb/AiCabinetAnalyzer/ProcessAiCabinetAnalyzerReport.php`
 - `app/Jobs/Wb/AiCabinetAnalyzer/ProcessAiCabinetAnalyzerAiAnalysisJob.php`
-- `app/Http/Controllers/Api/Subscriber/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerCabinetsController.php`
-- `app/Http/Controllers/Api/Subscriber/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerReportsController.php`
-- `app/Http/Controllers/Api/Subscriber/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerAiAnalysesController.php`
-- `app/Http/Controllers/Api/Admin/services/aicabinetanalyzer/AdminAiCabinetAnalyzerController.php`
+
+### Модели
+
+- `app/Models/Subscribers/Wb/WbCabinet.php` — единый кабинет / API-ключ
+- `app/Models/Subscribers/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerCabinet.php` — legacy (миграция)
+- `app/Models/Subscribers/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerReport.php` — `cabinet_id` → unified
+- `app/Models/Subscribers/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerTemplate.php`
+- `app/Models/Subscribers/Wb/AiCabinetAnalyzer/AiCabinetAnalyzerAiAnalysis.php`
+
+### Config / admin
+
 - `config/ai_cabinet_analyzer.php`
+- `app/Services/Admin/AdminAiCabinetService.php`
 - `database/seeders/AiCabinetAnalyzerTemplatesSeeder.php`
-- `database/migrations/2026_05_25_120000_create_wb_ai_cabinet_analyzer_templates_table.php`
-- `database/migrations/2026_05_25_120100_create_wb_ai_cabinet_analyzer_ai_analyses_table.php`
 
-- `database/migrations/2026_05_04_120000_create_wb_ai_cabinet_analyzer_cabinets_table.php`
-- `database/migrations/2026_05_04_120100_create_wb_ai_cabinet_analyzer_reports_table.php`
-- `database/migrations/2026_05_19_140000_restore_wb_ai_cabinet_analyzer_cabinets_and_reports_cabinet_id.php`
+## Web routes (Inertia)
 
-## Эндпоинты
+Prefix: `/panel/wb/ai-cabinet-analyzer` · name: `subscriber.wb.ai-cabinet-analyzer.*`
 
-### Кабинеты
+| Method | URL | Named route | Назначение |
+|--------|-----|-------------|------------|
+| GET | `/` | `index` | `Subscriber/Wb/AiCabinetAnalyzer/Cabinet/Show` |
+| POST | `/reports` | `reports.store` | Запуск snapshot-отчёта |
+| POST | `/ai-analyses/start` | `ai-analyses.start` | Старт AI-анализа |
+| POST | `/ai-analyses/{analysis}/regenerate` | `ai-analyses.regenerate` | Перегенерация |
+| GET | `/ai-analyses/{analysis}` | `ai-analyses.show` | Статус/результат (JSON) |
+| GET | `/ai-analyses/{analysis}/download` | `ai-analyses.download` | PDF |
 
-- `GET /subscriber/wb/ai-cabinet-analyzer/cabinets`
-- `POST /subscriber/wb/ai-cabinet-analyzer/cabinets`
-- `GET /subscriber/wb/ai-cabinet-analyzer/cabinets/{id}`
-- `PUT/PATCH /subscriber/wb/ai-cabinet-analyzer/cabinets/{id}`
-- `DELETE /subscriber/wb/ai-cabinet-analyzer/cabinets/{id}`
+Редирект legacy: `/cabinets/{cabinet}` → `/panel/wb/ai-cabinet-analyzer`.
 
-### Отчёты
+При отсутствии выбранного кабинета — `Subscriber/Wb/Shared/NoCabinet`.
 
-- `POST /subscriber/wb/ai-cabinet-analyzer/reports/start`
-- `GET /subscriber/wb/ai-cabinet-analyzer/reports/latest/{cabinet_id}`
-- `GET /subscriber/wb/ai-cabinet-analyzer/reports/{report}/nomenclatures` — пагинированный список номенклатур из `result_json.items`
-- `GET /subscriber/wb/ai-cabinet-analyzer/reports/{report}/nomenclatures/search` — поиск номенклатур по `nmid` и/или `advert_id` с пагинацией
-- `GET /subscriber/wb/ai-cabinet-analyzer/reports/{report}`
-- `GET /subscriber/wb/ai-cabinet-analyzer/reports/{report}/status`
+Запуск отчёта использует selected cabinet; параметр `cabinet_id` в body не требуется (или игнорируется в пользу selected).
 
-### AI-анализы
+## Admin (web)
 
-- `GET /subscriber/wb/ai-cabinet-analyzer/ai-templates`
-- `POST /subscriber/wb/ai-cabinet-analyzer/ai-analyses/start`
-- `GET /subscriber/wb/ai-cabinet-analyzer/reports/{report}/ai-analyses`
-- `POST /subscriber/wb/ai-cabinet-analyzer/ai-analyses/{analysis}/regenerate`
-- `GET /subscriber/wb/ai-cabinet-analyzer/ai-analyses/{analysis}`
-- `GET /subscriber/wb/ai-cabinet-analyzer/ai-analyses/{analysis}/download` — скачивание PDF-отчёта
-    - В API-ответах `analysis_text` отдаётся на фронт как JSON-структура (декодируется из сохранённой строки), служебные поля хранения `analysis_json` и `model` на фронт не возвращаются.
-    - Блок `analysis_text.metrics` формируется моделью в формате массива объектов `{key,label,value}`, где `label` всегда на русском языке.
-
-### Admin API
-
-- `GET /admin/services/ai-cabinet-analyzer/cabinets` — список кабинетов
-- `GET /admin/services/ai-cabinet-analyzer/templates` — список промптов
-- `POST /admin/services/ai-cabinet-analyzer/templates` — создание промпта
-- `PUT /admin/services/ai-cabinet-analyzer/templates/{id}` — обновление
-- `DELETE /admin/services/ai-cabinet-analyzer/templates/{id}` — удаление
+- `/cw-page/services/ai-cabinet/*` — кабинеты, шаблоны промптов
 
 ## Технические детали
 
-- Источник данных: `https://advert-api.wildberries.ru`.
-- Авторизация: передаём только `Authorization`.
-- Используемые методы WB API:
+- Источник Ads: `https://advert-api.wildberries.ru`.
+- Авторизация: `Authorization` с ключом из `wb_cabinets.apikey`.
+- Методы WB API:
     - `/adv/v1/promotion/count`
     - `/api/advert/v2/adverts`
     - `/adv/v3/fullstats`
-- Дополнительно использует:
-    - `POST https://content-api.wildberries.ru/content/v2/get/cards/list` (полная номенклатура кабинета)
-    - `POST https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products` (воронка продаж за период)
+- Дополнительно:
+    - `POST https://content-api.wildberries.ru/content/v2/get/cards/list`
+    - `POST https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products`
 - Батчи `ids`: до 50.
-- Лимиты персонального токена (учитываются в сервисе): не более 3 запросов в минуту и минимум 20 секунд между запросами.
-- Для sales funnel применяется отдельный строгий лимит: 1 запрос в минуту.
-- Retry/backoff: для 429/5xx и сетевых ошибок, при 429 — пауза не меньше 20 секунд.
+- Лимиты персонального токена: не более 3 запросов/мин и минимум 20 с между запросами.
+- Sales funnel: 1 запрос в минуту.
+- Retry/backoff: 429/5xx; при 429 — пауза ≥ 20 с.
 - Статусы отчёта: `processing | done | failed`.
-- Для запуска отчёта `POST /subscriber/wb/ai-cabinet-analyzer/reports/start` требуется обязательный параметр `cabinet_id` (ID кабинета AiCabinet Analyzer пользователя).
-- Для получения последнего актуального анализа `GET /subscriber/wb/ai-cabinet-analyzer/reports/latest/{cabinet_id}` возвращается последний отчёт в статусе `done` по кабинету пользователя.
-- Для просмотра номенклатур реализована Laravel-пагинация через `GET /subscriber/wb/ai-cabinet-analyzer/reports/{report}/nomenclatures` (`page`, `per_page`).
-- Для поиска по списку номенклатур реализован endpoint `GET /subscriber/wb/ai-cabinet-analyzer/reports/{report}/nomenclatures/search` с фильтрами `nmid` и `advert_id`.
-- API-ключ для Ads-запросов берётся из выбранного кабинета AiCabinet Analyzer.
 - Структура `result_json`: `meta`, `campaigns`, `items`.
-- В `items` для каждого `nmid` сохраняются:
-    - `vendorCode` — артикул продавца (vendor code) из карточки WB, если доступен в кабинете;
-    - `image` — URL первого изображения товара (формируется по `nmid` и сохраняется в snapshot на этапе сборки отчёта);
-    - агрегированные рекламные поля (`clicks`, `views`, `spend`, `orders`, `ctr`, `cpc`, `cr`);
-    - блок `funnel` (нормализованные KPI воронки + `raw_funnel_payload`);
-    - блок `ads_vs_funnel` (сопоставление рекламы и воронки, например `orders_gap`, `orders_ratio_ads_to_funnel`).
-- Поле `result_json` в таблице `wb_ai_cabinet_analyzer_reports` хранится в типе `LONGTEXT`; в модели используется cast `result_json => array`.
-- В таблице `wb_ai_cabinet_analyzer_reports` используется поле `cabinet_id` (FK на `wb_ai_cabinet_analyzer_cabinets`).
-- Для AI-анализа используется только ранее подготовленный dataset из `wb_ai_cabinet_analyzer_reports.result_json`; повторный сбор snapshot и запросы к WB API не выполняются.
-- Шаблоны AI-анализа хранятся в таблице `wb_ai_cabinet_analyzer_templates` (поля: `id`, `name`, `description`, `system_prompt`, `sort_order`, `is_active`).
-- Результаты AI-анализа хранятся в таблице `wb_ai_cabinet_analyzer_ai_analyses` (статусы `processing|done|failed`, `analysis_text`, `analysis_json`, токены, ошибки выполнения).
-- AI-анализ выполняется через `GeminiApiClient` с fallback на GPT (`APP_GPT_KEY`) в фоне через очередь `wb_profit_analyzer`.
-- Модель AI по умолчанию для инструмента: `gemini`.
-- Если Gemini вернул ошибку, пустой ответ или невалидный JSON, автоматически выполняется повтор того же запроса в OpenAI Chat Completions (GPT).
-- Если итоговый AI-результат после всех попыток пустой (`analysis_text` пуст и отсутствует содержимое в `analysis_json`), запись не переводится в `done`: job завершает анализ статусом `failed` с `error_message`.
-- Перед отправкой в Gemini dataset нормализуется: в payload исключаются служебные/технические блоки, не участвующие в анализе (`meta.api`, warning/debug/raw-поля и аналогичные).
-- Для больших отчётов применяется автоматический батчинг: dataset разбивается на части, каждая часть анализируется отдельно, после чего формируется единый итоговый результат и сохраняется в одну запись `wb_ai_cabinet_analyzer_ai_analyses`.
+- В `items` для каждого `nmid`: `vendorCode`, `image`, ads metrics, `funnel`, `ads_vs_funnel`.
+- `result_json` — `LONGTEXT`, cast `array`.
+- `cabinet_id` в reports = `wb_cabinets.id` (после миграции; legacy FK на analyzer-cabinets снят/переписан).
+- AI-анализ только по snapshot в `result_json` (без повторных WB-запросов).
+- Шаблоны: `wb_ai_cabinet_analyzer_templates`.
+- AI-анализы: `wb_ai_cabinet_analyzer_ai_analyses` (`processing|done|failed`).
+- AI: `GeminiApiClient` + fallback GPT (`APP_GPT_KEY`), очередь `wb_profit_analyzer`.
+- Модель по умолчанию: `gemini`.
+- Пустой итоговый AI-результат → `failed`, не `done`.
+- Большие отчёты: батчинг dataset → единый результат.
+- В API-ответах `analysis_text` — JSON-структура; `analysis_json` / `model` на фронт не отдаются.
+- `analysis_text.metrics`: массив `{key,label,value}`, `label` на русском.
 
-## Очереди, которые должны работать
+## Очереди
 
-- Обязательная очередь для инструмента: `wb_profit_analyzer`.
-- Именно в эту очередь ставится job `ProcessAiCabinetAnalyzerReport` из `AiCabinetAnalyzerReportsController@start`.
-- Если воркер очереди `wb_profit_analyzer` не запущен, отчёты будут оставаться в статусе `processing`.
+Обязательная очередь: `wb_profit_analyzer`.
 
-## Команда запуска для dev-режима
+```bash
+php artisan queue:work --queue=wb_profit_analyzer --tries=3 --timeout=3600 --sleep=1
+```
 
-Запускать отдельный воркер именно для очереди AiCabinet Analyzer:
-
-`php artisan queue:work --queue=wb_profit_analyzer --tries=3 --timeout=3600 --sleep=1`
-
-Дополнительно:
-
-- Для локальной отладки удобно запускать в отдельном терминале, чтобы видеть ошибки job в реальном времени.
-- Если используете Supervisor/Horizon в проде, очередь `wb_profit_analyzer` должна быть явно добавлена в конфиг процессов.
+Без воркера отчёты остаются в `processing`.
 
 ## Связанные документы
 
+- [wb-cabinets.md](wb-cabinets.md)
 - [wb-ai-cabinet-analyzer-sales-funnel-fields.md](wb-ai-cabinet-analyzer-sales-funnel-fields.md)

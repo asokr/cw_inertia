@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use App\Http\Traits\WBApiTrait;
 use App\Models\Subscribers\Wb\Feedbacks\Review;
 use App\Models\Subscribers\Wb\Feedbacks\ReviewStatistic;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Feedbacks\ReviewProductStatistic;
 use App\Models\Subscribers\Wb\Feedbacks\ReviewCategoryStatistic;
 
@@ -37,7 +37,7 @@ class WbFeedbacksStatsService
         $limit     = $validated['limit'] ?? null;
 
         // Получаем кабинет и проверяем владельца
-        $cabinet = FeedbacksClients::find($cabinetId);
+        $cabinet = WbCabinet::find($cabinetId);
 
         if (!$cabinet) {
             return response()->json([
@@ -46,15 +46,11 @@ class WbFeedbacksStatsService
             ], 404);
         }
 
-        $subscriber_id = auth()->user()->subscriber->id;
-        // Проверим, принадлежит-ли кабинет текущему юзеру
-        if ($cabinet->subscriber_id != $subscriber_id) {
-            if ($cabinet->user_id !== $request->user()->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Forbidden'
-                ], 403);
-            }
+        if ((int) $cabinet->user_id !== (int) $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forbidden'
+            ], 403);
         }
 
         $statisticsQuery = ReviewStatistic::where('cabinet_id', $cabinetId)
@@ -145,7 +141,7 @@ class WbFeedbacksStatsService
         $onlyWithText  = $request->boolean('has_text');
         $onlyWithPhoto = $request->boolean('has_photo');
 
-        $cabinet = FeedbacksClients::find($cabinetId);
+        $cabinet = WbCabinet::find($cabinetId);
 
         if (!$cabinet) {
             return response()->json([
@@ -154,15 +150,11 @@ class WbFeedbacksStatsService
             ], 404);
         }
 
-        $subscriber_id = auth()->user()->subscriber->id;
-        // Проверим, принадлежит-ли кабинет текущему юзеру
-        if ($cabinet->subscriber_id != $subscriber_id) {
-            if ($cabinet->user_id !== $request->user()->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Forbidden'
-                ], 403);
-            }
+        if ((int) $cabinet->user_id !== (int) $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forbidden'
+            ], 403);
         }
 
         $query = Review::query();
@@ -243,7 +235,7 @@ class WbFeedbacksStatsService
         $month     = $request->get('month');
 
         // Проверяем наличие кабинета
-        $cabinet = FeedbacksClients::find($cabinetId);
+        $cabinet = WbCabinet::find($cabinetId);
 
         if (!$cabinet) {
             return response()->json([
@@ -252,15 +244,11 @@ class WbFeedbacksStatsService
             ], 404);
         }
 
-        $subscriber_id = auth()->user()->subscriber->id;
-        // Проверяем принадлежность кабинета текущему пользователю
-        if ($cabinet->subscriber_id != $subscriber_id) {
-            if ($cabinet->user_id !== $request->user()->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Forbidden'
-                ], 403);
-            }
+        if ((int) $cabinet->user_id !== (int) $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forbidden'
+            ], 403);
         }
 
         // Если месяц не указан — берём предыдущий месяц

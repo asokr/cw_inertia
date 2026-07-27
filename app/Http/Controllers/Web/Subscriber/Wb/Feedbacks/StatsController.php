@@ -2,26 +2,34 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Feedbacks;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresFeedbacksClientOwnership;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Services\Subscriber\Wb\WbFeedbacksStatsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\WbCabinet;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class StatsController extends SubscriberToolController
 {
-    use EnsuresFeedbacksClientOwnership;
+    use ResolvesSelectedWbCabinet;
 
     public function __construct(
         private readonly WbFeedbacksStatsService $statsService,
     ) {
     }
 
-    public function product(Request $request, FeedbacksClients $client, string $product): Response
+    public function product(Request $request, string $product): Response
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinet($request, 'Управление отзывами', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Управление отзывами'],
+        ]);
+        if ($clientOrResponse instanceof Response) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         $month = $request->query('month') ?: now()->subMonth()->format('Y-m');
 

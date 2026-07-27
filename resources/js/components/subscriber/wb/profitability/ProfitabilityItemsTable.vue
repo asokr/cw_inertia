@@ -139,16 +139,16 @@ watch(
 </script>
 
 <template>
-    <div class="space-y-3 rounded-lg border p-3 md:p-4">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex items-baseline gap-2">
-                <h3 class="font-semibold">{{ title }}</h3>
-                <span v-if="lazy && total > 0" class="text-xs text-muted-foreground">{{ total }}</span>
+    <div class="min-w-0 space-y-3 rounded-lg border p-3 md:p-4">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div class="flex min-w-0 items-baseline gap-2">
+                <h3 class="truncate font-semibold">{{ title }}</h3>
+                <span v-if="lazy && total > 0" class="shrink-0 text-xs text-muted-foreground">{{ total }}</span>
             </div>
             <Input
                 v-model="search"
                 placeholder="Найти"
-                class="max-w-xs"
+                class="w-full sm:max-w-xs"
                 @update:model-value="onSearchInput"
             />
         </div>
@@ -156,15 +156,17 @@ watch(
         <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
         <p v-if="lazy && loading" class="text-sm text-muted-foreground">Загрузка…</p>
 
-        <EditableDataTable
-            :columns="columns"
-            :data="displayItems"
-            :max-height="maxHeight"
-            empty-text="Нет данных"
-        />
+        <div class="-mx-1 min-w-0 overflow-x-auto px-1 sm:mx-0 sm:px-0">
+            <EditableDataTable
+                :columns="columns"
+                :data="displayItems"
+                :max-height="maxHeight"
+                empty-text="Нет данных"
+            />
+        </div>
 
         <div v-if="lazy && hasMore" class="flex justify-center pt-1">
-            <Button variant="outline" size="sm" :disabled="loadingMore || loading" @click="loadMore">
+            <Button variant="outline" size="sm" class="w-full sm:w-auto" :disabled="loadingMore || loading" @click="loadMore">
                 {{ loadingMore ? "Загрузка…" : "Показать ещё" }}
             </Button>
         </div>

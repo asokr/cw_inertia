@@ -3,92 +3,83 @@
 ## Права доступа
 
 - Permission: `subscriber wb repricer`
-- Middleware: `auth:api`, `verified`, `role:Подписчик`
+- Middleware панели: `auth`, `verified`, `panel.access`, `wb.cabinets.migrated`, `permission:subscriber wb repricer`
 - Admin: `role:Супер-Админ|super-admin`
 
 ## Назначение
 
-Автоматическое управление ценами на Wildberries по трём стратегиям: по остаткам на складах, по расписанию (время) и по ценам конкурентов. Интегрируется с [wb-promo-calculator.md](wb-promo-calculator.md) для массового добавления номенклатур.
+Автоматическое управление ценами на Wildberries по стратегиям: по остаткам на складах и по расписанию (время). Интегрируется с [wb-promo-calculator.md](wb-promo-calculator.md) для массового добавления номенклатур.
+
+Кабинет WB — **единый** ([wb-cabinets.md](wb-cabinets.md)): API-ключ, ошибки API (`error_code` / `error_message`) живут в `wb_cabinets`. Стратегии (settings, stocks, competitors, logs) ссылаются на `cabinet_id` = `wb_cabinets.id`.
+
+В UI нет отдельного списка кабинетов репрайсера: hub и стратегии работают для **активного** кабинета из шапки.
 
 ## Ключевые файлы
 
-### Controllers
+### Web (Inertia)
 
-- `app/Http/Controllers/Api/Subscriber/Wb/RePricer/RepricerCabinetsController.php`
-- `app/Http/Controllers/Api/Subscriber/Wb/RePricer/RepricerStocksController.php`
-- `app/Http/Controllers/Api/Subscriber/Wb/RePricer/RepricerSettingsController.php`
-- `app/Http/Controllers/Api/Subscriber/Wb/RePricer/RepricerCompetitorsController.php`
-- `app/Http/Controllers/Api/Admin/services/repricer/AdminRepricerController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/Repricer/StrategyHubController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/Repricer/CabinetsController.php` — логи
+- `app/Http/Controllers/Web/Subscriber/Wb/Repricer/TimeSettingsController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/Repricer/StocksController.php`
+- Trait: `ResolvesSelectedWbCabinet`
 
 ### Services & Jobs
 
+- `app/Services/Subscriber/Wb/RepricerCabinetsService.php`
+- `app/Services/Subscriber/Wb/RepricerStocksService.php`
+- `app/Services/Subscriber/Wb/RepricerTimeSettingsService.php`
 - `app/Services/Wb/WbSearchService.php` — поиск конкурентов через Node-сервис
 - `app/Jobs/ApplyRepricerStrategyOneJob.php` — применение стратегии по расписанию
 - `app/Jobs/ProcessRepricerCompetitorJob.php` — обработка цен конкурентов
-- `app/Jobs/UpdateRepricerStocksJob.php` — обновление по остаткам
+- `app/Jobs/UpdateRepricerStocksJob.php` — обновление по остаткам (берёт `WbCabinet`)
 
 ### Модели
 
-- `app/Models/Subscribers/Wb/Repricer/RepricerCabinets.php`
+- `app/Models/Subscribers/Wb/WbCabinet.php` — единый кабинет + API errors
+- `app/Models/Subscribers/Wb/Repricer/RepricerCabinets.php` — legacy `wb_repricer_cabinets` (миграция)
 - `app/Models/Subscribers/Wb/Repricer/RepricerStocks.php`
 - `app/Models/Subscribers/Wb/Repricer/RepricerSettings.php`
 - `app/Models/Subscribers/Wb/Repricer/RepricerCompetitor.php`
+- `app/Models/Subscribers/Wb/Repricer/RepricerLogs.php`
 - `app/Models/WbSearchRequest.php`
 
-## Web routes (Inertia, Phase 3b.6 v1)
+### Admin
 
-Permission: `subscriber wb repricer` · Prefix: `/panel/wb/repricer`
+- `app/Services/Admin/AdminRepricerService.php`
 
-| Web route | Inertia Page |
-| --- | --- |
-| `GET /` | `Subscriber/Wb/Repricer/Index` |
-| `GET /cabinets/{cabinet}` | `Subscriber/Wb/Repricer/Cabinet/Show` |
-| `GET /cabinets/{cabinet}/time` | `Subscriber/Wb/Repricer/Cabinet/Time/Index` |
-| `GET /cabinets/{cabinet}/stocks` | `Subscriber/Wb/Repricer/Cabinet/Stocks/Index` |
+## Web routes (Inertia)
 
-Стратегия **по конкурентам** и mass-страницы (`time/mass`, `stocks/mass`) в v1 не мигрированы — остаются в backlog.
+Prefix: `/panel/wb/repricer` · name: `subscriber.wb.repricer.*`
 
-## API эндпоинты (Subscriber)
+| Method | URL | Named route | Inertia / ответ |
+|--------|-----|-------------|-----------------|
+| GET | `/` | `index` | `Subscriber/Wb/Repricer/Cabinet/Show` (hub стратегий) |
+| POST | `/logs` | `logs` | Логи изменений цен |
+| GET | `/time` | `time.index` | `…/Cabinet/Time/Index` |
+| POST | `/time` | `time.store` | |
+| PUT | `/time/{setting}` | `time.update` | |
+| DELETE | `/time/{setting}` | `time.destroy` | |
+| GET | `/stocks` | `stocks.index` | `…/Cabinet/Stocks/Index` |
+| POST | `/stocks` | `stocks.store` | |
+| PUT | `/stocks/{stock}` | `stocks.update` | |
+| DELETE | `/stocks/{stock}` | `stocks.destroy` | |
+| POST | `/stocks/sizes` | `stocks.sizes` | Размеры из WB |
+| POST | `/stocks/{stock}/reset` | `stocks.reset` | |
 
-### Кабинеты
+Редиректы legacy:
 
-- Resource `/subscriber/wb/repricer/cabinets`
-- `POST /subscriber/wb/repricer/cabinets/logs` — логи изменений цен
+- `/cabinets/{cabinet}` → `/panel/wb/repricer`
+- `/cabinets/{cabinet}/time` → `/panel/wb/repricer/time`
+- `/cabinets/{cabinet}/stocks` → `/panel/wb/repricer/stocks`
 
-### Стратегия 1: по остаткам (stocks)
+Стратегия **по конкурентам** и mass-страницы (`time/mass`, `stocks/mass`) в UI v1 не вынесены на отдельный full-flow (логика/jobs могут оставаться в backend).
 
-- Resource `/subscriber/wb/repricer/stocks` (кроме index)
-- `POST /stocks/mass/` — загрузка данных из WB
-- `PUT /stocks/mass/` — массовое обновление
-- `DELETE /stocks/mass/` — массовое удаление
-- `POST /stocks/sizes/` — размеры из WB
-- `POST /stocks/{stock}/reset` — сброс
+При отсутствии выбранного кабинета — `Subscriber/Wb/Shared/NoCabinet`.
 
-### Стратегия 2: по времени (settings)
+## Admin (web)
 
-- Resource `/subscriber/wb/repricer` (кроме index)
-- `POST /mass/` — загрузка из WB
-- `PUT /mass/` — массовое обновление
-- `DELETE /mass/` — массовое удаление
-
-### Стратегия 3: по конкурентам (competitors)
-
-- `GET /competitors/search` — запуск поиска
-- `GET /competitors/search/status` — статус поиска
-- `POST /competitors/info` — bulk-информация о конкурентах
-- `PATCH /competitors/{competitor}/status` — вкл/выкл
-- `POST /competitors/nm-data` — данные номенклатуры
-- Resource `/subscriber/wb/repricer/competitors`
-
-### Webhook (Node-сервис)
-
-- `POST /services/wb-search/webhook` — callback результатов поиска конкурентов (без auth подписчика)
-
-## Admin API
-
-- `POST /admin/services/repricer/cabinets` — список кабинетов
-- `POST /admin/services/repricer/nmids` — список номенклатур
-- `POST /admin/services/repricer/logs` — логи
+- `/cw-page/services/repricer/*` — кабинеты, номенклатуры, логи
 
 ## Фоновые процессы
 
@@ -98,9 +89,17 @@ Permission: `subscriber wb repricer` · Prefix: `/panel/wb/repricer`
 | `ProcessRepricerCompetitorJob` | Пересчёт цен по конкурентам |
 | `UpdateRepricerStocksJob` | Обновление цен при изменении остатков |
 
+Jobs работают с `WbCabinet` (не legacy `RepricerCabinets`). Ошибки 401/403/429 пишутся в `wb_cabinets.error_*`; при фатальных — уведомление `WbCabinetAuthorizationNotification`.
+
 ## Технические детали
 
-- Поиск конкурентов делегируется внешнему Node-сервису (`WbSearchService`), результат приходит через webhook
+- Поиск конкурентов делегируется внешнему Node-сервису (`WbSearchService`), результат приходит через webhook `POST /api/services/wb-search/webhook`
 - `RepricerCompetitor` хранит `nm_id`, список конкурентов, `difference` (percent/amount), `competitors_price_type` (min/average/max)
-- Кабинеты привязаны к `user_id` и WB API-ключу
+- `cabinet_id` в settings/stocks/logs/competitors = `wb_cabinets.id`
+- Константы skip/fatal на `WbCabinet` (и зеркально на legacy model для миграции)
 - Логи изменений цен доступны подписчику и в админке
+
+## Связанные документы
+
+- [wb-cabinets.md](wb-cabinets.md)
+- [wb-promo-calculator.md](wb-promo-calculator.md)

@@ -3,10 +3,10 @@
 namespace App\Services\Admin;
 
 use App\Http\Traits\WBApiTrait;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 use App\Models\Subscribers\Wb\Feedbacks\Review;
 use App\Models\Subscribers\Wb\Feedbacks\ReviewCategoryStatistic;
 use App\Models\Subscribers\Wb\Feedbacks\ReviewStatistic;
+use App\Models\Subscribers\Wb\WbCabinet;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Artisan;
@@ -17,25 +17,34 @@ class AdminFeedbacksService
 
     public function listCabinets(): Collection
     {
-        return FeedbacksClients::query()
-            ->with(['subscriber.user:id,name,email'])
+        return WbCabinet::query()
+            ->with([
+                'user:id,name,email',
+                'feedbacksSettings',
+            ])
             ->select([
                 'id',
-                'subscriber_id',
+                'user_id',
                 'name',
-                'brands',
-                'bot_status',
-                'ai_status',
-                'ai_ratings',
             ])
-            ->orderBy('subscriber_id')
-            ->get();
+            ->orderBy('user_id')
+            ->get()
+            ->map(function (WbCabinet $cabinet) {
+                $settings = $cabinet->feedbacksSettings;
+                $cabinet->setAttribute('brands', $settings?->brands);
+                $cabinet->setAttribute('bot_status', (bool) ($settings?->bot_status));
+                $cabinet->setAttribute('ai_status', (bool) ($settings?->ai_status));
+                $cabinet->setAttribute('ai_ratings', $settings?->ai_ratings);
+                $cabinet->setAttribute('subscriber_id', $cabinet->user?->subscriber?->id);
+
+                return $cabinet;
+            });
     }
 
     public function aiAnswerLogs(int $perPage = 25): LengthAwarePaginator
     {
         return Review::query()
-            ->with(['botResponse', 'cabinet:id,name,subscriber_id'])
+            ->with(['botResponse', 'cabinet:id,name,user_id'])
             ->whereHas('botResponse')
             ->orderByDesc('created_at')
             ->paginate($perPage);
@@ -50,7 +59,7 @@ class AdminFeedbacksService
         $limit = $filters['limit'] ?? null;
         $date = $filters['date'] ?? null;
 
-        $cabinet = FeedbacksClients::find($cabinetId);
+        $cabinet = WbCabinet::find($cabinetId);
 
         if (! $cabinet) {
             return [
@@ -152,7 +161,7 @@ class AdminFeedbacksService
      */
     public function recalculateStats(string $cabinetId): array
     {
-        $cabinet = FeedbacksClients::find($cabinetId);
+        $cabinet = WbCabinet::find($cabinetId);
 
         if (! $cabinet) {
             return [
@@ -176,7 +185,7 @@ class AdminFeedbacksService
     /**
      * @return array{success: bool, data: mixed, stat_date: ?string, cabinet: array<string, mixed>}
      */
-    private function getAggregatedStats(string $cabinetId, FeedbacksClients $cabinet, string $statType): array
+    private function getAggregatedStats(string $cabinetId, WbCabinet $cabinet, string $statType): array
     {
         $months = $statType === 'half_year' ? 6 : 12;
         $startDate = now()->subMonths($months)->startOfMonth();
@@ -295,12 +304,12 @@ class AdminFeedbacksService
     /**
      * @return array{id: int|string, name: ?string, status: mixed}
      */
-    private function formatCabinet(FeedbacksClients $cabinet): array
+    private function formatCabinet(WbCabinet $cabinet): array
     {
         return [
             'id' => $cabinet->id,
             'name' => $cabinet->name,
-            'status' => $cabinet->status,
+            'status' => null,
         ];
     }
 }

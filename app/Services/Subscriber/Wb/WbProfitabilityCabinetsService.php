@@ -6,7 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Traits\SubscriptionsTrait;
 use Illuminate\Support\Facades\Validator;
-use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
+use App\Models\Subscribers\Wb\WbCabinet;
 
 class WbProfitabilityCabinetsService
 {
@@ -17,7 +17,7 @@ class WbProfitabilityCabinetsService
     public function index()
     {
         $user_id = Auth::id();
-        $cabinets = ProfitabilityCabinet::where('user_id', $user_id)->orderByDesc('id')->get();
+        $cabinets = WbCabinet::where('user_id', $user_id)->orderByDesc('id')->get();
         if (!$cabinets) {
             return response()->json(["success" => false, "messages" => ["Кабинетов нет"]], 200);
         }
@@ -40,7 +40,7 @@ class WbProfitabilityCabinetsService
         }
 
         // Проверим, есть ли уже такой кабинет по apikey
-        $cabinets = ProfitabilityCabinet::all();
+        $cabinets = WbCabinet::all();
         $alreadyRegistered = false;
         foreach ($cabinets as $cabinet) {
             if ($request->apikey == $cabinet->apikey) {
@@ -52,7 +52,7 @@ class WbProfitabilityCabinetsService
             return response()->json(["success" => false, "messages" => ["Кабинет с таким Api ключом уже есть в системе."]], 200);
         }
 
-        $cabinet = ProfitabilityCabinet::create([
+        $cabinet = WbCabinet::create([
             "user_id" => auth()->user()->id,
             "name" => $request->name,
             "apikey" => $request->apikey,
@@ -71,7 +71,7 @@ class WbProfitabilityCabinetsService
     public function show(string $id)
     {
         $validator = Validator::make(['id' => $id], [
-            'id' => 'required|exists:wb_Profitability_cabinets,id'
+            'id' => 'required|exists:wb_cabinets,id'
         ], [
             'id.exists' => 'Такого кабинета не существует'
         ]);
@@ -80,7 +80,7 @@ class WbProfitabilityCabinetsService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = ProfitabilityCabinet::find($id);
+        $cabinet = WbCabinet::find($id);
         if (!$cabinet) {
             return response()->json(["success" => false, "messages" => ["Такого кабинета нет"]], 200);
         }
@@ -106,7 +106,7 @@ class WbProfitabilityCabinetsService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = ProfitabilityCabinet::find($id);
+        $cabinet = WbCabinet::find($id);
         if (!$cabinet) {
             return response()->json(["success" => false, "messages" => ["Такого кабинета нет"]], 200);
         }
@@ -116,7 +116,7 @@ class WbProfitabilityCabinetsService
 
 
         // Проверим, есть ли уже такой кабинет по apikey
-        $cabinets = ProfitabilityCabinet::all();
+        $cabinets = WbCabinet::all();
         $alreadyRegistered = false;
         foreach ($cabinets as $item) {
             if ($id == $item->id)
@@ -150,7 +150,7 @@ class WbProfitabilityCabinetsService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = ProfitabilityCabinet::find($id);
+        $cabinet = WbCabinet::find($id);
         if (!$cabinet)
             return response()->json(["success" => false, "messages" => ["Такого кабинета нет"]], 200);
 

@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\ProcessRepricerCompetitorJob;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\Repricer\RepricerCompetitor;
@@ -44,7 +44,7 @@ class DispatchRepricerCompetitorsJobCommand extends Command
                     $query->where('user_id', $user->id)
                         ->where(function ($subQuery) {
                             $subQuery->whereNull('error_code')
-                                ->orWhereNotIn('error_code', RepricerCabinets::FATAL_ERROR_CODES);
+                                ->orWhereNotIn('error_code', WbCabinet::FATAL_ERROR_CODES);
                         });
                 })
                 ->orderBy('id')

@@ -2,6 +2,8 @@
 
 namespace App\Models\Subscribers\Wb\PriceCalculation;
 
+use App\Models\Subscribers\Wb\WbCabinet;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -62,7 +64,7 @@ class PriceCalculationV2Settings extends Model
      */
     public function cabinet()
     {
-        return $this->belongsTo(PriceCalculationCabinets::class, 'cabinet_id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 
     /**

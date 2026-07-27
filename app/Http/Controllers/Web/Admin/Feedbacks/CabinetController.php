@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Web\Admin\Feedbacks;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\FeedbacksCabinetStatsRequest;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Services\Admin\AdminFeedbacksService;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -24,7 +24,7 @@ class CabinetController extends Controller
         ]);
     }
 
-    public function stats(FeedbacksCabinetStatsRequest $request, FeedbacksClients $cabinet): Response|RedirectResponse
+    public function stats(FeedbacksCabinetStatsRequest $request, WbCabinet $cabinet): Response|RedirectResponse
     {
         $payload = $this->feedbacksService->cabinetStats((string) $cabinet->id, $request->validated());
 
@@ -45,7 +45,7 @@ class CabinetController extends Controller
         ]);
     }
 
-    public function recalculate(FeedbacksClients $cabinet): RedirectResponse
+    public function recalculate(WbCabinet $cabinet): RedirectResponse
     {
         $payload = $this->feedbacksService->recalculateStats((string) $cabinet->id);
 

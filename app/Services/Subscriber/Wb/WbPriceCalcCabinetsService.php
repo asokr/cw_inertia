@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 namespace App\Services\Subscriber\Wb;
 
@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Support\ToolLimits;
-use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV2Settings;
 
 class WbPriceCalcCabinetsService
@@ -18,7 +18,7 @@ class WbPriceCalcCabinetsService
     public function index()
     {
         $user_id = Auth::id();
-        $clients = PriceCalculationCabinets::where('user_id', $user_id)->orderByDesc('id')->get();
+        $clients = WbCabinet::where('user_id', $user_id)->orderByDesc('id')->get();
         if (!$clients) {
             return response()->json(["success" => false, "messages" => ["Кабинетов нет"]], 200);
         }
@@ -88,22 +88,10 @@ class WbPriceCalcCabinetsService
             ]);
         }
 
-        $client = PriceCalculationCabinets::create([
-            "user_id" => auth()->user()->id,
-            "name" => $request->name,
-            "apikey" => $request->apikey,
-        ]);
-
-        if (!$client) {
-            return response()->json(["success" => false, "messages" => ["Не удалось добавить кабинет"]], 200);
-        }
-
-        PriceCalculationV2Settings::firstOrCreate(
-            ['cabinet_id' => $client->id],
-            ['hide_sizes' => true]
-        );
-
-        return response()->json(["success" => true, "messages" => ["Кабинет добавлен"], "data" => $client], 200);
+        return response()->json([
+            "success" => false,
+            "messages" => ["Создавайте кабинеты на странице «Общие кабинеты»."],
+        ], 200);
     }
 
     /**
@@ -112,7 +100,7 @@ class WbPriceCalcCabinetsService
     public function show(string $id)
     {
         $validator = Validator::make(['id' => $id], [
-            'id' => 'required|exists:wb_price_cabinets,id'
+            'id' => 'required|exists:wb_cabinets,id'
         ], [
             'id.exists' => 'Такого кабинета не существует'
         ]);
@@ -121,7 +109,7 @@ class WbPriceCalcCabinetsService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $client = PriceCalculationCabinets::find($id);
+        $client = WbCabinet::find($id);
         if (!$client) {
             return response()->json(["success" => false, "messages" => ["Такого кабинета нет"]], 200);
         }
@@ -149,7 +137,7 @@ class WbPriceCalcCabinetsService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $client = PriceCalculationCabinets::find($id);
+        $client = WbCabinet::find($id);
         if (!$client) {
             return response()->json(["success" => false, "messages" => ["Такого кабинета нет"]], 200);
         }
@@ -200,7 +188,7 @@ class WbPriceCalcCabinetsService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $client = PriceCalculationCabinets::find($id);
+        $client = WbCabinet::find($id);
         if (!$client)
             return response()->json(["success" => false, "messages" => ["Такого кабинета нет"]], 200);
 

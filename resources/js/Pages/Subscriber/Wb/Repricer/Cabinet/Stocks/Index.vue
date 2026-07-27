@@ -20,11 +20,11 @@ const props = defineProps({
 const breadcrumbs = [
     { label: "Главная", href: "/panel" },
     { label: "Репрайсер", href: "/panel/wb/repricer" },
-    { label: props.cabinet.name, href: `/panel/wb/repricer/cabinets/${props.cabinet.id}` },
+    { label: props.cabinet.name, href: `/panel/wb/repricer` },
     { label: "От остатков" },
 ];
 
-const baseUrl = `/panel/wb/repricer/cabinets/${props.cabinet.id}`;
+const baseUrl = `/panel/wb/repricer`;
 
 const addOpen = ref(false);
 const editOpen = ref(false);

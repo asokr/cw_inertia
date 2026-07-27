@@ -3,69 +3,85 @@
 ## Права доступа
 
 - Permission: `subscriber wb promo calculator`
-- Middleware: `auth:api`, `verified`, `role:Подписчик`
+- Middleware панели: `auth`, `verified`, `panel.access`, `wb.cabinets.migrated`, `permission:subscriber wb promo calculator`
 
 ## Назначение
 
 Инструмент расчёта рентабельности акций WB и подготовки данных для репрайсера. Загружает Excel-отчёт по акциям WB, сопоставляет номенклатуры с данными ценообразования и считает маржу по каждой позиции акции.
 
+Кабинеты — **единые** `wb_cabinets` ([wb-cabinets.md](wb-cabinets.md)). В wizard передаются списки одних и тех же кабинетов для выбора источника себестоимости и целевого репрайсера (`priceCalcCabinets` / `repricerCabinets` — фактически list summaries unified cabinets).
+
 ## Ключевые файлы
 
-- `app/Http/Controllers/Api/Subscriber/Wb/PromoCalculator/PromoCalculatorController.php`
-- `app/Models/Subscribers/Wb/PriceCalculation/PriceCalculationV2Data.php`
-- `app/Models/Subscribers/Wb/Repricer/RepricerCabinets.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/PromoCalculator/PromoCalculatorController.php`
+- `app/Services/Subscriber/Wb/WbPromoCalculatorService.php`
+- `app/Http/Requests/Web/Subscriber/CalculatePromoCalculatorRequest.php`
+- `app/Http/Requests/Web/Subscriber/SendPromoToRepricerRequest.php`
+- `app/Models/Subscribers/Wb/WbCabinet.php`
+- `app/Models/Subscribers/Wb/PriceCalculation/PriceCalculationV2Data.php` / V3 data (себестоимость)
 - `app/Models/Subscribers/Wb/Repricer/RepricerSettings.php`
 
 ## Web routes (Inertia)
 
-| Method | Route | Назначение |
-| ------ | ----- | ---------- |
-| GET | `/panel/wb/promocalculator` | Wizard-страница |
-| POST | `/panel/wb/promocalculator/upload` | Загрузка xlsx (JSON) |
-| POST | `/panel/wb/promocalculator/calculate` | Расчёт (JSON) |
-| POST | `/panel/wb/promocalculator/export` | Экспорт xlsx (JSON, ссылка) |
-| POST | `/panel/wb/promocalculator/repricer` | Отправка в репрайсер (JSON) |
+Prefix: `/panel/wb/promocalculator` · name: `subscriber.wb.promocalculator.*`
 
-Контроллер: `app/Http/Controllers/Web/Subscriber/Wb/PromoCalculator/PromoCalculatorController.php`.
+| Method | URL | Named route | Назначение |
+|--------|-----|-------------|------------|
+| GET | `/` | `index` | Wizard-страница |
+| POST | `/upload` | `upload` | Загрузка xlsx (JSON) |
+| POST | `/calculate` | `calculate` | Расчёт (JSON) |
+| POST | `/export` | `export` | Экспорт xlsx (JSON, ссылка) |
+| POST | `/repricer` | `repricer` | Отправка в репрайсер (JSON) |
 
-## API эндпоинты
+Страница: `Subscriber/Wb/PromoCalculator/Index`.
 
-### `POST /subscriber/wb/promo-calculator/upload`
+Props index:
 
-Загрузка `.xlsx` отчёта по акциям. Файл сохраняется в `storage/public/wb/promocalculator/`.
+- `priceCalcCabinets` / `repricerCabinets` — summaries `wb_cabinets`
+- `canUseRepricer` — permission check
+
+## Контракт JSON
+
+### POST `/panel/wb/promocalculator/upload`
+
+Загрузка `.xlsx` отчёта по акциям. Файл в `storage/public/wb/promocalculator/`.
 
 Тело: `file` (xlsx).
 
 Ответ: `{ data: { file: "wb/promocalculator/{random}.xlsx" } }`.
 
-### `POST /subscriber/wb/promo-calculator/calc`
-
-Расчёт рентабельности акций.
+### POST `/panel/wb/promocalculator/calculate`
 
 Тело:
 
 - `file` (required) — путь из upload
-- `cabinet_id` (required) — кабинет ценообразования WB
+- `cabinet_id` (required) — id **unified** `wb_cabinets` (данные ценообразования с этим `cabinet_id`)
 
-Агрегирует `PriceCalculationV2Data` по `nm_id`: себестоимость, логистика, комиссии, `min_price_promo` и др.
+Ownership проверяется на Web-контроллере.
 
-### `POST /subscriber/wb/promo-calculator/xlsx`
+### POST `/panel/wb/promocalculator/export`
 
 Формирование Excel-отчёта по результатам расчёта.
 
-### `POST /subscriber/wb/promo-calculator/repricer`
+### POST `/panel/wb/promocalculator/repricer`
 
-Передача номенклатур из расчёта в репрайсер (создание/обновление настроек `RepricerSettings`).
+Передача номенклатур в репрайсер (создание/обновление `RepricerSettings` для `cabinet_id` = unified).
 
-Тело `data[]` поддерживает именованные поля:
+Тело `data[]`:
 
 - `nm_id` (required)
 - `plan_price` (required)
 
-Legacy-формат с числовыми индексами (`[5]` — nmID, `[11]` — plan_price) также поддерживается.
+Legacy-формат с числовыми индексами (`[5]` — nmID, `[11]` — plan_price) также может поддерживаться в сервисе.
 
 ## Технические детали
 
-- Основа расчёта: агрегированные данные из `PriceCalculationV2Data` по `nm_id`.
-- Используются показатели расходов и минимальной промо-цены из V2.
-- Интеграция с [wb-repricer.md](wb-repricer.md) через bulk-создание настроек репрайсера.
+- Основа расчёта: агрегированные данные ценообразования по `nm_id` для выбранного `cabinet_id`.
+- Используются показатели расходов и минимальной промо-цены.
+- Интеграция с [wb-repricer.md](wb-repricer.md) через bulk-создание настроек репрайсера на том же (или выбранном) unified cabinet.
+
+## Связанные документы
+
+- [wb-cabinets.md](wb-cabinets.md)
+- [wb-price-calculation-v3.md](wb-price-calculation-v3.md)
+- [wb-repricer.md](wb-repricer.md)

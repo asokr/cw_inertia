@@ -9,7 +9,7 @@ use App\Http\Traits\SubscriptionsTrait;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Support\ToolLimits;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 
 class RepricerTimeSettingsService
@@ -39,7 +39,7 @@ class RepricerTimeSettingsService
             $request->all(),
             [
                 'name' => '',
-                'cabinet_id' => 'required|exists:wb_repricer_cabinets,id',
+                'cabinet_id' => 'required|exists:wb_cabinets,id',
                 'nmID' => 'required|integer|unique:wb_repricer_settings,nmID',
                 'price_type' => 'required',
                 'strategy' => 'required',
@@ -71,7 +71,7 @@ class RepricerTimeSettingsService
             }
         }
 
-        $cabinet = RepricerCabinets::find($request->cabinet_id);
+        $cabinet = WbCabinet::find($request->cabinet_id);
         // Проверим, принадлежит-ли кабинет текущему юзеру
         $belongs = $cabinet->user_id == auth()->user()->id;
         if (!$belongs)
@@ -215,7 +215,7 @@ class RepricerTimeSettingsService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = RepricerCabinets::find($request->cabinet_id);
+        $cabinet = WbCabinet::find($request->cabinet_id);
         // Проверим, принадлежит-ли кабинет текущему юзеру
         $belongs = $cabinet->user_id == auth()->user()->id;
         if (!$belongs)
@@ -340,7 +340,7 @@ class RepricerTimeSettingsService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = RepricerCabinets::find($request->cabinet_id);
+        $cabinet = WbCabinet::find($request->cabinet_id);
         // Проверим, принадлежит-ли кабинет текущему юзеру
         $belongs = $cabinet->user_id == auth()->user()->id;
         if (!$belongs)

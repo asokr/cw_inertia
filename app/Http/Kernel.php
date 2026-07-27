@@ -69,5 +69,6 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'admin.access' => \App\Http\Middleware\EnsureAdminAccess::class,
         'panel.access' => \App\Http\Middleware\EnsurePanelAccess::class,
+        'wb.cabinets.migrated' => \App\Http\Middleware\EnsureWbCabinetsMigrated::class,
     ];
 }

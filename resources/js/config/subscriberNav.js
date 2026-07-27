@@ -1,6 +1,7 @@
 import {
     Bot,
     CreditCard,
+    FlaskConical,
     Home,
     Image,
     Rocket,
@@ -19,7 +20,6 @@ const toolCatalog = [
         group: "Wildberries",
         icon: Rocket,
         description: "Автоответы и ИИ для отзывов Wildberries",
-        hasCabinets: true,
     },
     {
         key: "wb_profitability",
@@ -29,7 +29,6 @@ const toolCatalog = [
         group: "Wildberries",
         icon: Rocket,
         description: "Анализ прибыли и маржинальности по кабинету",
-        hasCabinets: true,
     },
     {
         key: "wb_promocalculator",
@@ -39,7 +38,6 @@ const toolCatalog = [
         group: "Wildberries",
         icon: Rocket,
         description: "Расчёт выгоды участия в акциях WB",
-        hasCabinets: false,
     },
     {
         key: "wb_price_calc",
@@ -49,7 +47,6 @@ const toolCatalog = [
         group: "Wildberries",
         icon: Rocket,
         description: "Расчёт цен с учётом комиссий и логистики",
-        hasCabinets: true,
     },
     {
         key: "wb_repricer",
@@ -59,7 +56,6 @@ const toolCatalog = [
         group: "Wildberries",
         icon: Rocket,
         description: "Автоматическое управление ценами по стратегиям",
-        hasCabinets: true,
     },
     {
         key: "wb_ai_cabinet_analyzer",
@@ -69,7 +65,15 @@ const toolCatalog = [
         group: "Wildberries",
         icon: Rocket,
         description: "ИИ-отчёты по продажам, отзывам и рекламе",
-        hasCabinets: true,
+    },
+    {
+        key: "wb_ab_testing",
+        label: "A/B-тестирование",
+        href: "/panel/wb/ab-testing",
+        permission: "subscriber wb ab testing",
+        group: "Wildberries",
+        icon: FlaskConical,
+        description: "Тест главной фотографии карточки товара",
     },
     {
         key: "oz_feedbacks",
@@ -79,7 +83,6 @@ const toolCatalog = [
         group: "Ozon",
         icon: Warehouse,
         description: "Автоответы и ИИ для отзывов Ozon",
-        hasCabinets: true,
     },
     {
         key: "oz_price_calc",
@@ -89,7 +92,6 @@ const toolCatalog = [
         group: "Ozon",
         icon: Warehouse,
         description: "Расчёт цен для FBO и FBS на Ozon",
-        hasCabinets: true,
     },
     {
         key: "ai_text",
@@ -99,7 +101,6 @@ const toolCatalog = [
         group: "ИИ",
         icon: Type,
         description: "Описания, адаптации и rich-контент для карточек",
-        hasCabinets: false,
     },
     {
         key: "ai_image",
@@ -109,7 +110,6 @@ const toolCatalog = [
         group: "ИИ",
         icon: Image,
         description: "Генерация и редактирование визуалов для товаров",
-        hasCabinets: false,
     },
     {
         key: "ai_video",
@@ -119,7 +119,6 @@ const toolCatalog = [
         group: "ИИ",
         icon: Video,
         description: "Генерация видеороликов и сцен для карточек",
-        hasCabinets: false,
     },
 ];
 
@@ -247,6 +246,7 @@ const availableRoutes = new Set([
     "/panel/wb/repricer",
     "/panel/wb/profitability",
     "/panel/wb/ai-cabinet-analyzer",
+    "/panel/wb/ab-testing",
     "/panel/wb/promocalculator",
     "/panel/ai",
     "/panel/ai/text",

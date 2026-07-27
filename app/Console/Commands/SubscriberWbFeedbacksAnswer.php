@@ -12,9 +12,10 @@ use App\Models\Subscribers\Wb\Feedbacks\Review;
 use App\Models\AiRequestLog;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\Feedbacks\BotResponse;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 use App\Notifications\WbCabinetAuthorizationNotification;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksTemplates;
+use App\Support\Wb\FeedbacksRuntimeCabinetResolver;
+use App\Support\Wb\FeedbacksRuntimeClient;
 use Illuminate\Support\Facades\Log;
 
 class SubscriberWbFeedbacksAnswer extends Command
@@ -95,10 +96,13 @@ class SubscriberWbFeedbacksAnswer extends Command
                     continue;
                 }
 
-                $clients = FeedbacksClients::where([
-                    'subscriber_id' => $subscription->subscribers_id,
-                    'ai_status' => 1,
-                ])->whereJsonLength('ai_ratings', '>', 0)->get();
+                $user = $subscription->getUser();
+                if (! $user) {
+                    continue;
+                }
+
+                // Unified WbCabinet + unmigrated legacy FeedbacksClients.
+                $clients = app(FeedbacksRuntimeCabinetResolver::class)->forAi($user);
 
                 foreach ($clients as $client) {
                     $clientStartedAt = $this->startClientTimer('ai', $client, $subscription->id);
@@ -134,8 +138,11 @@ class SubscriberWbFeedbacksAnswer extends Command
                                     ]));
                                 } catch (\Throwable $th) {
                                 }
-                                $client->ai_status = 0;
-                                $client->save();
+                                $settings = $client->feedbacksSettings;
+                                if ($settings) {
+                                    $settings->ai_status = false;
+                                    $settings->save();
+                                }
                                 $authDisabled = true;
                             }
                             continue;
@@ -149,7 +156,7 @@ class SubscriberWbFeedbacksAnswer extends Command
                             'truncated' => $fetched['truncated'],
                         ]);
 
-                        switch ($client->review_type) {
+                        switch (optional($client->feedbacksSettings)->review_type) {
                             case 'stih':
                                 $prof = 'поэт,';
                                 break;
@@ -192,13 +199,13 @@ class SubscriberWbFeedbacksAnswer extends Command
                             }
 
                             $rating = $item['productValuation'];
-                            if (!in_array($rating, $client->ai_ratings)) {
+                            if (!in_array($rating, (optional($client->feedbacksSettings)->ai_ratings ?? []))) {
                                 continue;
                             }
 
-                            if (!empty($client->brands)) {
+                            if (!empty(optional($client->feedbacksSettings)->brands)) {
                                 $allow = false;
-                                $allowed_brands = explode(',', $client->brands);
+                                $allowed_brands = explode(',', optional($client->feedbacksSettings)->brands);
                                 foreach ($allowed_brands as $value) {
                                     $feedback_brand = strtolower(trim($item['productDetails']['brandName']));
                                     $client_brand = strtolower(trim($value));
@@ -212,7 +219,7 @@ class SubscriberWbFeedbacksAnswer extends Command
                                 }
                             }
 
-                            switch ($client->review_type) {
+                            switch (optional($client->feedbacksSettings)->review_type) {
                                 case 'stih':
                                     $review_type = ' в стихах ';
                                     break;
@@ -311,8 +318,11 @@ class SubscriberWbFeedbacksAnswer extends Command
                                         ]));
                                     } catch (\Throwable $th) {
                                     }
-                                    $client->ai_status = 0;
-                                    $client->save();
+                                    $settings = $client->feedbacksSettings;
+                                    if ($settings) {
+                                        $settings->ai_status = false;
+                                        $settings->save();
+                                    }
                                     $authDisabled = true;
                                 }
                                 break;
@@ -343,10 +353,13 @@ class SubscriberWbFeedbacksAnswer extends Command
             $this->logCommandEvent('Starting template replies');
 
             foreach ($subscriberSubscriptions as $subscription) {
-                $clients = FeedbacksClients::where([
-                    'subscriber_id' => $subscription->subscribers_id,
-                    'bot_status' => 1,
-                ])->get();
+                $user = $subscription->getUser();
+                if (! $user) {
+                    continue;
+                }
+
+                // Unified WbCabinet + unmigrated legacy FeedbacksClients.
+                $clients = app(FeedbacksRuntimeCabinetResolver::class)->forBot($user);
 
                 foreach ($clients as $client) {
                     $clientStartedAt = $this->startClientTimer('template', $client, $subscription->id);
@@ -379,8 +392,11 @@ class SubscriberWbFeedbacksAnswer extends Command
                                     ]));
                                 } catch (\Throwable $th) {
                                 }
-                                $client->bot_status = 0;
-                                $client->save();
+                                $settings = $client->feedbacksSettings;
+                                if ($settings) {
+                                    $settings->bot_status = false;
+                                    $settings->save();
+                                }
                                 $authDisabled = true;
                             }
                             continue;
@@ -422,9 +438,9 @@ class SubscriberWbFeedbacksAnswer extends Command
                                 continue;
                             }
 
-                            if (!empty($client->brands)) {
+                            if (!empty(optional($client->feedbacksSettings)->brands)) {
                                 $allow = false;
-                                $allowed_brands = explode(',', $client->brands);
+                                $allowed_brands = explode(',', optional($client->feedbacksSettings)->brands);
                                 foreach ($allowed_brands as $value) {
                                     $feedback_brand = strtolower(trim($item['productDetails']['brandName']));
                                     $client_brand = strtolower(trim($value));
@@ -548,12 +564,13 @@ class SubscriberWbFeedbacksAnswer extends Command
         Log::channel('wb_feedbacks_command')->info($message, $context);
     }
 
-    private function startClientTimer(string $mode, FeedbacksClients $client, ?int $subscriptionId = null): float
+    private function startClientTimer(string $mode, FeedbacksRuntimeClient $client, ?int $subscriptionId = null): float
     {
         $context = [
             'mode' => $mode,
             'cabinet_id' => $client->id,
             'cabinet_name' => $client->name,
+            'cabinet_source' => $client->source,
             'started_at' => now()->toDateTimeString(),
         ];
 
@@ -566,7 +583,7 @@ class SubscriberWbFeedbacksAnswer extends Command
         return microtime(true);
     }
 
-    private function finishClientTimer(string $mode, FeedbacksClients $client, float $startedAt, array $metrics = []): void
+    private function finishClientTimer(string $mode, FeedbacksRuntimeClient $client, float $startedAt, array $metrics = []): void
     {
         $metrics = array_filter($metrics, static function ($value) {
             return $value !== null;
@@ -577,6 +594,7 @@ class SubscriberWbFeedbacksAnswer extends Command
         $metrics['mode'] = $mode;
         $metrics['cabinet_id'] = $client->id;
         $metrics['cabinet_name'] = $client->name;
+        $metrics['cabinet_source'] = $client->source;
         $metrics['finished_at'] = now()->toDateTimeString();
         $metrics['duration_seconds'] = $durationSeconds;
         $metrics['duration_human'] = gmdate('H:i:s', (int) $durationSeconds);

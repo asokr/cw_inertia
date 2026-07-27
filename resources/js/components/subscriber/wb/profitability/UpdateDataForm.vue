@@ -88,7 +88,7 @@ const maxDateTo = computed(() => {
 function submit() {
     normalizeDates();
 
-    form.post(`/panel/wb/profitability/cabinets/${props.cabinetId}/report`, {
+    form.post(`/panel/wb/profitability/report`, {
         preserveScroll: true,
         onSuccess: () => {
             startRateLimitCooldown();
@@ -109,25 +109,27 @@ const showRateLimitTooltip = computed(() => isRateLimitActive.value && !isBusy.v
             «Ценообразование». Расчёт будет неверным, если в Ценообразовании не будет всей номенклатуры с установленной себестоимостью.
         </Alert>
 
-        <form class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" @submit.prevent="submit">
-            <div class="space-y-1">
+        <form class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-5" @submit.prevent="submit">
+            <div class="min-w-0 space-y-1">
                 <Label for="date_from">Дата с</Label>
                 <Input
                     id="date_from"
                     v-model="form.date_from"
                     type="date"
+                    class="w-full min-w-0"
                     :max="today"
                     required
                     @blur="normalizeDates"
                 />
             </div>
 
-            <div class="space-y-1">
+            <div class="min-w-0 space-y-1">
                 <Label for="date_to">Дата по</Label>
                 <Input
                     id="date_to"
                     v-model="form.date_to"
                     type="date"
+                    class="w-full min-w-0"
                     :min="form.date_from || undefined"
                     :max="maxDateTo"
                     required
@@ -135,24 +137,26 @@ const showRateLimitTooltip = computed(() => isRateLimitActive.value && !isBusy.v
                 />
             </div>
 
-            <div class="space-y-1">
+            <div class="min-w-0 space-y-1">
                 <Label for="dop_rashod">Доп. расходы</Label>
                 <Input
                     id="dop_rashod"
                     v-model="form.dop_rashod"
                     type="number"
+                    class="w-full min-w-0"
                     min="0"
                     step="0.01"
                     placeholder="0"
                 />
             </div>
 
-            <div class="space-y-1">
+            <div class="min-w-0 space-y-1">
                 <Label for="nalog_percent">Налог, %</Label>
                 <Input
                     id="nalog_percent"
                     v-model="form.nalog_percent"
                     type="number"
+                    class="w-full min-w-0"
                     min="0"
                     max="100"
                     step="0.01"
@@ -160,14 +164,14 @@ const showRateLimitTooltip = computed(() => isRateLimitActive.value && !isBusy.v
                 />
             </div>
 
-            <div class="flex items-end">
+            <div class="flex items-end sm:col-span-2 lg:col-span-1">
                 <div
-                    class="inline-flex w-full sm:w-auto"
+                    class="inline-flex w-full"
                     :class="{ 'group relative': showRateLimitTooltip }"
                 >
                     <Button
                         type="submit"
-                        class="w-full sm:w-auto"
+                        class="w-full"
                         :class="{ 'pointer-events-none': showRateLimitTooltip }"
                         :disabled="isSubmitDisabled"
                         :aria-describedby="showRateLimitTooltip ? 'wb-rate-limit-hint' : undefined"

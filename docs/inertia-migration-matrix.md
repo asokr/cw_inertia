@@ -16,13 +16,14 @@
 | Nuxt subscriber platform (auth, profile, subscriptions, payments) | `/panel`, `/panel/user/profile`, `/panel/user/history` | `Web/Subscriber/*`, `Web/Auth/*` | `Subscriber/Panel/*`, `Subscriber/Profile/*`, `Subscriber/Payments/*`, `Auth/ForgotPassword`, `Auth/ResetPassword` | done (Phase 3a) |
 | Subscriber tools infrastructure | `routes/subscriber-tools.php`, shared components, `useToolPoll` | `Web/Subscriber/SubscriberToolController` | `components/subscriber/tools/*` | done (Phase 3b.0) |
 | Public blog | `/blog`, `/blog/{slug}`, `/blog/sitemap.xml` | `Web/Blog/*` | `Blog/Index`, `Blog/Show` | done (Phase 3b.1) |
-| WB Feedbacks (4 pages) | `/panel/wb/feedbacks`, `/panel/wb/feedbacks/clients/{client}`, `.../templates`, `.../products/{product}` | `Web/Subscriber/Wb/Feedbacks/*` | `Subscriber/Wb/Feedbacks/*` | done (Phase 3b.2) |
+| WB Feedbacks | `/panel/wb/feedbacks` (flat workspace), `/templates`, `/products/{product}`; legacy `/clients/{id}` → redirect | `Web/Subscriber/Wb/Feedbacks/*` | `Subscriber/Wb/Feedbacks/*` | done (Phase 3b.2 + unified cabinets) |
 | Ozon Feedbacks (2 pages) | `/panel/oz/feedbacks`, `/panel/oz/feedbacks/cabinets/{cabinet}` | `Web/Subscriber/Oz/Feedbacks/*` | `Subscriber/Oz/Feedbacks/*` | done (Phase 3b.3) |
-| WB Price Calc V3 (2 pages) | `/panel/wb/price-calc`, `/panel/wb/price-calc/cabinets/{cabinet}` | `Web/Subscriber/Wb/PriceCalc/*` | `Subscriber/Wb/PriceCalc/*` | done (Phase 3b.4) |
+| WB Price Calc V3 | `/panel/wb/price-calc` (flat); legacy `/cabinets/{id}` → redirect | `Web/Subscriber/Wb/PriceCalc/*` | `Subscriber/Wb/PriceCalc/Cabinet/Show` | done (Phase 3b.4 + unified cabinets) |
 | Ozon Price Calc (2 pages) | `/panel/oz/price-calc`, `/panel/oz/price-calc/cabinets/{cabinet}` | `Web/Subscriber/Oz/PriceCalc/*` | `Subscriber/Oz/PriceCalc/*` | done (Phase 3b.5) |
-| WB Repricer v1 (5 pages) | `/panel/wb/repricer`, `/panel/wb/repricer/cabinets/{cabinet}`, `.../time`, `.../stocks` | `Web/Subscriber/Wb/Repricer/*` | `Subscriber/Wb/Repricer/*` | done (Phase 3b.6 v1) |
-| WB Profitability (2 pages) | `/panel/wb/profitability`, `/panel/wb/profitability/cabinets/{cabinet}` | `Web/Subscriber/Wb/Profitability/*` | `Subscriber/Wb/Profitability/*` | done (Phase 3b.7) |
-| WB AI Cabinet Analyzer (2 pages) | `/panel/wb/ai-cabinet-analyzer`, `/panel/wb/ai-cabinet-analyzer/cabinets/{cabinet}` | `Web/Subscriber/Wb/AiCabinetAnalyzer/*` | `Subscriber/Wb/AiCabinetAnalyzer/*` | done (Phase 3b.8) |
+| WB Repricer | `/panel/wb/repricer`, `/time`, `/stocks` (flat); legacy `/cabinets/{id}/*` → redirect | `Web/Subscriber/Wb/Repricer/*` | `Subscriber/Wb/Repricer/*` | done (Phase 3b.6 + unified cabinets) |
+| WB Profitability | `/panel/wb/profitability` (flat); legacy `/cabinets/{id}` → redirect | `Web/Subscriber/Wb/Profitability/*` | `Subscriber/Wb/Profitability/Cabinet/Show` | done (Phase 3b.7 + unified cabinets) |
+| WB AI Cabinet Analyzer | `/panel/wb/ai-cabinet-analyzer` (flat); legacy `/cabinets/{id}` → redirect | `Web/Subscriber/Wb/AiCabinetAnalyzer/*` | `Subscriber/Wb/AiCabinetAnalyzer/Cabinet/Show` | done (Phase 3b.8 + unified cabinets) |
 | WB Promo Calculator (1 page) | `/panel/wb/promocalculator` | `Web/Subscriber/Wb/PromoCalculator/*` | `Subscriber/Wb/PromoCalculator/Index` | done (Phase 3b.9) |
-| AI Marketplace (1 page) | `/panel/ai` | `Web/Subscriber/Ai/*` | `Subscriber/Ai/Index` | done (Phase 3b.10) |
-| Legacy API routes | — | — | — | done (Phase 4) |
+| AI Marketplace | `/panel/ai`, `/panel/ai/text|image|video`, history/generation pages | `Web/Subscriber/Ai/*` | `Subscriber/Ai/*` | done (Phase 3b.10) |
+| **Unified WB Cabinets** | `/panel/wb/cabinets/*` (CRUD + select), `/migration` wizard; header switcher | `Web/Subscriber/Wb/Cabinets/*` | `Cabinets/Migration`, `Shared/NoCabinet`, `WbCabinetSwitcher` | done |
+| Legacy API routes (`/subscriber/*` tools) | — | — | — | done (Phase 4 removed) |

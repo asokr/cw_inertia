@@ -5,7 +5,7 @@ namespace App\Console\Commands;
 use App\Http\Traits\WBadvTrait;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerLogs;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use Carbon\Carbon;
@@ -73,7 +73,7 @@ class WbRepricerBot extends Command
             $user = $subscription->getUser();
 
             // Все кабинеты подписчика
-            $cabinets = RepricerCabinets::where([
+            $cabinets = WbCabinet::where([
                 'user_id' => $user->id,
             ])->get();
 

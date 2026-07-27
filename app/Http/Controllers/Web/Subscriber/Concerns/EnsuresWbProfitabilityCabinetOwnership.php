@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Concerns;
 
-use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
+use App\Models\Subscribers\Wb\WbCabinet;
 
 trait EnsuresWbProfitabilityCabinetOwnership
 {
-    protected function ensureCabinetOwnership(ProfitabilityCabinet $cabinet): void
+    protected function ensureCabinetOwnership(WbCabinet $cabinet): void
     {
         if ((int) $cabinet->user_id !== (int) auth()->id()) {
             abort(403);

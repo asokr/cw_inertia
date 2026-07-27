@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Repricer;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresRepricerCabinetOwnership;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Services\Subscriber\Wb\RepricerStocksService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\LoadRepricerStockSizesRequest;
@@ -10,7 +10,7 @@ use App\Http\Requests\Web\Subscriber\StoreRepricerStockRequest;
 use App\Http\Requests\Web\Subscriber\UpdateRepricerStockRequest;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Support\ToolLimits;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerStocks;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -20,16 +20,24 @@ use Inertia\Response;
 
 class StocksController extends SubscriberToolController
 {
-    use EnsuresRepricerCabinetOwnership;
+    use ResolvesSelectedWbCabinet;
 
     public function __construct(
         private readonly RepricerStocksService $stocksService,
     ) {
     }
 
-    public function index(Request $request, RepricerCabinets $cabinet): Response
+    public function index(Request $request): Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->stocksService->show((string) $cabinet->id);
         $payload = $this->decodeApiResponse($response);
@@ -47,9 +55,17 @@ class StocksController extends SubscriberToolController
         ]);
     }
 
-    public function store(StoreRepricerStockRequest $request, RepricerCabinets $cabinet): RedirectResponse
+    public function store(StoreRepricerStockRequest $request): RedirectResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->stocksService->store(
             $request->duplicate(null, array_merge(
@@ -66,16 +82,27 @@ class StocksController extends SubscriberToolController
         }
 
         return redirect()
-            ->route('subscriber.wb.repricer.cabinets.stocks.index', $cabinet->id)
+            ->route('subscriber.wb.repricer.stocks.index')
             ->with('success', $this->apiMessage($payload, 'Номенклатура добавлена'));
     }
 
     public function update(
         UpdateRepricerStockRequest $request,
-        RepricerCabinets $cabinet,
         RepricerStocks $stock,
-    ): RedirectResponse {
-        $this->ensureStockBelongsToCabinet($stock, $cabinet);
+    ): RedirectResponse|Response {
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
+
+        if ((int) $stock->cabinet_id !== (int) $cabinet->id) {
+            abort(404);
+        }
 
         $response = $this->stocksService->update(
             $request->duplicate(null, $request->validated()),
@@ -92,9 +119,21 @@ class StocksController extends SubscriberToolController
         return back()->with('success', $this->apiMessage($payload, 'Настройки обновлены'));
     }
 
-    public function destroy(RepricerCabinets $cabinet, RepricerStocks $stock): RedirectResponse
+    public function destroy(Request $request, RepricerStocks $stock): RedirectResponse|Response
     {
-        $this->ensureStockBelongsToCabinet($stock, $cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
+
+        if ((int) $stock->cabinet_id !== (int) $cabinet->id) {
+            abort(404);
+        }
 
         $response = $this->stocksService->destroy((string) $stock->id);
         $payload = $this->decodeApiResponse($response);
@@ -106,9 +145,17 @@ class StocksController extends SubscriberToolController
         return back()->with('success', $this->apiMessage($payload, 'Номенклатура удалена'));
     }
 
-    public function loadSizes(LoadRepricerStockSizesRequest $request, RepricerCabinets $cabinet): JsonResponse
+    public function loadSizes(LoadRepricerStockSizesRequest $request): JsonResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->stocksService->getSizesFromWb(
             $request->duplicate(null, array_merge(
@@ -121,9 +168,21 @@ class StocksController extends SubscriberToolController
         return response()->json($payload);
     }
 
-    public function reset(RepricerCabinets $cabinet, RepricerStocks $stock): RedirectResponse
+    public function reset(Request $request, RepricerStocks $stock): RedirectResponse|Response
     {
-        $this->ensureStockBelongsToCabinet($stock, $cabinet);
+        $cabinetOrResponse = $this->requireSelectedWbCabinet($request, 'Репрайсер цен Wildberries', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Репрайсер цен Wildberries'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
+
+        if ((int) $stock->cabinet_id !== (int) $cabinet->id) {
+            abort(404);
+        }
 
         $response = $this->stocksService->reset((string) $stock->id);
         $payload = $this->decodeApiResponse($response);

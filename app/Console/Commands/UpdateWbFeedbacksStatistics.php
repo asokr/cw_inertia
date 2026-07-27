@@ -7,7 +7,7 @@ use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\Wb\Feedbacks\Review;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\Feedbacks\ReviewStatistic;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Support\Wb\FeedbacksRuntimeCabinetResolver;
 
 class UpdateWbFeedbacksStatistics extends Command
 {
@@ -48,16 +48,16 @@ class UpdateWbFeedbacksStatistics extends Command
         // Проходим по каждому подписчику
         foreach ($subscriptions as $subscription) {
             // Получаем кабинеты подписчика
-            $clients = FeedbacksClients::where('subscriber_id', $subscription->subscribers_id)
-                ->where(function ($query) {
-                    $query->where('ai_status', 1)
-                        ->orWhere('bot_status', 1);
-                })
-                ->get();
+            $user = $subscription->getUser();
+            if (! $user) {
+                continue;
+            }
 
-            // Обрабатываем каждый кабинет
+            $clients = app(FeedbacksRuntimeCabinetResolver::class)->forActiveAutomation($user);
+
+            // Обрабатываем каждый кабинет (unified + unmigrated legacy)
             foreach ($clients as $client) {
-                $this->info("Обновляем статистику для кабинета ID: {$client->id} (Подписчик ID: {$subscription->subscribers_id})");
+                $this->info("Обновляем статистику для кабинета ID: {$client->id} [{$client->source}] (Подписчик ID: {$subscription->subscribers_id})");
 
                 // Считаем статистику за неделю (если указана опция)
                 if ($updateWeekly) {

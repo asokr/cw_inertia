@@ -6,7 +6,7 @@ use App\Http\Traits\WBApiTrait;
 use App\Http\Traits\WBadvTrait;
 use App\Services\Wb\WbSearchService;
 use App\Models\Subscribers\Wb\Repricer\RepricerCompetitor;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerLogs;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use Illuminate\Bus\Queueable;
@@ -81,7 +81,7 @@ class ProcessRepricerCompetitorJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        if ($cabinet->error_code !== null && in_array($cabinet->error_code, RepricerCabinets::FATAL_ERROR_CODES, true)) {
+        if ($cabinet->error_code !== null && in_array($cabinet->error_code, WbCabinet::FATAL_ERROR_CODES, true)) {
             Log::warning('Кабинет в ошибочном состоянии, задача конкурентного репрайсера пропущена', [
                 'record_id' => $this->recordId,
                 'cabinet_id' => $cabinet->id,

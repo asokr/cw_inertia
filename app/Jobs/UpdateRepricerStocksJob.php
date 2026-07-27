@@ -5,7 +5,7 @@ namespace App\Jobs;
 use App\Http\Traits\WBApiTrait;
 use App\Http\Traits\WBadvTrait;
 use App\Models\Subscribers\SubscribersSubscriptions;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerStocks;
 use App\Notifications\WbCabinetAuthorizationNotification;
 use Illuminate\Support\Facades\DB;
@@ -28,9 +28,18 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
     use WBadvTrait;
     use WBApiTrait;
 
+    /** WB warehouse_remains status limit is ~1 request per minute (personal token). */
+    private const STATUS_POLL_INTERVAL_SECONDS = 65;
+
+    /** Max wait for report ready ≈ 20 minutes. */
+    private const STATUS_POLL_MAX_ATTEMPTS = 18;
+
+    private const RATE_LIMIT_BACKOFF_SECONDS = 65;
+
     public int $delaySeconds = 1800; // 30 minutes
     public int $cabinetId;
     public int $uniqueFor = 1800; // auto-release unique lock after 30 minutes
+    public int $timeout = 1500; // status polls can take ~20 min
     public ?int $subscriptionId;
 
     public function __construct(int $cabinetId, ?int $subscriptionId = null)
@@ -49,7 +58,7 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
     {
         Cache::forget(self::scheduleCacheKeyFor($this->cabinetId));
 
-        $cabinet = RepricerCabinets::find($this->cabinetId);
+        $cabinet = WbCabinet::find($this->cabinetId);
 
         if (! $cabinet) {
             $this->releaseUniqueLock();
@@ -78,6 +87,8 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
             }
         }
 
+        $this->waitForWarehouseRemainsRequestSlot($cabinet->id, 'create');
+
         $task = $this->parseApiResponse($this->apiCreateWarehouseRemainsReport($cabinet->apikey));
         if (! $task['success']) {
             $this->handleApiError($cabinet, $task);
@@ -92,11 +103,11 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
         }
 
         $attempt = 0;
-        $maxAttempts = 30;
 
         do {
             $attempt++;
-            sleep(10);
+            // Enforces ~1 request/min for warehouse_remains (personal token limit).
+            $this->waitForWarehouseRemainsRequestSlot($cabinet->id, 'status');
 
             $status = $this->parseApiResponse($this->apiGetWarehouseRemainsStatus($cabinet->apikey, $taskId));
             if (! $status['success']) {
@@ -121,7 +132,7 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
                 return;
             }
 
-            if ($attempt >= $maxAttempts) {
+            if ($attempt >= self::STATUS_POLL_MAX_ATTEMPTS) {
                 $this->handleApiError($cabinet, [
                     'code' => null,
                     'data' => [
@@ -133,7 +144,7 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
             }
         } while (true);
 
-        $this->waitForWarehouseRemainsDownloadSlot($cabinet->id);
+        $this->waitForWarehouseRemainsRequestSlot($cabinet->id, 'download');
 
         $download = $this->parseApiResponse($this->apiDownloadWarehouseRemainsReport($cabinet->apikey, $taskId));
         if (! $download['success']) {
@@ -157,19 +168,42 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
 
         $this->updateCabinetStocks($cabinet->id, $stocksData);
 
+        $this->clearRateLimitHits($cabinet->id);
         $this->clearCabinetError($cabinet);
 
         $this->reschedule();
     }
 
-    private function handleApiError(RepricerCabinets $cabinet, array $response): void
+    private function handleApiError(WbCabinet $cabinet, array $response): void
     {
-        $code = $response['code'] ?? null;
+        $code = isset($response['code']) ? (int) $response['code'] : null;
         $message = $this->extractErrorMessage($response);
 
-        if (in_array($code, RepricerCabinets::FATAL_ERROR_CODES, true)) {
+        if ($this->isTokenScopeError($response, $code)) {
+            $this->handleFatalCabinetError($cabinet, 403, $message);
+            $this->releaseUniqueLock();
+
+            return;
+        }
+
+        if (in_array($code, WbCabinet::FATAL_ERROR_CODES, true)) {
             $this->handleFatalCabinetError($cabinet, $code, $message);
             $this->releaseUniqueLock();
+
+            return;
+        }
+
+        if ($code === 429) {
+            if ($this->registerRateLimitHit($cabinet)) {
+                // Chronic 429: error_code=429 set, stocks disabled, dispatch will skip.
+                $this->releaseUniqueLock();
+
+                return;
+            }
+
+            // Transient 429: do not set error_code=429 (that would skip future dispatch).
+            // Short reschedule instead of full 30-minute cycle.
+            $this->reschedule(self::RATE_LIMIT_BACKOFF_SECONDS + rand(1, 30));
 
             return;
         }
@@ -177,6 +211,103 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
         $this->markCabinetError($cabinet, $code, $message);
 
         $this->reschedule();
+    }
+
+    private function isTokenScopeError(array $response, ?int $code): bool
+    {
+        if ($code === 403) {
+            return true;
+        }
+
+        $haystack = mb_strtolower($this->extractErrorMessage($response));
+
+        return str_contains($haystack, 'token scope not allowed')
+            || str_contains($haystack, 'недостаточно прав');
+    }
+
+    /**
+     * @return bool true when cabinet was auto-disabled due to chronic 429
+     */
+    private function registerRateLimitHit(WbCabinet $cabinet): bool
+    {
+        $cacheKey = $this->rateLimitHitsCacheKey($cabinet->id);
+        $count = (int) Cache::get($cacheKey, 0) + 1;
+        Cache::put($cacheKey, $count, now()->addHours(2));
+
+        Log::warning('Репрайсер: 429 warehouse_remains', [
+            'cabinet_id' => $cabinet->id,
+            'consecutive_hits' => $count,
+            'threshold' => WbCabinet::RATE_LIMIT_DISABLE_THRESHOLD,
+        ]);
+
+        if ($count < WbCabinet::RATE_LIMIT_DISABLE_THRESHOLD) {
+            return false;
+        }
+
+        $message = json_encode([
+            'title' => 'error_429',
+            'detail' => 'Превышен лимит запросов WB API (остатки). Проверьте тип и категории токена (нужна аналитика) '
+                . 'или снизьте частоту обновлений. Обновите ключ API, чтобы возобновить работу.',
+        ], JSON_UNESCAPED_UNICODE);
+
+        $this->handleRateLimitDisable($cabinet, $message);
+
+        return true;
+    }
+
+    private function clearRateLimitHits(int $cabinetId): void
+    {
+        Cache::forget($this->rateLimitHitsCacheKey($cabinetId));
+    }
+
+    private function rateLimitHitsCacheKey(int $cabinetId): string
+    {
+        return 'repricer:stocks:429-hits:' . $cabinetId;
+    }
+
+    private function handleRateLimitDisable(WbCabinet $cabinet, string $message): void
+    {
+        $cabinetId = $cabinet->id;
+        $hadActiveStocks = $this->hasActiveCabinetStocks($cabinetId);
+
+        DB::transaction(function () use ($cabinet, $cabinetId, $message) {
+            $cabinet->error_code = 429;
+            $cabinet->error_message = $message;
+            $cabinet->save();
+
+            $this->deactivateCabinetStocks($cabinetId);
+        });
+
+        Log::warning('Репрайсер деактивирован из-за хронического 429', [
+            'cabinet_id' => $cabinetId,
+        ]);
+
+        if ($hadActiveStocks) {
+            $this->notifyCabinetRateLimitIssue($cabinet);
+        }
+    }
+
+    private function notifyCabinetRateLimitIssue(WbCabinet $cabinet): void
+    {
+        try {
+            $cabinet->loadMissing('user');
+
+            $user = $cabinet->user;
+
+            if (! $user) {
+                return;
+            }
+
+            $user->notify(new WbCabinetAuthorizationNotification([
+                'type' => 'repricer_stocks_rate_limit',
+                'cabinet' => $cabinet->name,
+            ]));
+        } catch (\Throwable $exception) {
+            Log::warning('Не удалось отправить уведомление о rate limit репрайсера', [
+                'cabinet_id' => $cabinet->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function buildStocksData(array $items): array
@@ -224,20 +355,26 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
         return $result;
     }
 
-    private function waitForWarehouseRemainsDownloadSlot(int $cabinetId): void
+    /**
+     * Per-cabinet spacing for warehouse_remains methods (~1 req/min personal).
+     *
+     * @param  string  $phase  create|status|download (same bucket — shared method family)
+     */
+    private function waitForWarehouseRemainsRequestSlot(int $cabinetId, string $phase): void
     {
-        $cacheKey = 'repricer:warehouse-remains-download:' . $cabinetId;
+        $cacheKey = 'repricer:warehouse-remains:' . $cabinetId;
 
         while (true) {
             $nextAllowedTimestamp = (int) Cache::get($cacheKey, 0);
             $now = time();
 
             if ($now >= $nextAllowedTimestamp) {
-                Cache::put($cacheKey, $now + 65, 600);
+                Cache::put($cacheKey, $now + self::STATUS_POLL_INTERVAL_SECONDS, 600);
+
                 return;
             }
 
-            $sleepFor = max(1, min(60, $nextAllowedTimestamp - $now));
+            $sleepFor = max(1, min(self::STATUS_POLL_INTERVAL_SECONDS, $nextAllowedTimestamp - $now));
             sleep($sleepFor);
         }
     }
@@ -297,7 +434,7 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
     }
 
     private function appendSellerWarehouseStocks(
-        RepricerCabinets $cabinet,
+        WbCabinet $cabinet,
         EloquentCollection $stocks,
         array &$stocksData
     ): bool {
@@ -564,7 +701,7 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
         ]);
     }
 
-    private function handleFatalCabinetError(RepricerCabinets $cabinet, ?int $code, string $message): void
+    private function handleFatalCabinetError(WbCabinet $cabinet, ?int $code, string $message): void
     {
         $cabinetId = $cabinet->id;
         $hadActiveStocks = $this->hasActiveCabinetStocks($cabinetId);
@@ -588,14 +725,14 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
         }
     }
 
-    private function markCabinetError(RepricerCabinets $cabinet, ?int $code, string $message): void
+    private function markCabinetError(WbCabinet $cabinet, ?int $code, string $message): void
     {
         $cabinet->error_code = $code;
         $cabinet->error_message = $message;
         $cabinet->save();
     }
 
-    private function clearCabinetError(RepricerCabinets $cabinet): void
+    private function clearCabinetError(WbCabinet $cabinet): void
     {
         if ($cabinet->error_code === null && $cabinet->error_message === null) {
             return;
@@ -606,7 +743,7 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
         $cabinet->save();
     }
 
-    private function notifyCabinetAuthorizationIssue(RepricerCabinets $cabinet): void
+    private function notifyCabinetAuthorizationIssue(WbCabinet $cabinet): void
     {
         try {
             $cabinet->loadMissing('user');
@@ -636,12 +773,15 @@ class UpdateRepricerStocksJob implements ShouldQueue, ShouldBeUnique
             ->exists();
     }
 
-    private function reschedule(): void
+    private function reschedule(?int $delaySeconds = null): void
     {
         $this->releaseUniqueLock();
 
-        // Add random jitter to prevent jobs from clumping
-        $delaySeconds = $this->delaySeconds + rand(1, 120);
+        // Add random jitter to prevent jobs from clumping (unless explicit short backoff)
+        if ($delaySeconds === null) {
+            $delaySeconds = $this->delaySeconds + rand(1, 120);
+        }
+
         $scheduleKey = self::scheduleCacheKeyFor($this->cabinetId);
 
         if (! Cache::add($scheduleKey, true, now()->addSeconds($delaySeconds + 120))) {

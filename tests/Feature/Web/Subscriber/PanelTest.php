@@ -6,7 +6,8 @@ use App\Models\PaymentsTransaction;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\Feedbacks\WbFeedbacksSettings;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
@@ -78,12 +79,18 @@ class PanelTest extends WebAuthTestCase
             'end_date' => now()->addDays(10),
         ]);
 
-        FeedbacksClients::query()->create([
-            'subscriber_id' => $subscriber->id,
+        $wbCabinet = WbCabinet::query()->create([
+            'user_id' => $user->id,
             'name' => 'WB Cabinet',
-            'brands' => '',
             'apikey' => 'test-key',
-            'bot_status' => 1,
+            'api_key_hash' => hash('sha256', 'test-key'),
+        ]);
+
+        WbFeedbacksSettings::query()->create([
+            'cabinet_id' => $wbCabinet->id,
+            'brands' => '',
+            'bot_status' => true,
+            'ai_status' => false,
         ]);
 
         PaymentsTransaction::query()->create([
@@ -131,6 +138,12 @@ class PanelTest extends WebAuthTestCase
 
     private function setupPanelSchema(): void
     {
+        if (Schema::hasTable('users') && ! Schema::hasColumn('users', 'selected_wb_cabinet_id')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->unsignedBigInteger('selected_wb_cabinet_id')->nullable();
+            });
+        }
+
         if (! Schema::hasTable('subscribers_plans')) {
             Schema::create('subscribers_plans', function (Blueprint $table) {
                 $table->id();
@@ -142,6 +155,15 @@ class PanelTest extends WebAuthTestCase
                 $table->unsignedTinyInteger('hidden')->default(0);
                 $table->json('limits_plan')->nullable();
                 $table->json('limits_month')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        if (! Schema::hasTable('subscribers_subscriptions_control')) {
+            Schema::create('subscribers_subscriptions_control', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('subscription_id')->index();
+                $table->string('action');
                 $table->timestamps();
             });
         }
@@ -185,8 +207,31 @@ class PanelTest extends WebAuthTestCase
         }
 
         $cabinetTables = [
+            'wb_cabinets' => function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id')->index();
+                $table->string('name');
+                $table->text('apikey')->nullable();
+                $table->string('api_key_hash', 64)->nullable();
+                $table->integer('error_code')->nullable();
+                $table->text('error_message')->nullable();
+                $table->timestamps();
+            },
+            'wb_feedbacks_settings' => function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('cabinet_id')->unique();
+                $table->string('brands')->nullable();
+                $table->boolean('bot_status')->default(false);
+                $table->boolean('ai_status')->default(false);
+                $table->json('ai_ratings')->nullable();
+                $table->string('review_type')->nullable();
+                $table->timestamps();
+            },
             'subs_wb_feedbacks_clients' => function (Blueprint $table) {
                 $table->id();
+                $table->boolean('is_migrated')->default(false);
+                $table->timestamp('migrated_at')->nullable();
+                $table->unsignedBigInteger('wb_cabinet_id')->nullable();
                 $table->unsignedBigInteger('subscriber_id')->index();
                 $table->string('name');
                 $table->string('brands')->nullable();
@@ -201,18 +246,22 @@ class PanelTest extends WebAuthTestCase
             },
             'wb_profitability_cabinets' => function (Blueprint $table) {
                 $table->id();
+                $table->boolean('is_migrated')->default(false);
                 $table->unsignedBigInteger('user_id')->index();
             },
             'wb_price_cabinets' => function (Blueprint $table) {
                 $table->id();
+                $table->boolean('is_migrated')->default(false);
                 $table->unsignedBigInteger('user_id')->index();
             },
             'wb_repricer_cabinets' => function (Blueprint $table) {
                 $table->id();
+                $table->boolean('is_migrated')->default(false);
                 $table->unsignedBigInteger('user_id')->index();
             },
             'wb_ai_cabinet_analyzer_cabinets' => function (Blueprint $table) {
                 $table->id();
+                $table->boolean('is_migrated')->default(false);
                 $table->unsignedBigInteger('user_id')->index();
             },
             'oz_price_calc_cabinets' => function (Blueprint $table) {

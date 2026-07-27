@@ -8,6 +8,8 @@ use App\Models\Subscribers\Wb\Feedbacks\BotResponse;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksTemplates;
 use App\Models\Subscribers\Wb\Feedbacks\Review;
+use App\Models\Subscribers\Wb\Feedbacks\WbFeedbacksSettings;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
 use App\Services\Subscriber\Ai\SubscriberAiTextService;
 use Illuminate\Http\Request;
@@ -49,7 +51,7 @@ class WbFeedbacksTest extends WebAuthTestCase
             ->assertForbidden();
     }
 
-    public function test_subscriber_with_permission_can_access_index(): void
+    public function test_subscriber_with_permission_sees_no_cabinet_without_unified_cabinet(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
 
@@ -57,21 +59,22 @@ class WbFeedbacksTest extends WebAuthTestCase
             ->get('/panel/wb/feedbacks')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Subscriber/Wb/Feedbacks/Index')
-                ->has('cabinets'));
+                ->component('Subscriber/Wb/Shared/NoCabinet')
+                ->where('toolName', 'Управление отзывами'));
     }
 
-    public function test_index_lists_owned_cabinets(): void
+    public function test_index_renders_workspace_for_selected_unified_cabinet(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'Test Cabinet');
+        $cabinet = $this->createUnifiedCabinet($user, 'Test Cabinet');
 
         $this->actingAs($user)
             ->get('/panel/wb/feedbacks')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('cabinets.0.name', 'Test Cabinet')
-                ->where('cabinets.0.id', $cabinet->id));
+                ->component('Subscriber/Wb/Feedbacks/Client/Show')
+                ->where('client.id', $cabinet->id)
+                ->where('client.name', 'Test Cabinet'));
     }
 
     public function test_client_show_renders_for_owner(): void
@@ -365,6 +368,27 @@ class WbFeedbacksTest extends WebAuthTestCase
         ]);
     }
 
+    private function createUnifiedCabinet(User $user, string $name): WbCabinet
+    {
+        $cabinet = WbCabinet::query()->create([
+            'user_id' => $user->id,
+            'name' => $name,
+            'apikey' => 'test-api-key',
+            'api_key_hash' => hash('sha256', 'test-api-key-'.$name),
+        ]);
+
+        WbFeedbacksSettings::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'brands' => '',
+            'bot_status' => false,
+            'ai_status' => false,
+        ]);
+
+        $user->forceFill(['selected_wb_cabinet_id' => $cabinet->id])->save();
+
+        return $cabinet;
+    }
+
     /**
      * @param  array<string, mixed>  $reviewAttrs
      */
@@ -391,6 +415,38 @@ class WbFeedbacksTest extends WebAuthTestCase
 
     private function setupFeedbacksSchema(): void
     {
+        if (Schema::hasTable('users') && ! Schema::hasColumn('users', 'selected_wb_cabinet_id')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->unsignedBigInteger('selected_wb_cabinet_id')->nullable();
+            });
+        }
+
+        if (! Schema::hasTable('wb_cabinets')) {
+            Schema::create('wb_cabinets', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id')->index();
+                $table->string('name');
+                $table->text('apikey')->nullable();
+                $table->string('api_key_hash', 64)->nullable();
+                $table->integer('error_code')->nullable();
+                $table->text('error_message')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        if (! Schema::hasTable('wb_feedbacks_settings')) {
+            Schema::create('wb_feedbacks_settings', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('cabinet_id')->unique();
+                $table->string('brands')->nullable();
+                $table->boolean('bot_status')->default(false);
+                $table->boolean('ai_status')->default(false);
+                $table->json('ai_ratings')->nullable();
+                $table->string('review_type')->nullable();
+                $table->timestamps();
+            });
+        }
+
         if (! Schema::hasTable('subs_wb_feedbacks_clients')) {
             Schema::create('subs_wb_feedbacks_clients', function (Blueprint $table) {
                 $table->id();

@@ -20,11 +20,16 @@ class FeedbacksClients extends Model
         'bot_status',
         'ai_status',
         'ai_ratings',
-        'review_type'
+        'review_type',
+        'is_migrated',
+        'migrated_at',
+        'wb_cabinet_id',
     ];
     protected $casts = [
         'apikey' => EncryptCast::class,
         'ai_ratings' => 'array',
+        'is_migrated' => 'boolean',
+        'migrated_at' => 'datetime',
     ];
     // protected function aiRatings(): Attribute
     // {

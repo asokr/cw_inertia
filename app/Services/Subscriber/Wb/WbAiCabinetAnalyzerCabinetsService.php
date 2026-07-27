@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Services\Subscriber\Wb;
-use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerCabinet;
+use App\Models\Subscribers\Wb\WbCabinet;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -9,7 +9,7 @@ class WbAiCabinetAnalyzerCabinetsService
 {
     public function index(Request $request)
     {
-        $cabinets = AiCabinetAnalyzerCabinet::where('user_id', (int) $request->user()->id)
+        $cabinets = WbCabinet::where('user_id', (int) $request->user()->id)
             ->orderByDesc('id')
             ->get();
 
@@ -34,9 +34,9 @@ class WbAiCabinetAnalyzerCabinetsService
             ], 200);
         }
 
-        $exists = AiCabinetAnalyzerCabinet::where('user_id', (int) $request->user()->id)
+        $exists = WbCabinet::where('user_id', (int) $request->user()->id)
             ->get()
-            ->contains(static fn(AiCabinetAnalyzerCabinet $cabinet): bool => (string) $cabinet->apikey === (string) $request->apikey);
+            ->contains(static fn(WbCabinet $cabinet): bool => (string) $cabinet->apikey === (string) $request->apikey);
 
         if ($exists) {
             return response()->json([
@@ -45,7 +45,7 @@ class WbAiCabinetAnalyzerCabinetsService
             ], 200);
         }
 
-        $cabinet = AiCabinetAnalyzerCabinet::create([
+        $cabinet = WbCabinet::create([
             'user_id' => (int) $request->user()->id,
             'name' => (string) $request->name,
             'apikey' => (string) $request->apikey,
@@ -61,7 +61,7 @@ class WbAiCabinetAnalyzerCabinetsService
     public function show(Request $request, string $id)
     {
         $validator = Validator::make(['id' => $id], [
-            'id' => 'required|integer|exists:wb_ai_cabinet_analyzer_cabinets,id',
+            'id' => 'required|integer|exists:wb_cabinets,id',
         ]);
 
         if ($validator->fails()) {
@@ -71,7 +71,7 @@ class WbAiCabinetAnalyzerCabinetsService
             ], 200);
         }
 
-        $cabinet = AiCabinetAnalyzerCabinet::find($id);
+        $cabinet = WbCabinet::find($id);
         if (!$cabinet || (int) $cabinet->user_id !== (int) $request->user()->id) {
             return response()->json([
                 'success' => false,
@@ -89,7 +89,7 @@ class WbAiCabinetAnalyzerCabinetsService
     public function update(Request $request, string $id)
     {
         $validator = Validator::make(array_merge($request->all(), ['id' => $id]), [
-            'id' => 'required|integer|exists:wb_ai_cabinet_analyzer_cabinets,id',
+            'id' => 'required|integer|exists:wb_cabinets,id',
             'name' => 'required|string|max:255',
             'apikey' => 'required|string|max:1024',
         ]);
@@ -101,7 +101,7 @@ class WbAiCabinetAnalyzerCabinetsService
             ], 200);
         }
 
-        $cabinet = AiCabinetAnalyzerCabinet::find($id);
+        $cabinet = WbCabinet::find($id);
         if (!$cabinet || (int) $cabinet->user_id !== (int) $request->user()->id) {
             return response()->json([
                 'success' => false,
@@ -109,10 +109,10 @@ class WbAiCabinetAnalyzerCabinetsService
             ], 200);
         }
 
-        $exists = AiCabinetAnalyzerCabinet::where('user_id', (int) $request->user()->id)
+        $exists = WbCabinet::where('user_id', (int) $request->user()->id)
             ->where('id', '<>', (int) $id)
             ->get()
-            ->contains(static fn(AiCabinetAnalyzerCabinet $item): bool => (string) $item->apikey === (string) $request->apikey);
+            ->contains(static fn(WbCabinet $item): bool => (string) $item->apikey === (string) $request->apikey);
 
         if ($exists) {
             return response()->json([
@@ -135,7 +135,7 @@ class WbAiCabinetAnalyzerCabinetsService
     public function destroy(Request $request, string $id)
     {
         $validator = Validator::make(['id' => $id], [
-            'id' => 'required|integer|exists:wb_ai_cabinet_analyzer_cabinets,id',
+            'id' => 'required|integer|exists:wb_cabinets,id',
         ]);
 
         if ($validator->fails()) {
@@ -145,7 +145,7 @@ class WbAiCabinetAnalyzerCabinetsService
             ], 200);
         }
 
-        $cabinet = AiCabinetAnalyzerCabinet::find($id);
+        $cabinet = WbCabinet::find($id);
         if (!$cabinet || (int) $cabinet->user_id !== (int) $request->user()->id) {
             return response()->json([
                 'success' => false,

@@ -14,7 +14,7 @@ use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use App\Exports\Wb\PriceCalc\PriceCalcV3Export;
 use App\Services\Wb\WbPriceCalculationService;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
-use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV2Settings;
 
 class WbPriceCalculationV3Service
@@ -80,7 +80,7 @@ class WbPriceCalculationV3Service
     public function syncCards(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'cabinet_id' => 'required|exists:wb_price_cabinets,id',
+            'cabinet_id' => 'required|exists:wb_cabinets,id',
         ], [
             'cabinet_id.exists' => 'Такого кабинета не существует',
             'required' => 'Не указаны необходимые параметры',
@@ -280,7 +280,7 @@ class WbPriceCalculationV3Service
     public function saveSettings(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'cabinet_id'              => 'required|exists:wb_price_cabinets,id',
+            'cabinet_id'              => 'required|exists:wb_cabinets,id',
             'maintenance_type'        => 'sometimes|in:transfer,sales',
             'buyout_scope'            => 'sometimes|in:cabinet,article',
             'use_localization_index'  => 'sometimes|boolean',
@@ -330,7 +330,7 @@ class WbPriceCalculationV3Service
     public function exportExcel(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'cabinet_id' => 'required|exists:wb_price_cabinets,id',
+            'cabinet_id' => 'required|exists:wb_cabinets,id',
         ], [
             'cabinet_id.exists' => 'Такого кабинета не существует',
             'required' => 'Не указаны необходимые параметры',
@@ -384,7 +384,7 @@ class WbPriceCalculationV3Service
     {
         $validator = Validator::make($request->all(), [
             'file' => 'required|mimes:xlsx',
-            'cabinet_id' => 'required|exists:wb_price_cabinets,id',
+            'cabinet_id' => 'required|exists:wb_cabinets,id',
         ], [
             'cabinet_id.exists' => 'Такого кабинета не существует',
             'file.required' => 'Прикрепите файл',
@@ -680,7 +680,7 @@ class WbPriceCalculationV3Service
     {
         $validator = Validator::make($request->all(), [
             'file' => 'required|mimes:xlsx,zip',
-            'cabinet_id' => 'required|exists:wb_price_cabinets,id',
+            'cabinet_id' => 'required|exists:wb_cabinets,id',
         ], [
             'cabinet_id.exists' => 'Такого кабинета не существует',
             'file.required' => 'Прикрепите файл',
@@ -924,7 +924,7 @@ class WbPriceCalculationV3Service
     public function calculate(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'cabinet_id' => 'required|exists:wb_price_cabinets,id',
+            'cabinet_id' => 'required|exists:wb_cabinets,id',
         ], [
             'cabinet_id.exists' => 'Такого кабинета не существует',
             'required' => 'Не указаны необходимые параметры',
@@ -1879,9 +1879,9 @@ class WbPriceCalculationV3Service
     /**
      * Проверка принадлежности кабинета текущему юзеру
      */
-    private function getCabinet(int $cabinetId): ?PriceCalculationCabinets
+    private function getCabinet(int $cabinetId): ?WbCabinet
     {
-        $cabinet = PriceCalculationCabinets::find($cabinetId);
+        $cabinet = WbCabinet::find($cabinetId);
 
         if (!$cabinet || (int) $cabinet->user_id !== (int) Auth::id()) {
             return null;

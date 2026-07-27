@@ -21,6 +21,7 @@ class UpdateAiDataRequest extends FormRequest
             'ratings' => ['present', 'array'],
             'ratings.*' => ['integer', 'min:1', 'max:5'],
             'review_type' => ['nullable'],
+            'brands' => ['nullable', 'string', 'max:2000'],
         ];
     }
 }

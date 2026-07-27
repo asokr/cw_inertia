@@ -2,6 +2,8 @@
 
 namespace App\Models\Subscribers\Wb\PriceCalculation;
 
+use App\Models\Subscribers\Wb\WbCabinet;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -126,6 +128,6 @@ class PriceCalculationV3Data extends Model
 
     public function cabinet(): BelongsTo
     {
-        return $this->belongsTo(PriceCalculationCabinets::class, 'cabinet_id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 }

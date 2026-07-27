@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Feedbacks;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresFeedbacksClientOwnership;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Services\Subscriber\Ai\SubscriberAiTextService;
 use App\Services\Subscriber\Wb\WbFeedbacksClientsService;
 use App\Services\Subscriber\Wb\WbFeedbacksService;
@@ -12,7 +12,7 @@ use App\Http\Requests\Web\Subscriber\SendFeedbackRequest;
 use App\Http\Requests\Web\Subscriber\UpdateAiDataRequest;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Support\ToolLimits;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\WbCabinet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,7 +21,7 @@ use Inertia\Response;
 
 class FeedbacksController extends SubscriberToolController
 {
-    use EnsuresFeedbacksClientOwnership;
+    use ResolvesSelectedWbCabinet;
 
     public function __construct(
         private readonly WbFeedbacksService $feedbacksService,
@@ -31,9 +31,17 @@ class FeedbacksController extends SubscriberToolController
     ) {
     }
 
-    public function show(Request $request, FeedbacksClients $client): Response
+    public function show(Request $request): Response
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinet($request, 'Управление отзывами', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Управление отзывами'],
+        ]);
+        if ($clientOrResponse instanceof Response) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         $filters = $this->parseFeedbackFilters($request);
         $feedbacksPayload = $this->loadFeedbacks($request, $client, 0, $filters);
@@ -64,13 +72,15 @@ class FeedbacksController extends SubscriberToolController
             $pageItems = array_slice($allFeedbacks, $offset, $perPage);
         }
 
-        $brands = $this->parseBrandsList($client->brands);
+        $settings = $client->feedbacksSettings;
+        $brandsRaw = $settings?->brands;
+        $brands = $this->parseBrandsList($brandsRaw);
 
         return Inertia::render('Subscriber/Wb/Feedbacks/Client/Show', [
             'client' => [
                 'id' => $client->id,
                 'name' => $client->name,
-                'brands' => $client->brands ?? '',
+                'brands' => $brandsRaw ?? '',
             ],
             'feedbacks' => array_values($pageItems),
             'feedbacksError' => $feedbacksPayload['error'],
@@ -99,9 +109,14 @@ class FeedbacksController extends SubscriberToolController
         ]);
     }
 
-    public function answered(Request $request, FeedbacksClients $client): JsonResponse
+    public function answered(Request $request): JsonResponse
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinetJson($request);
+        if ($clientOrResponse instanceof JsonResponse) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         // Merge onto the live request so service auth + input bags stay consistent.
         $request->merge([
@@ -111,9 +126,17 @@ class FeedbacksController extends SubscriberToolController
         return $this->statsService->answeredReviews($request);
     }
 
-    public function refresh(Request $request, FeedbacksClients $client): RedirectResponse
+    public function refresh(Request $request): RedirectResponse|Response
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinet($request, 'Управление отзывами', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Управление отзывами'],
+        ]);
+        if ($clientOrResponse instanceof Response) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         $filters = $this->parseFeedbackFilters($request);
         $feedbacksPayload = $this->loadFeedbacks($request, $client, 0, $filters);
@@ -122,18 +145,26 @@ class FeedbacksController extends SubscriberToolController
 
         if ($feedbacksPayload['error']) {
             return redirect()
-                ->route('subscriber.wb.feedbacks.clients.show', array_merge(['client' => $client], $query))
+                ->route('subscriber.wb.feedbacks.index', $query)
                 ->with('error', $feedbacksPayload['error']);
         }
 
         return redirect()
-            ->route('subscriber.wb.feedbacks.clients.show', array_merge(['client' => $client], $query))
+            ->route('subscriber.wb.feedbacks.index', $query)
             ->with('success', 'Данные обновлены');
     }
 
-    public function send(SendFeedbackRequest $request, FeedbacksClients $client): RedirectResponse
+    public function send(SendFeedbackRequest $request): RedirectResponse|Response
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinet($request, 'Управление отзывами', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Управление отзывами'],
+        ]);
+        if ($clientOrResponse instanceof Response) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         $response = $this->feedbacksService->sendFeedbackToWb(
             $this->apiRequestWith($request, [
@@ -149,13 +180,18 @@ class FeedbacksController extends SubscriberToolController
         }
 
         return redirect()
-            ->route('subscriber.wb.feedbacks.clients.show', $client)
+            ->route('subscriber.wb.feedbacks.index')
             ->with('success', $this->apiMessage($payload, 'Ответ отправлен'));
     }
 
-    public function updateAi(UpdateAiDataRequest $request, FeedbacksClients $client): JsonResponse
+    public function updateAi(UpdateAiDataRequest $request): JsonResponse
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinetJson($request);
+        if ($clientOrResponse instanceof JsonResponse) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         $response = $this->clientsService->updateAiData(
             $this->apiRequestWith($request, [
@@ -163,15 +199,21 @@ class FeedbacksController extends SubscriberToolController
                 'status' => $request->validated('status'),
                 'ratings' => $request->validated('ratings'),
                 'review_type' => $request->input('review_type'),
+                'brands' => $request->input('brands'),
             ])
         );
 
         return response()->json($this->decodeApiResponse($response));
     }
 
-    public function generateAi(Request $request, FeedbacksClients $client): JsonResponse
+    public function generateAi(Request $request): JsonResponse
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinetJson($request);
+        if ($clientOrResponse instanceof JsonResponse) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         $validated = $request->validate([
             'feedback' => ['nullable', 'array'],
@@ -319,7 +361,7 @@ class FeedbacksController extends SubscriberToolController
      *     skippedByBrand: int
      * }
      */
-    private function loadFeedbacks(Request $request, FeedbacksClients $client, int $skip, array $filters = []): array
+    private function loadFeedbacks(Request $request, WbCabinet $client, int $skip, array $filters = []): array
     {
         $params = [
             'client_id' => $client->id,

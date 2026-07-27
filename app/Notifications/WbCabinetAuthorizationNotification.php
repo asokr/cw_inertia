@@ -48,22 +48,28 @@ class WbCabinetAuthorizationNotification extends Notification
         switch ($type) {
             case 'feedbacks':
                 $service = 'Управление отзывами';
-                $link = "https://cwplatform.ru/panel/wb/feedbacks";
+                $link = "https://cwplatform.ru/panel/wb/cabinets";
                 $reason = "Ошибка при авторизации по API ключу.";
                 break;
             case 'feedbacks_cant_answer':
                 $service = 'Управление отзывами';
-                $link = "https://cwplatform.ru/panel/wb/feedbacks";
+                $link = "https://cwplatform.ru/panel/wb/cabinets";
                 $reason = "Ошибка при ответе на отзыв. Вероятно, не хватает прав. Проверьте права у API ключа.";
                 break;
             case 'repricer_stocks':
                 $service = 'Репрайсер цен';
-                $link = "https://cwplatform.ru/panel/wb/repricer";
+                $link = "https://cwplatform.ru/panel/wb/cabinets";
                 $reason = "Ошибка авторизации при обновлении остатков. Проверьте ключ API и права доступа.";
+                break;
+            case 'repricer_stocks_rate_limit':
+                $service = 'Репрайсер цен';
+                $link = "https://cwplatform.ru/panel/wb/cabinets";
+                $reason = "Многократное превышение лимита запросов WB API при обновлении остатков. "
+                    . "Проверьте тип и категории токена (нужна аналитика) или обновите API-ключ, чтобы возобновить работу.";
                 break;
             case 'profitability':
                 $service = 'Рентабельность WB';
-                $link = "https://cwplatform.ru/panel/wb/profitability";
+                $link = "https://cwplatform.ru/panel/wb/cabinets";
                 $reason = "Срок действия API токена истёк. Обновите токен кабинета и перезапустите расчёт.";
                 break;
             default:

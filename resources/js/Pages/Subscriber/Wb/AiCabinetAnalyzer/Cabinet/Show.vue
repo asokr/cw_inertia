@@ -36,7 +36,7 @@ const poll = useAiCabinetReportPoll({
     },
 });
 
-const showUrl = computed(() => `/panel/wb/ai-cabinet-analyzer/cabinets/${props.cabinet.id}`);
+const showUrl = computed(() => `/panel/wb/ai-cabinet-analyzer`);
 const startUrl = computed(() => `${showUrl.value}/reports`);
 const isReportDone = computed(() => props.report?.status === "done");
 const hasMeta = computed(() => Boolean(props.meta && Object.keys(props.meta).length > 0));

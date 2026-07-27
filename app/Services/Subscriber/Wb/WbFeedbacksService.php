@@ -8,7 +8,8 @@ use App\Http\Traits\WBApiTrait;
 use App\Http\Traits\WBFeedbacksTrait;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Subscribers\Wb\Feedbacks\Review;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\WbCabinet;
+use App\Models\Subscribers\Wb\Feedbacks\WbFeedbacksSettings;
 
 class WbFeedbacksService
 {
@@ -18,7 +19,7 @@ class WbFeedbacksService
     public function getFeedbacksList(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'client_id' => 'required|exists:subs_wb_feedbacks_clients,id',
+            'client_id' => 'required|exists:wb_cabinets,id',
             'take' => '',
             'skip' => 'nullable|integer|min:0',
             'nmId' => ['nullable', 'integer', 'min:1'],
@@ -32,13 +33,12 @@ class WbFeedbacksService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $client = FeedbacksClients::find($request->client_id);
+        $client = WbCabinet::find($request->client_id);
 
         if (!$client)
             return response()->json(['success' => false, 'messages' => ['Ошибка при получении клиента']], 200);
 
-        $subscriber = auth()->user()->subscriber;
-        $belongs = $client->subscriber_id == $subscriber->id;
+        $belongs = (int) $client->user_id === (int) auth()->id();
         if (!$belongs)
             return response()->json(["success" => false, "messages" => ["Не хватает прав"]], 200);
 
@@ -50,7 +50,8 @@ class WbFeedbacksService
             ->values()
             ->all();
 
-        $brandList = $this->parseCabinetBrands($client->brands);
+        $settings = WbFeedbacksSettings::query()->where('cabinet_id', $client->id)->first();
+        $brandList = $this->parseCabinetBrands($settings?->brands);
         $brandFilterActive = $brandList !== [];
 
         $fetched = $this->fetchAllUnansweredFeedbacks($client->apikey, $nmId);
@@ -184,7 +185,7 @@ class WbFeedbacksService
     public function sendFeedbackToWb(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'client_id' => 'required|exists:subs_wb_feedbacks_clients,id',
+            'client_id' => 'required|exists:wb_cabinets,id',
             'id' => 'required|',
             'text' => 'required',
         ], [
@@ -195,13 +196,12 @@ class WbFeedbacksService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $client = FeedbacksClients::find($request->client_id);
+        $client = WbCabinet::find($request->client_id);
 
         if (!$client)
             return response()->json(['success' => false, 'messages' => ['Ошибка при получении клиента']], 200);
 
-        $subscriber = auth()->user()->subscriber;
-        $belongs = $client->subscriber_id == $subscriber->id;
+        $belongs = (int) $client->user_id === (int) auth()->id();
         if (!$belongs)
             return response()->json(["success" => false, "messages" => ["Не хватает прав"]], 200);
 

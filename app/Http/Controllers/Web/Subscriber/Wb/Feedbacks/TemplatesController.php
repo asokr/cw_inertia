@@ -2,14 +2,14 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Feedbacks;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresFeedbacksClientOwnership;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Services\Subscriber\Wb\WbFeedbacksClientsService;
 use App\Services\Subscriber\Wb\WbFeedbacksTemplatesService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StoreTemplateRequest;
 use App\Http\Requests\Web\Subscriber\UpdateBotStatusRequest;
 use App\Http\Requests\Web\Subscriber\UpdateTemplateRequest;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksTemplates;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,7 +19,7 @@ use Inertia\Response;
 
 class TemplatesController extends SubscriberToolController
 {
-    use EnsuresFeedbacksClientOwnership;
+    use ResolvesSelectedWbCabinet;
 
     public function __construct(
         private readonly WbFeedbacksTemplatesService $templatesService,
@@ -27,9 +27,17 @@ class TemplatesController extends SubscriberToolController
     ) {
     }
 
-    public function index(Request $request, FeedbacksClients $client): Response
+    public function index(Request $request): Response
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinet($request, 'Управление отзывами', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Управление отзывами'],
+        ]);
+        if ($clientOrResponse instanceof Response) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         $templatesResponse = $this->templatesService->showAll(
             $request->duplicate(['client_id' => $client->id])
@@ -75,9 +83,17 @@ class TemplatesController extends SubscriberToolController
         ]);
     }
 
-    public function store(StoreTemplateRequest $request, FeedbacksClients $client): RedirectResponse
+    public function store(StoreTemplateRequest $request): RedirectResponse|Response
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinet($request, 'Управление отзывами', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Управление отзывами'],
+        ]);
+        if ($clientOrResponse instanceof Response) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         $response = $this->templatesService->store(
             $this->apiRequestWith($request, [
@@ -96,13 +112,21 @@ class TemplatesController extends SubscriberToolController
         }
 
         return redirect()
-            ->route('subscriber.wb.feedbacks.clients.templates.index', $client)
+            ->route('subscriber.wb.feedbacks.templates.index')
             ->with('success', $this->apiMessage($payload, 'Шаблон добавлен'));
     }
 
-    public function update(UpdateTemplateRequest $request, FeedbacksClients $client, FeedbacksTemplates $template): RedirectResponse
+    public function update(UpdateTemplateRequest $request, FeedbacksTemplates $template): RedirectResponse|Response
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinet($request, 'Управление отзывами', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Управление отзывами'],
+        ]);
+        if ($clientOrResponse instanceof Response) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         if ((int) $template->client_id !== (int) $client->id) {
             abort(404);
@@ -125,13 +149,21 @@ class TemplatesController extends SubscriberToolController
         }
 
         return redirect()
-            ->route('subscriber.wb.feedbacks.clients.templates.index', $client)
+            ->route('subscriber.wb.feedbacks.templates.index')
             ->with('success', $this->apiMessage($payload, 'Шаблон обновлён'));
     }
 
-    public function destroy(FeedbacksClients $client, FeedbacksTemplates $template): RedirectResponse
+    public function destroy(Request $request, FeedbacksTemplates $template): RedirectResponse|Response
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinet($request, 'Управление отзывами', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Управление отзывами'],
+        ]);
+        if ($clientOrResponse instanceof Response) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         if ((int) $template->client_id !== (int) $client->id) {
             abort(404);
@@ -145,13 +177,21 @@ class TemplatesController extends SubscriberToolController
         }
 
         return redirect()
-            ->route('subscriber.wb.feedbacks.clients.templates.index', $client)
+            ->route('subscriber.wb.feedbacks.templates.index')
             ->with('success', $this->apiMessage($payload, 'Шаблон удалён'));
     }
 
-    public function updateBotStatus(UpdateBotStatusRequest $request, FeedbacksClients $client): RedirectResponse
+    public function updateBotStatus(UpdateBotStatusRequest $request): RedirectResponse|Response
     {
-        $this->ensureClientOwnership($client);
+        $clientOrResponse = $this->requireSelectedWbCabinet($request, 'Управление отзывами', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Управление отзывами'],
+        ]);
+        if ($clientOrResponse instanceof Response) {
+            return $clientOrResponse;
+        }
+        /** @var WbCabinet $client */
+        $client = $clientOrResponse;
 
         $response = $this->clientsService->updateBotStatus(
             $this->apiRequestWith($request, [
@@ -166,7 +206,7 @@ class TemplatesController extends SubscriberToolController
         }
 
         return redirect()
-            ->route('subscriber.wb.feedbacks.clients.templates.index', $client)
+            ->route('subscriber.wb.feedbacks.templates.index')
             ->with('success', $this->apiMessage($payload, 'Статус автоответчика изменён'));
     }
 }

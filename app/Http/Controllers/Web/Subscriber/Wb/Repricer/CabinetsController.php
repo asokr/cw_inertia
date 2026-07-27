@@ -1,16 +1,15 @@
-<?php
+﻿<?php
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Repricer;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresRepricerCabinetOwnership;
-use App\Services\Subscriber\Wb\RepricerCabinetsService;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\RepricerLogsRequest;
-use App\Http\Requests\Web\Subscriber\StoreRepricerCabinetRequest;
-use App\Http\Requests\Web\Subscriber\UpdateRepricerCabinetRequest;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Models\Subscribers\Wb\WbCabinet;
+use App\Services\Subscriber\Wb\RepricerCabinetsService;
+use App\Services\Subscriber\Wb\WbCabinetService;
 use App\Support\ToolLimits;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,92 +18,60 @@ use Inertia\Response;
 
 class CabinetsController extends SubscriberToolController
 {
-    use EnsuresRepricerCabinetOwnership;
+    use ResolvesSelectedWbCabinet;
 
     public function __construct(
         private readonly RepricerCabinetsService $cabinetsService,
+        private readonly WbCabinetService $wbCabinets,
     ) {
     }
 
-    public function index(Request $request): Response
+    public function index(Request $request): Response|RedirectResponse
     {
-        $response = $this->cabinetsService->index();
-        $payload = $this->decodeApiResponse($response);
+        $cabinet = $this->wbCabinets->selectedFor($request->user());
 
-        $cabinets = [];
-        if (($payload['success'] ?? false) === true) {
-            foreach ($payload['data'] ?? [] as $cabinet) {
-                $row = is_array($cabinet) ? $cabinet : $cabinet->toArray();
-                $cabinets[] = [
-                    'id' => $row['id'],
-                    'name' => $row['name'],
-                    'created_at' => $row['created_at'] ?? null,
-                    'apikey' => $row['apikey'] ?? '',
-                    'href' => route('subscriber.wb.repricer.cabinets.show', $row['id']),
-                ];
-            }
+        if (! $cabinet) {
+            return Inertia::render('Subscriber/Wb/Shared/NoCabinet', [
+                'toolName' => 'Репрайсер цен Wildberries',
+                'breadcrumbs' => [
+                    ['label' => 'Главная', 'href' => '/panel'],
+                    ['label' => 'Репрайсер цен Wildberries'],
+                ],
+            ]);
         }
 
-        return Inertia::render('Subscriber/Wb/Repricer/Index', [
-            'cabinets' => $cabinets,
-            'limits' => $this->repricerLimits($request),
-        ]);
+        return redirect()->route('subscriber.wb.repricer.index');
     }
 
-    public function store(StoreRepricerCabinetRequest $request): RedirectResponse
+    public function store(): RedirectResponse
     {
-        $response = $this->cabinetsService->store($request);
-        $payload = $this->decodeApiResponse($response);
-
-        if (($payload['success'] ?? false) !== true) {
-            return back()
-                ->withInput()
-                ->with('error', $this->apiMessage($payload, 'Не удалось добавить кабинет'));
-        }
-
         return redirect()
-            ->route('subscriber.wb.repricer.index')
-            ->with('success', $this->apiMessage($payload, 'Кабинет добавлен'));
+            ->route('subscriber.wb.cabinets.index')
+            ->with('error', 'Создавайте кабинеты на странице «Общие кабинеты».');
     }
 
-    public function update(UpdateRepricerCabinetRequest $request, RepricerCabinets $cabinet): RedirectResponse
+    public function update(): RedirectResponse
     {
-        $this->ensureCabinetOwnership($cabinet);
-
-        $response = $this->cabinetsService->update(
-            $request->duplicate(null, $request->validated()),
-            (string) $cabinet->id
-        );
-        $payload = $this->decodeApiResponse($response);
-
-        if (($payload['success'] ?? false) !== true) {
-            return back()
-                ->withInput()
-                ->with('error', $this->apiMessage($payload, 'Не удалось обновить кабинет'));
-        }
-
-        return back()->with('success', $this->apiMessage($payload, 'Кабинет обновлён'));
-    }
-
-    public function destroy(RepricerCabinets $cabinet): RedirectResponse
-    {
-        $this->ensureCabinetOwnership($cabinet);
-
-        $response = $this->cabinetsService->destroy((string) $cabinet->id);
-        $payload = $this->decodeApiResponse($response);
-
-        if (($payload['success'] ?? false) !== true) {
-            return back()->with('error', $this->apiMessage($payload, 'Не удалось удалить кабинет'));
-        }
-
         return redirect()
-            ->route('subscriber.wb.repricer.index')
-            ->with('success', $this->apiMessage($payload, 'Кабинет удалён'));
+            ->route('subscriber.wb.cabinets.index')
+            ->with('error', 'Управляйте кабинетами на странице «Общие кабинеты».');
     }
 
-    public function logs(RepricerLogsRequest $request, RepricerCabinets $cabinet): JsonResponse
+    public function destroy(): RedirectResponse
     {
-        $this->ensureCabinetOwnership($cabinet);
+        return redirect()
+            ->route('subscriber.wb.cabinets.index')
+            ->with('error', 'Управляйте кабинетами на странице «Общие кабинеты».');
+    }
+
+    public function logs(RepricerLogsRequest $request): JsonResponse
+    {
+        $cabinetOrResponse = $this->requireSelectedWbCabinetJson($request);
+        if ($cabinetOrResponse instanceof JsonResponse) {
+            return $cabinetOrResponse;
+        }
+        /** @var WbCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $response = $this->cabinetsService->getLogs(
             $request->duplicate(null, array_merge(

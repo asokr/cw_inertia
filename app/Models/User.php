@@ -5,6 +5,7 @@ namespace App\Models;
 use O21\LaravelWallet\Models\Balance;
 use Spatie\Permission\Traits\HasRoles;
 use App\Models\Subscribers\Subscribers;
+use App\Models\Subscribers\Wb\WbCabinet;
 use Illuminate\Notifications\Notifiable;
 use O21\LaravelWallet\Contracts\Payable;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
@@ -14,6 +15,8 @@ use O21\LaravelWallet\Models\Concerns\HasBalance;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use LaravelAndVueJS\Traits\LaravelPermissionToVueJS;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 
 
@@ -35,6 +38,7 @@ class User extends Authenticatable implements MustVerifyEmail, Payable, CanReset
         'has_seen_tour',
         'vk_id',
         'yandex_id',
+        'selected_wb_cabinet_id',
     ];
 
     /**
@@ -76,6 +80,16 @@ class User extends Authenticatable implements MustVerifyEmail, Payable, CanReset
     public function subscriberId(): ?int
     {
         return $this->subscriber?->id;
+    }
+
+    public function wbCabinets(): HasMany
+    {
+        return $this->hasMany(WbCabinet::class, 'user_id');
+    }
+
+    public function selectedWbCabinet(): BelongsTo
+    {
+        return $this->belongsTo(WbCabinet::class, 'selected_wb_cabinet_id');
     }
 
     public function balances()

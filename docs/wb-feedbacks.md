@@ -3,77 +3,93 @@
 ## Права доступа
 
 - Permission: `subscriber wb feedbacks`
-- Middleware: `auth:api`, `verified`, `role:Подписчик`
+- Middleware панели: `auth`, `verified`, `panel.access`, `wb.cabinets.migrated`, `permission:subscriber wb feedbacks`
 - Admin: `role:Супер-Админ|super-admin`
 
 ## Назначение
 
 Работа с отзывами Wildberries: просмотр неотвеченных, ручная и автоматическая отправка ответов, шаблоны, статистика, AI-автоответчик по рейтингам.
 
+Кабинет WB — **единый** ([wb-cabinets.md](wb-cabinets.md)): API-ключ и имя живут в `wb_cabinets`, настройки отзывов — в `wb_feedbacks_settings`. В UI нет отдельного списка «кабинетов отзывов»; используется активный кабинет из шапки.
+
 ## Ключевые файлы
 
-### Subscriber
+### Web (Inertia)
 
-- `app/Http/Controllers/Api/Subscriber/Wb/Feedbacks/FeedbacksController.php`
-- `app/Http/Controllers/Api/Subscriber/Wb/Feedbacks/FeedbacksClientsController.php`
-- `app/Http/Controllers/Api/Subscriber/Wb/Feedbacks/FeedbacksTemplatesController.php`
-- `app/Http/Controllers/Api/Subscriber/Wb/Feedbacks/FeedbacksStatController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/Feedbacks/FeedbacksController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/Feedbacks/TemplatesController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/Feedbacks/StatsController.php`
+- `app/Http/Controllers/Web/Subscriber/Wb/Feedbacks/ClientsController.php` — legacy/compat helpers при необходимости
+- Trait: `ResolvesSelectedWbCabinet`
+
+### Services
+
+- `app/Services/Subscriber/Wb/WbFeedbacksService.php`
+- `app/Services/Subscriber/Wb/WbFeedbacksClientsService.php` — AI/bot settings через unified cabinet
+- `app/Services/Subscriber/Wb/WbFeedbacksStatsService.php`
+- `app/Services/Subscriber/Wb/WbFeedbacksTemplatesService.php`
 - `app/Http/Traits/WBFeedbacksTrait.php`
+
+### Runtime (cron / jobs)
+
+- `app/Support/Wb/FeedbacksRuntimeCabinetResolver.php` — dual-source: `wb_cabinets` + legacy clients
+- `app/Support/Wb/FeedbacksRuntimeClient.php`
+- `app/Support/Wb/FeedbacksLegacySettingsProxy.php`
+- `app/Console/Commands/SubscriberWbFeedbacksAnswer.php`
 
 ### Admin
 
-- `app/Http/Controllers/Api/Admin/services/feedbacks/AdminFeedbacksController.php`
+- `app/Http/Controllers/Web/Admin/Feedbacks/CabinetController.php`
+- `app/Services/Admin/AdminFeedbacksService.php`
 
 ### Модели
 
-- `app/Models/Subscribers/Wb/Feedbacks/FeedbacksClients.php` — таблица `subs_wb_feedbacks_clients`
+- `app/Models/Subscribers/Wb/WbCabinet.php` — единый кабинет
+- `app/Models/Subscribers/Wb/Feedbacks/WbFeedbacksSettings.php` — `wb_feedbacks_settings` (1:1 к кабинету)
+- `app/Models/Subscribers/Wb/Feedbacks/FeedbacksClients.php` — legacy `subs_wb_feedbacks_clients` (миграция)
 - `app/Models/Subscribers/Wb/Feedbacks/Review.php`
 - `app/Models/Subscribers/Wb/Feedbacks/ReviewStatistic.php`
 
-## API эндпоинты (Subscriber)
+## Web routes (Inertia)
 
-Префикс: `/subscriber/wb/feedbacks`
+Prefix: `/panel/wb/feedbacks` · name: `subscriber.wb.feedbacks.*`
 
-### Отзывы
+| Method | URL | Named route | Inertia / ответ |
+|--------|-----|-------------|-----------------|
+| GET | `/` | `index` | `Subscriber/Wb/Feedbacks/Client/Show` (workspace) |
+| GET | `/answered` | `answered` | JSON / widget data |
+| POST | `/feedbacks` | `feedbacks.refresh` | Обновить список с WB |
+| POST | `/feedbacks/send` | `feedbacks.send` | Отправить ответ |
+| POST | `/ai` | `ai.update` | Настройки AI |
+| POST | `/ai/generate` | `ai.generate` | Сгенерировать ответ |
+| GET | `/templates` | `templates.index` | `…/Templates/Index` |
+| POST | `/templates` | `templates.store` | |
+| PUT | `/templates/{template}` | `templates.update` | |
+| DELETE | `/templates/{template}` | `templates.destroy` | |
+| POST | `/bot-status` | `bot-status.update` | Вкл/выкл шаблонный бот |
+| GET | `/products/{product}` | `products.stats` | `…/Product/Stats` |
 
-- `POST /list` — список неотвеченных (`client_id`, `skip`)
-- `POST /send` — отправка ответа в WB
+Редиректы legacy:
 
-### Кабинеты (clients)
+- `/clients/{client}` → `/panel/wb/feedbacks`
+- `/clients/{client}/templates` → `/panel/wb/feedbacks/templates`
+- `/clients/{client}/products/{product}` → `/panel/wb/feedbacks/products/{product}`
 
-- `GET /client` — список кабинетов
-- `POST /client` — создание (проверка API-ключа, лимит `feedbacks_clients` в подписке)
-- `GET/PUT/DELETE /client/{id}` — CRUD
-- `GET /client/bot-status`, `POST /client/bot-status` — статус автоответчика
-- `GET /client/ai/data`, `POST /client/ai/data` — настройки AI-ответов
+При отсутствии выбранного кабинета — `Subscriber/Wb/Shared/NoCabinet`.
 
-### Шаблоны
+## Admin (web)
 
-- `POST /templates/all` — все шаблоны
-- Resource `/templates` (кроме index)
-
-### Статистика
-
-- `GET /widget/stats`, `GET /widget/answered`
-- `GET /stats/product` — статистика по товару
-
-## Admin API
-
-- `GET /admin/services/feedbacks/cabinets` — список кабинетов с подписчиками
-- `GET /admin/services/feedbacks/cabinets/{id}/stats` — статистика (`stat_type`: weekly, monthly, half_year, yearly)
-- `GET /admin/services/feedbacks/cabinets/{id}/answered` — отвеченные отзывы
-- `POST /admin/services/feedbacks/cabinets/{id}/recalculate` — пересчёт статистики
-- `GET /admin/services/feedbacks/ai-answers` — логи AI-ответов
+- `/cw-page/services/feedbacks/*` — список кабинетов, статистика, AI-ответы (через Admin services)
 
 ## Лимиты и тарификация
 
-- При создании кабинета списывается `limits_plan.feedbacks_clients` из активной подписки
+- Число кабинетов WB ограничивается `limits_plan.wb_cabinets` (не `feedbacks_clients` для новых созданий) — см. [wb-cabinets.md](wb-cabinets.md)
 - AI-ответы: `AiTaskType::WB_FEEDBACK_ANSWER_AI` (см. [ai-marketplace.md](ai-marketplace.md))
 
 ## Технические детали
 
 - WB Feedbacks API через `WBFeedbacksTrait` (`GET /api/v1/feedbacks`)
-- Неотвеченные отзывы (страница кабинета):
+- Неотвеченные отзывы (страница workspace):
   - count: `GET /api/v1/feedbacks/count-unanswered` (за всё время)
   - list: `GET /api/v1/feedbacks?isAnswered=false&take&skip` — **постраничная догрузка** (page size 1000, cap 25000), без dateFrom/dateTo
   - общая логика: `WBFeedbacksTrait::fetchAllUnansweredFeedbacks` — UI (`WbFeedbacksService`) и команда `subscriber:wb-feedbacks-answer` (AI + шаблоны)
@@ -81,7 +97,13 @@
   - `nmId` передаётся в API WB как точный артикул товара (UI-фильтр)
   - фильтр по оценке (1–5) — на бэкенде после ответа WB (в API WB нет multi-rating); в боте — `ai_ratings` / шаблоны
   - UI-пагинация и фильтры — query-параметры Inertia (`nmId`, `ratings[]`, `page`, `per_page`)
-- Фильтрация по брендам: поле `brands` в кабинете (через запятую при создании/редактировании). Ответ WB пост-фильтруется по `productDetails.brandName` (case-insensitive) **после** полной догрузки. Если бренды не заданы — показываются все.
-- Бот-статус и AI-рейтинги хранятся в `FeedbacksClients`
-- Статистика агрегируется в `ReviewStatistic` / `ReviewCategoryStatistic`
-- Обработанные отзывы: `GET /panel/wb/feedbacks/clients/{client}/answered` (limit/offset/has_text/has_photo)
+- Фильтрация по брендам: поле `brands` в `wb_feedbacks_settings` (через запятую). Ответ WB пост-фильтруется по `productDetails.brandName` (case-insensitive) **после** полной догрузки. Если бренды не заданы — показываются все.
+- Бот-статус и AI-рейтинги хранятся в `wb_feedbacks_settings` (не в legacy client)
+- Статистика агрегируется в `ReviewStatistic` / `ReviewCategoryStatistic` / `ReviewProductStatistic` с `cabinet_id` = `wb_cabinets.id` (после миграции)
+- Reviews / templates: `cabinet_id` / `client_id` указывают на unified cabinet id
+- Cron dual-source: пока у кого-то `is_migrated = false`, `FeedbacksRuntimeCabinetResolver` подмешивает legacy clients
+
+## Связанные документы
+
+- [wb-cabinets.md](wb-cabinets.md) — единый кабинет
+- [ai-marketplace.md](ai-marketplace.md) — AI-ответы

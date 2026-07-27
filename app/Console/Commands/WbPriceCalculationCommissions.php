@@ -5,7 +5,8 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use App\Services\Wb\WbPriceCalculationService;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\WbCabinet;
+use App\Models\Subscribers\Wb\Feedbacks\WbFeedbacksSettings;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCommissions;
 
 class WbPriceCalculationCommissions extends Command
@@ -74,10 +75,10 @@ class WbPriceCalculationCommissions extends Command
 
     private function getAllApiKeys()
     {
-        $keys = FeedbacksClients::query()
-            ->where(function ($query) {
-                $query->where('bot_status', 1)
-                    ->orWhere('ai_status', 1);
+        $keys = WbCabinet::query()
+            ->whereHas('feedbacksSettings', function ($query) {
+                $query->where('bot_status', true)
+                    ->orWhere('ai_status', true);
             })
             ->whereNotNull('apikey')
             ->pluck('apikey');

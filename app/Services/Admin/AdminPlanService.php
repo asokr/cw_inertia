@@ -52,7 +52,7 @@ class AdminPlanService
             'description' => $data['description'] ?? '',
             'limits_plan' => $this->parseLimits($data['limits_plan'] ?? []),
             'limits_month' => $this->parseLimits($data['limits_month'] ?? []),
-            'permissions' => $data['permissions'],
+            'permissions' => $this->normalizePermissions($data['permissions'] ?? []),
             'status' => $data['status'],
             'hidden' => $data['hidden'],
         ]);
@@ -62,6 +62,7 @@ class AdminPlanService
     {
         $limitsPlan = $this->parseLimits($data['limits_plan'] ?? []);
         $limitsMonth = $this->parseLimits($data['limits_month'] ?? []);
+        $permissions = $this->normalizePermissions($data['permissions'] ?? []);
 
         $plan->update([
             'name' => $data['name'],
@@ -70,7 +71,7 @@ class AdminPlanService
             'description' => $data['description'] ?? '',
             'limits_plan' => $limitsPlan,
             'limits_month' => $limitsMonth,
-            'permissions' => $data['permissions'],
+            'permissions' => $permissions,
             'status' => $data['status'],
             'hidden' => $data['hidden'],
         ]);
@@ -92,7 +93,7 @@ class AdminPlanService
             $subscription->save();
 
             $subscriber = Subscribers::find($subscription->subscribers_id);
-            $subscriber?->getUser()?->syncPermissions($plan->permissions);
+            $subscriber?->getUser()?->syncPermissions($permissions);
         }
 
         return $plan->fresh();
@@ -125,5 +126,38 @@ class AdminPlanService
         }
 
         return $result;
+    }
+
+    /**
+     * @param  mixed  $permissions
+     * @return list<string>
+     */
+    private function normalizePermissions(mixed $permissions): array
+    {
+        if (! is_array($permissions)) {
+            return [];
+        }
+
+        $allowed = $this->subscriberPermissionsQuery()
+            ->pluck('name')
+            ->all();
+
+        $allowedSet = array_fill_keys($allowed, true);
+
+        $normalized = [];
+        foreach ($permissions as $permission) {
+            if (! is_string($permission)) {
+                continue;
+            }
+
+            $name = trim($permission);
+            if ($name === '' || ! isset($allowedSet[$name])) {
+                continue;
+            }
+
+            $normalized[] = $name;
+        }
+
+        return array_values(array_unique($normalized));
     }
 }

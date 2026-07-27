@@ -119,6 +119,7 @@ class AdminWbApiUsageService
                 'method' => $log->method,
                 'endpoint' => $log->endpoint,
                 'request_data' => $log->request_data,
+                'response_data' => $log->response_data,
                 'response_code' => $log->response_code,
                 'created_at' => $log->created_at?->format('Y-m-d H:i:s'),
             ];

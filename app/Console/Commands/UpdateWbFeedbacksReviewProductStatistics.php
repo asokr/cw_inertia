@@ -5,7 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use App\Models\Subscribers\Wb\Feedbacks\Review;
 use App\Models\Subscribers\Wb\Feedbacks\ReviewProductStatistic;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Support\Wb\FeedbacksRuntimeCabinetResolver;
 
 class UpdateWbFeedbacksReviewProductStatistics extends Command
 {
@@ -18,10 +18,7 @@ class UpdateWbFeedbacksReviewProductStatistics extends Command
 
         [$startDate, $endDate] = $this->getMonthlyDateRange();
 
-        $clients = FeedbacksClients::where(function ($q) {
-            $q->where('ai_status', 1)
-                ->orWhere('bot_status', 1);
-        })->get();
+        $clients = app(FeedbacksRuntimeCabinetResolver::class)->allActiveAutomation();
 
         foreach ($clients as $client) {
             $cabinetId = $client->id;

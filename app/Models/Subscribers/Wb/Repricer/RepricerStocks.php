@@ -6,7 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use App\Models\Subscribers\Wb\Repricer\RepricerLogs;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 
 class RepricerStocks extends Model
 {
@@ -43,7 +43,7 @@ class RepricerStocks extends Model
 
     public function cabinet()
     {
-        return $this->belongsTo(RepricerCabinets::class, 'cabinet_id', 'id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 
     public function logs()
@@ -58,7 +58,7 @@ class RepricerStocks extends Model
 
     public function belong()
     {
-        return RepricerCabinets::where(['id' => $this->cabinet_id, 'user_id' => auth()->id()])->first();
+        return WbCabinet::where(['id' => $this->cabinet_id, 'user_id' => auth()->id()])->first();
     }
 
     public static function boot()

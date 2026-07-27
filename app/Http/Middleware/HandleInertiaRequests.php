@@ -4,6 +4,8 @@ namespace App\Http\Middleware;
 
 use App\Services\Admin\AiCostService;
 use App\Services\Subscriber\SubscriberContextService;
+use App\Services\Subscriber\Wb\WbCabinetMigrationService;
+use App\Services\Subscriber\Wb\WbCabinetService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -86,6 +88,46 @@ class HandleInertiaRequests extends Middleware
                 }
 
                 return app(SubscriberContextService::class)->forUser($user);
+            },
+            'wb_cabinets' => function () use ($request, $user) {
+                if (! $user || ! $request->is('panel', 'panel/*')) {
+                    return [];
+                }
+
+                if (! \App\Support\HomeRedirect::canAccessPanel($user)) {
+                    return [];
+                }
+
+                return app(WbCabinetService::class)->listSummaries($user);
+            },
+            'wb_api_key_warning' => function () use ($request, $user) {
+                if (! $user || ! $request->is('panel', 'panel/*')) {
+                    return null;
+                }
+
+                return WbCabinetService::API_KEY_WARNING;
+            },
+            'selected_wb_cabinet' => function () use ($request, $user) {
+                if (! $user || ! $request->is('panel', 'panel/*')) {
+                    return null;
+                }
+
+                if (! \App\Support\HomeRedirect::canAccessPanel($user)) {
+                    return null;
+                }
+
+                return app(WbCabinetService::class)->selectedSummary($user);
+            },
+            'wb_migration_required' => function () use ($request, $user) {
+                if (! $user || ! $request->is('panel', 'panel/*')) {
+                    return false;
+                }
+
+                if (! \App\Support\HomeRedirect::canAccessPanel($user)) {
+                    return false;
+                }
+
+                return app(WbCabinetMigrationService::class)->needsMigration($user);
             },
         ];
     }

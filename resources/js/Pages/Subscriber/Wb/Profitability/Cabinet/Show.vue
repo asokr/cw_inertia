@@ -69,7 +69,7 @@ function onPollingStart() {
     <SubscriberLayout :title="cabinet.name" :breadcrumbs="breadcrumbs">
         <ToolPageHeader title="Рентабельность Wildberries" :description="cabinet.name" />
 
-        <div class="space-y-6">
+        <div class="min-w-0 space-y-4 sm:space-y-6">
             <ProfitabilityWidget v-if="widget" :widget="widget" />
 
             <UpdateDataForm

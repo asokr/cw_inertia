@@ -2,6 +2,8 @@
 
 namespace App\Models\Subscribers\Wb\Feedbacks;
 
+use App\Models\Subscribers\Wb\WbCabinet;
+
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Subscribers\Wb\Feedbacks\BotResponse;
 
@@ -33,7 +35,7 @@ class Review extends Model
 
     public function cabinet()
     {
-        return $this->belongsTo(FeedbacksClients::class, 'cabinet_id', 'id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 
     public function botResponse()

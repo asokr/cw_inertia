@@ -6,6 +6,7 @@ import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import AiAutoSettings from "@/components/subscriber/wb/feedbacks/AiAutoSettings.vue";
 import AnsweredReviewsWidget from "@/components/subscriber/wb/feedbacks/AnsweredReviewsWidget.vue";
 import FeedbackCard from "@/components/subscriber/wb/feedbacks/FeedbackCard.vue";
+import FeedbacksFaq from "@/components/subscriber/wb/feedbacks/FeedbacksFaq.vue";
 import Badge from "@/components/ui/Badge.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
@@ -70,7 +71,7 @@ const hasActiveFilters = computed(
     () => ratingFilter.value.length > 0 || String(nmIdFilter.value || "").trim() !== ""
 );
 
-const baseUrl = `/panel/wb/feedbacks/clients/${props.client.id}`;
+const baseUrl = `/panel/wb/feedbacks`;
 const sendUrl = `${baseUrl}/feedbacks/send`;
 const generateUrl = `${baseUrl}/ai/generate`;
 const updateAiUrl = `${baseUrl}/ai`;
@@ -170,7 +171,7 @@ watchPropToast(() => props.feedbacksError);
     <SubscriberLayout :title="`Список отзывов — ${client.name}`" :breadcrumbs="breadcrumbs">
         <ToolPageHeader title="Список отзывов" :description="client.name">
             <template #actions>
-                <Link :href="`/panel/wb/feedbacks/clients/${client.id}/templates`">
+                <Link href="/panel/wb/feedbacks/templates">
                     <Button variant="outline">Шаблоны отзывов</Button>
                 </Link>
                 <Button variant="outline" @click="refresh">
@@ -201,8 +202,8 @@ watchPropToast(() => props.feedbacksError);
                             <Badge v-if="loadingFilters" variant="outline">Загрузка…</Badge>
                         </div>
                         <p class="text-xs text-muted-foreground">
-                            Данные запрашиваются из API Wildberries. Оценка фильтруется на сервере
-                            после ответа WB; nmID передаётся в API WB как точный артикул.
+                            Отзывы загружаются из кабинета Wildberries. Можно отфильтровать по оценке
+                            и артикулу товара.
                         </p>
                     </div>
                     <div class="text-right text-sm text-muted-foreground">
@@ -211,9 +212,9 @@ watchPropToast(() => props.feedbacksError);
                             <span class="font-medium text-foreground">{{ total }}</span>
                         </div>
                         <div v-if="feedbacksMeta.count_from_wb || feedbacksMeta.wb_count_unanswered" class="text-xs">
-                            скачано с WB: {{ feedbacksMeta.count_from_wb ?? 0 }}
+                            Получено отзывов: {{ feedbacksMeta.count_from_wb ?? 0 }}
                             <template v-if="feedbacksMeta.wb_count_unanswered != null">
-                                · count-unanswered: {{ feedbacksMeta.wb_count_unanswered }}
+                                · Неотвеченные: {{ feedbacksMeta.wb_count_unanswered }}
                             </template>
                             <template v-if="feedbacksMeta.pages_fetched">
                                 · стр.: {{ feedbacksMeta.pages_fetched }}
@@ -235,10 +236,9 @@ watchPropToast(() => props.feedbacksError);
                     v-if="feedbacksMeta.brand_filter_active"
                     class="mt-3 rounded-md border border-amber-300/70 bg-amber-100/70 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
                 >
-                    <p class="font-medium">Фильтр по брендам кабинета</p>
+                    <p class="font-medium">Фильтр по брендам</p>
                     <p class="mt-0.5 opacity-90">
-                        Показываются только отзывы брендов, указанных при добавлении/редактировании
-                        кабинета:
+                        Показываются только отзывы брендов из настроек:
                         <span class="font-semibold">{{ feedbacksMeta.brands.join(", ") }}</span>
                         <template v-if="feedbacksMeta.skipped_by_brand">
                             · отсеяно по бренду из скачанных:
@@ -250,12 +250,8 @@ watchPropToast(() => props.feedbacksError);
                     v-else
                     class="mt-3 rounded-md border border-dashed border-muted-foreground/30 bg-background/60 px-3 py-2 text-xs text-muted-foreground"
                 >
-                    Бренды в кабинете не заданы — показываются отзывы по всем брендам API-ключа.
-                    Указать бренды можно в
-                    <Link href="/panel/wb/feedbacks" class="underline hover:text-foreground">
-                        списке кабинетов
-                    </Link>
-                    (редактирование).
+                    Фильтр по брендам не задан — показываются отзывы по всем брендам API-ключа.
+                    Указать бренды можно в блоке «Настройки» выше.
                 </div>
 
                 <div class="mt-3 flex flex-wrap items-end gap-3">
@@ -281,7 +277,7 @@ watchPropToast(() => props.feedbacksError);
 
                     <div class="w-44 space-y-1">
                         <label class="text-xs font-medium text-muted-foreground" for="nm-filter">
-                            nmID (точный артикул WB)
+                            Артикул WB
                         </label>
                         <Input
                             id="nm-filter"
@@ -411,6 +407,10 @@ watchPropToast(() => props.feedbacksError);
 
         <div class="mt-8">
             <AnsweredReviewsWidget :client-id="client.id" />
+        </div>
+
+        <div class="mt-8">
+            <FeedbacksFaq />
         </div>
     </SubscriberLayout>
 </template>

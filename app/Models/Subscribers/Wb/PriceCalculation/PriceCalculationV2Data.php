@@ -2,6 +2,8 @@
 
 namespace App\Models\Subscribers\Wb\PriceCalculation;
 
+use App\Models\Subscribers\Wb\WbCabinet;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -95,6 +97,6 @@ class PriceCalculationV2Data extends Model
      */
     public function cabinet()
     {
-        return $this->belongsTo(PriceCalculationCabinets::class, 'cabinet_id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 }

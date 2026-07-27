@@ -1,14 +1,9 @@
 <script setup>
 import { Link } from "@inertiajs/vue3";
 import { computed } from "vue";
-import Badge from "@/components/ui/Badge.vue";
 import Card from "@/components/ui/Card.vue";
 import { getSubscriberTools } from "@/config/subscriberNav";
 import { usePermissions } from "@/composables/usePermissions";
-
-const props = defineProps({
-    cabinetsByTool: { type: Object, default: () => ({}) },
-});
 
 const { can, isAdmin, isSuperAdmin } = usePermissions();
 
@@ -16,10 +11,6 @@ const tools = computed(() => getSubscriberTools({
     can,
     isAdmin: isAdmin.value || isSuperAdmin.value,
 }));
-
-function cabinetCount(key) {
-    return props.cabinetsByTool?.[key] ?? 0;
-}
 </script>
 
 <template>
@@ -32,15 +23,12 @@ function cabinetCount(key) {
                 :href="tool.href"
                 class="group rounded-xl border border-border/70 bg-background/50 p-4 transition hover:border-primary/30 hover:bg-accent/30 hover:shadow-md hover:shadow-primary/5"
             >
-                <div class="mb-3 flex items-start justify-between gap-2">
+                <div class="mb-3">
                     <div
                         class="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary transition group-hover:bg-primary/15"
                     >
                         <component :is="tool.icon" class="h-5 w-5" />
                     </div>
-                    <Badge v-if="tool.hasCabinets" variant="secondary" class="tabular-nums">
-                        {{ cabinetCount(tool.key) }}
-                    </Badge>
                 </div>
                 <p class="text-xs text-muted-foreground">{{ tool.group }}</p>
                 <p class="mt-0.5 font-medium transition group-hover:text-primary">{{ tool.label }}</p>

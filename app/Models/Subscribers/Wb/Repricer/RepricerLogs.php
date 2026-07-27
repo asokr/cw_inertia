@@ -2,6 +2,8 @@
 
 namespace App\Models\Subscribers\Wb\Repricer;
 
+use App\Models\Subscribers\Wb\WbCabinet;
+
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,7 +23,7 @@ class RepricerLogs extends Model
 
     public function cabinet()
     {
-        return $this->hasOne(RepricerCabinets::class, 'id', 'cabinet_id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 
     public function getCreatedAtAttribute($value)

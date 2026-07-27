@@ -282,6 +282,7 @@ class AdminCwPageRoutesTest extends WebAuthTestCase
                 $table->string('method')->nullable();
                 $table->string('endpoint')->nullable();
                 $table->json('request_data')->nullable();
+                $table->json('response_data')->nullable();
                 $table->integer('response_code')->nullable();
                 $table->timestamp('created_at')->nullable();
             },

@@ -4,9 +4,8 @@ namespace App\Services\Subscriber\Wb;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Models\Subscribers\Subscribers;
 use Illuminate\Support\Facades\Validator;
-use App\Models\Subscribers\Wb\Feedbacks\FeedbacksClients;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksTemplates;
 
 class WbFeedbacksTemplatesService
@@ -17,7 +16,7 @@ class WbFeedbacksTemplatesService
     public function showAll(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'client_id' => 'required|exists:subs_wb_feedbacks_clients,id'
+            'client_id' => 'required|exists:wb_cabinets,id'
         ], [
             'client_id.exists' => 'Такого кабинета не существует'
         ]);
@@ -26,11 +25,8 @@ class WbFeedbacksTemplatesService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $client = FeedbacksClients::find($request->client_id);
-        $user_id = Auth::id();
-        $subscriber_id = Subscribers::where('user_id', $user_id)->first()->id;
-        $belongs = $client->subscriber_id == $subscriber_id;
-        if (!$belongs) {
+        $client = WbCabinet::find($request->client_id);
+        if (!$client || (int) $client->user_id !== (int) Auth::id()) {
             return response()->json(["success" => false, "messages" => ["Ошибка доступа"]], 200);
         }
 
@@ -55,7 +51,7 @@ class WbFeedbacksTemplatesService
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'client_id' => 'required|exists:subs_wb_feedbacks_clients,id',
+            'client_id' => 'required|exists:wb_cabinets,id',
             'text' => 'required|max:1200|min:10',
             'minRating' => 'required|numeric|min:1|max:5|lte:maxRating',
             'maxRating' => 'required|numeric|min:1|max:5|gte:minRating',
@@ -65,11 +61,8 @@ class WbFeedbacksTemplatesService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $client = FeedbacksClients::find($request->client_id);
-        $user_id = Auth::id();
-        $subscriber_id = Subscribers::where('user_id', $user_id)->first()->id;
-        $belongs = $client->subscriber_id == $subscriber_id;
-        if (!$belongs) {
+        $client = WbCabinet::find($request->client_id);
+        if (!$client || (int) $client->user_id !== (int) Auth::id()) {
             return response()->json(["success" => false, "messages" => ["Ошибка доступа"]], 200);
         }
 
@@ -150,13 +143,8 @@ class WbFeedbacksTemplatesService
             return false;
         }
 
-        $client = FeedbacksClients::find($model->client_id);
-        $user_id = Auth::id();
-        $subscriber_id = Subscribers::where('user_id', $user_id)->first()->id;
-
-        $belongs = $client->subscriber_id == $subscriber_id;
-
-        if (!$belongs) {
+        $client = WbCabinet::find($model->client_id);
+        if (!$client || (int) $client->user_id !== (int) Auth::id()) {
             return false;
         }
 

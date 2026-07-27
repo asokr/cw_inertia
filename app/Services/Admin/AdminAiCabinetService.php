@@ -2,15 +2,15 @@
 
 namespace App\Services\Admin;
 
-use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerCabinet;
 use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerTemplate;
+use App\Models\Subscribers\Wb\WbCabinet;
 use Illuminate\Database\Eloquent\Collection;
 
 class AdminAiCabinetService
 {
     public function listCabinets(): Collection
     {
-        return AiCabinetAnalyzerCabinet::with([
+        return WbCabinet::with([
             'user' => function ($query) {
                 $query->select('id', 'name', 'email')->with([
                     'subscriber' => fn ($q) => $q->select('id', 'user_id'),
@@ -20,11 +20,11 @@ class AdminAiCabinetService
             ->select(['id', 'user_id', 'name', 'created_at', 'updated_at'])
             ->orderByDesc('id')
             ->get()
-            ->map(function (AiCabinetAnalyzerCabinet $cabinet) {
+            ->map(function (WbCabinet $cabinet) {
                 $user = $cabinet->user;
                 $cabinet->owner = $user
-                    ? ($user->email ?: $user->name ?: 'User #' . $user->id)
-                    : 'Unknown (user_id: ' . $cabinet->user_id . ')';
+                    ? ($user->email ?: $user->name ?: 'User #'.$user->id)
+                    : 'Unknown (user_id: '.$cabinet->user_id.')';
                 $cabinet->subscriber_id = ($user && $user->subscriber) ? $user->subscriber->id : null;
 
                 return $cabinet;
@@ -57,15 +57,10 @@ class AdminAiCabinetService
         $template->description = isset($data['description']) ? (string) $data['description'] : null;
         $template->system_prompt = (string) $data['system_prompt'];
         $template->sort_order = (int) ($data['sort_order'] ?? $template->sort_order ?? 100);
-
-        if (array_key_exists('is_active', $data)) {
-            $template->is_active = (bool) $data['is_active'];
-        }
-
+        $template->is_active = (bool) ($data['is_active'] ?? $template->is_active);
         if (array_key_exists('response_format', $data)) {
             $template->response_format = (string) $data['response_format'];
         }
-
         $template->save();
 
         return $template;

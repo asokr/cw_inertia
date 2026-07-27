@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { Head } from "@inertiajs/vue3";
 import CabinetToolbar from "@/components/subscriber/wb/price-calc/CabinetToolbar.vue";
 import CardsTable from "@/components/subscriber/wb/price-calc/CardsTable.vue";
+import PriceCalcFaq from "@/components/subscriber/wb/price-calc/PriceCalcFaq.vue";
 import SettingsDialog from "@/components/subscriber/wb/price-calc/SettingsDialog.vue";
 import WorkflowAlert from "@/components/subscriber/wb/price-calc/WorkflowAlert.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
@@ -26,7 +27,7 @@ const breadcrumbs = [
 
 const settingsOpen = ref(false);
 
-const baseUrl = `/panel/wb/price-calc/cabinets/${props.cabinet.id}`;
+const baseUrl = `/panel/wb/price-calc`;
 
 const { watchPropToast } = useFlashToast();
 watchPropToast(() => props.cardsError);
@@ -65,5 +66,9 @@ watchPropToast(() => props.cardsError);
             :settings="settings"
             :save-url="`${baseUrl}/settings`"
         />
+
+        <div class="mt-8">
+            <PriceCalcFaq />
+        </div>
     </SubscriberLayout>
 </template>

@@ -16,6 +16,7 @@ class WbApiRequestLog extends Model
         'method',
         'endpoint',
         'request_data',
+        'response_data',
         'response_code',
         'created_at',
     ];
@@ -23,6 +24,7 @@ class WbApiRequestLog extends Model
     protected $casts = [
         'api_key' => EncryptCast::class,
         'request_data' => 'array',
+        'response_data' => 'array',
         'created_at' => 'datetime',
     ];
 

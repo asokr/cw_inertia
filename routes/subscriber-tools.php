@@ -19,6 +19,7 @@
 | - 3b.8  AI Cabinet Analyzer → /panel/wb/ai-cabinet-analyzer
 | - 3b.9  WB Promo Calculator → /panel/wb/promocalculator
 | - 3b.10 AI Marketplace     → /panel/ai
+| - 3b.11 WB A/B Testing     → /panel/wb/ab-testing
 |
 */
 
@@ -33,6 +34,7 @@ use App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer\CabinetsController 
 use App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer\WorkspaceController as WbAiCabinetAnalyzerWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Wb\Profitability\CabinetsController as WbProfitabilityCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Wb\Profitability\ReportController as WbProfitabilityReportController;
+use App\Http\Controllers\Web\Subscriber\Wb\AbTesting\WorkspaceController as WbAbTestingWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Wb\PromoCalculator\PromoCalculatorController as WbPromoCalculatorController;
 use App\Http\Controllers\Web\Subscriber\Wb\Repricer\CabinetsController as WbRepricerCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Wb\Repricer\StocksController as WbRepricerStocksController;
@@ -40,36 +42,57 @@ use App\Http\Controllers\Web\Subscriber\Wb\Repricer\StrategyHubController as WbR
 use App\Http\Controllers\Web\Subscriber\Wb\Repricer\TimeSettingsController as WbRepricerTimeSettingsController;
 use App\Http\Controllers\Web\Subscriber\Ai\MarketplaceController as AiMarketplaceController;
 use App\Http\Controllers\Web\Subscriber\Ai\MediaController as AiMediaController;
+use App\Http\Controllers\Web\Subscriber\Wb\Cabinets\CabinetsController as WbCabinetsController;
+use App\Http\Controllers\Web\Subscriber\Wb\Cabinets\MigrationController as WbCabinetsMigrationController;
 use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\ClientsController;
 use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\FeedbacksController;
 use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\StatsController;
 use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\TemplatesController;
 use Illuminate\Support\Facades\Route;
 
+/*
+| Unified WB Cabinets (global for all WB tools)
+*/
+Route::prefix('wb/cabinets')
+    ->name('subscriber.wb.cabinets.')
+    ->group(function () {
+        Route::get('/migration', [WbCabinetsMigrationController::class, 'show'])->name('migration');
+        Route::post('/migration/cabinets', [WbCabinetsMigrationController::class, 'storeCabinet'])->name('migration.cabinets.store');
+        Route::post('/migration/run', [WbCabinetsMigrationController::class, 'run'])->name('migration.run');
+
+        // Index page removed — manage cabinets from the header dropdown.
+        Route::redirect('/', '/panel')->name('index');
+        Route::post('/', [WbCabinetsController::class, 'store'])->name('store');
+        Route::put('/{cabinet}', [WbCabinetsController::class, 'update'])->name('update');
+        Route::delete('/{cabinet}', [WbCabinetsController::class, 'destroy'])->name('destroy');
+        Route::post('/select', [WbCabinetsController::class, 'select'])->name('select');
+    });
+
 Route::middleware(['permission:subscriber wb feedbacks'])
     ->prefix('wb/feedbacks')
     ->name('subscriber.wb.feedbacks.')
     ->group(function () {
-        Route::get('/', [ClientsController::class, 'index'])->name('index');
+        // Legacy URLs → flat workspace (cabinet lives in header)
+        Route::redirect('/clients/{client}', '/panel/wb/feedbacks');
+        Route::redirect('/clients/{client}/templates', '/panel/wb/feedbacks/templates');
+        Route::get('/clients/{client}/products/{product}', function (string $client, string $product) {
+            return redirect("/panel/wb/feedbacks/products/{$product}");
+        });
 
-        Route::post('/clients', [ClientsController::class, 'store'])->name('clients.store');
-        Route::put('/clients/{client}', [ClientsController::class, 'update'])->name('clients.update');
-        Route::delete('/clients/{client}', [ClientsController::class, 'destroy'])->name('clients.destroy');
+        Route::get('/', [FeedbacksController::class, 'show'])->name('index');
+        Route::get('/answered', [FeedbacksController::class, 'answered'])->name('answered');
+        Route::post('/feedbacks', [FeedbacksController::class, 'refresh'])->name('feedbacks.refresh');
+        Route::post('/feedbacks/send', [FeedbacksController::class, 'send'])->name('feedbacks.send');
+        Route::post('/ai', [FeedbacksController::class, 'updateAi'])->name('ai.update');
+        Route::post('/ai/generate', [FeedbacksController::class, 'generateAi'])->name('ai.generate');
 
-        Route::get('/clients/{client}', [FeedbacksController::class, 'show'])->name('clients.show');
-        Route::get('/clients/{client}/answered', [FeedbacksController::class, 'answered'])->name('clients.answered');
-        Route::post('/clients/{client}/feedbacks', [FeedbacksController::class, 'refresh'])->name('clients.feedbacks.refresh');
-        Route::post('/clients/{client}/feedbacks/send', [FeedbacksController::class, 'send'])->name('clients.feedbacks.send');
-        Route::post('/clients/{client}/ai', [FeedbacksController::class, 'updateAi'])->name('clients.ai.update');
-        Route::post('/clients/{client}/ai/generate', [FeedbacksController::class, 'generateAi'])->name('clients.ai.generate');
+        Route::get('/templates', [TemplatesController::class, 'index'])->name('templates.index');
+        Route::post('/templates', [TemplatesController::class, 'store'])->name('templates.store');
+        Route::put('/templates/{template}', [TemplatesController::class, 'update'])->name('templates.update');
+        Route::delete('/templates/{template}', [TemplatesController::class, 'destroy'])->name('templates.destroy');
+        Route::post('/bot-status', [TemplatesController::class, 'updateBotStatus'])->name('bot-status.update');
 
-        Route::get('/clients/{client}/templates', [TemplatesController::class, 'index'])->name('clients.templates.index');
-        Route::post('/clients/{client}/templates', [TemplatesController::class, 'store'])->name('clients.templates.store');
-        Route::put('/clients/{client}/templates/{template}', [TemplatesController::class, 'update'])->name('clients.templates.update');
-        Route::delete('/clients/{client}/templates/{template}', [TemplatesController::class, 'destroy'])->name('clients.templates.destroy');
-        Route::post('/clients/{client}/bot-status', [TemplatesController::class, 'updateBotStatus'])->name('clients.bot-status.update');
-
-        Route::get('/clients/{client}/products/{product}', [StatsController::class, 'product'])->name('clients.products.stats');
+        Route::get('/products/{product}', [StatsController::class, 'product'])->name('products.stats');
     });
 
 Route::middleware(['permission:subscriber oz feedbacks'])
@@ -93,18 +116,14 @@ Route::middleware(['permission:subscriber wb price calculator'])
     ->prefix('wb/price-calc')
     ->name('subscriber.wb.price-calc.')
     ->group(function () {
-        Route::get('/', [WbPriceCalcCabinetsController::class, 'index'])->name('index');
+        Route::redirect('/cabinets/{cabinet}', '/panel/wb/price-calc');
 
-        Route::post('/cabinets', [WbPriceCalcCabinetsController::class, 'store'])->name('cabinets.store');
-        Route::put('/cabinets/{cabinet}', [WbPriceCalcCabinetsController::class, 'update'])->name('cabinets.update');
-        Route::delete('/cabinets/{cabinet}', [WbPriceCalcCabinetsController::class, 'destroy'])->name('cabinets.destroy');
-
-        Route::get('/cabinets/{cabinet}', [WbPriceCalcWorkspaceController::class, 'show'])->name('cabinets.show');
-        Route::post('/cabinets/{cabinet}/sync', [WbPriceCalcWorkspaceController::class, 'sync'])->name('cabinets.sync');
-        Route::post('/cabinets/{cabinet}/settings', [WbPriceCalcWorkspaceController::class, 'saveSettings'])->name('cabinets.settings.save');
-        Route::post('/cabinets/{cabinet}/import-volume', [WbPriceCalcWorkspaceController::class, 'importVolume'])->name('cabinets.import-volume');
-        Route::post('/cabinets/{cabinet}/import-excel', [WbPriceCalcWorkspaceController::class, 'importExcel'])->name('cabinets.import-excel');
-        Route::post('/cabinets/{cabinet}/export-excel', [WbPriceCalcWorkspaceController::class, 'exportExcel'])->name('cabinets.export-excel');
+        Route::get('/', [WbPriceCalcWorkspaceController::class, 'show'])->name('index');
+        Route::post('/sync', [WbPriceCalcWorkspaceController::class, 'sync'])->name('sync');
+        Route::post('/settings', [WbPriceCalcWorkspaceController::class, 'saveSettings'])->name('settings.save');
+        Route::post('/import-volume', [WbPriceCalcWorkspaceController::class, 'importVolume'])->name('import-volume');
+        Route::post('/import-excel', [WbPriceCalcWorkspaceController::class, 'importExcel'])->name('import-excel');
+        Route::post('/export-excel', [WbPriceCalcWorkspaceController::class, 'exportExcel'])->name('export-excel');
     });
 
 Route::middleware(['permission:subscriber oz price calc'])
@@ -136,58 +155,48 @@ Route::middleware(['permission:subscriber wb repricer'])
     ->prefix('wb/repricer')
     ->name('subscriber.wb.repricer.')
     ->group(function () {
-        Route::get('/', [WbRepricerCabinetsController::class, 'index'])->name('index');
+        Route::redirect('/cabinets/{cabinet}', '/panel/wb/repricer');
+        Route::redirect('/cabinets/{cabinet}/time', '/panel/wb/repricer/time');
+        Route::redirect('/cabinets/{cabinet}/stocks', '/panel/wb/repricer/stocks');
 
-        Route::post('/cabinets', [WbRepricerCabinetsController::class, 'store'])->name('cabinets.store');
-        Route::put('/cabinets/{cabinet}', [WbRepricerCabinetsController::class, 'update'])->name('cabinets.update');
-        Route::delete('/cabinets/{cabinet}', [WbRepricerCabinetsController::class, 'destroy'])->name('cabinets.destroy');
-        Route::post('/cabinets/{cabinet}/logs', [WbRepricerCabinetsController::class, 'logs'])->name('cabinets.logs');
+        Route::get('/', [WbRepricerStrategyHubController::class, 'show'])->name('index');
+        Route::post('/logs', [WbRepricerCabinetsController::class, 'logs'])->name('logs');
 
-        Route::get('/cabinets/{cabinet}', [WbRepricerStrategyHubController::class, 'show'])->name('cabinets.show');
+        Route::get('/time', [WbRepricerTimeSettingsController::class, 'index'])->name('time.index');
+        Route::post('/time', [WbRepricerTimeSettingsController::class, 'store'])->name('time.store');
+        Route::put('/time/{setting}', [WbRepricerTimeSettingsController::class, 'update'])->name('time.update');
+        Route::delete('/time/{setting}', [WbRepricerTimeSettingsController::class, 'destroy'])->name('time.destroy');
 
-        Route::get('/cabinets/{cabinet}/time', [WbRepricerTimeSettingsController::class, 'index'])->name('cabinets.time.index');
-        Route::post('/cabinets/{cabinet}/time', [WbRepricerTimeSettingsController::class, 'store'])->name('cabinets.time.store');
-        Route::put('/cabinets/{cabinet}/time/{setting}', [WbRepricerTimeSettingsController::class, 'update'])->name('cabinets.time.update');
-        Route::delete('/cabinets/{cabinet}/time/{setting}', [WbRepricerTimeSettingsController::class, 'destroy'])->name('cabinets.time.destroy');
-
-        Route::get('/cabinets/{cabinet}/stocks', [WbRepricerStocksController::class, 'index'])->name('cabinets.stocks.index');
-        Route::post('/cabinets/{cabinet}/stocks', [WbRepricerStocksController::class, 'store'])->name('cabinets.stocks.store');
-        Route::put('/cabinets/{cabinet}/stocks/{stock}', [WbRepricerStocksController::class, 'update'])->name('cabinets.stocks.update');
-        Route::delete('/cabinets/{cabinet}/stocks/{stock}', [WbRepricerStocksController::class, 'destroy'])->name('cabinets.stocks.destroy');
-        Route::post('/cabinets/{cabinet}/stocks/sizes', [WbRepricerStocksController::class, 'loadSizes'])->name('cabinets.stocks.sizes');
-        Route::post('/cabinets/{cabinet}/stocks/{stock}/reset', [WbRepricerStocksController::class, 'reset'])->name('cabinets.stocks.reset');
+        Route::get('/stocks', [WbRepricerStocksController::class, 'index'])->name('stocks.index');
+        Route::post('/stocks', [WbRepricerStocksController::class, 'store'])->name('stocks.store');
+        Route::put('/stocks/{stock}', [WbRepricerStocksController::class, 'update'])->name('stocks.update');
+        Route::delete('/stocks/{stock}', [WbRepricerStocksController::class, 'destroy'])->name('stocks.destroy');
+        Route::post('/stocks/sizes', [WbRepricerStocksController::class, 'loadSizes'])->name('stocks.sizes');
+        Route::post('/stocks/{stock}/reset', [WbRepricerStocksController::class, 'reset'])->name('stocks.reset');
     });
 
 Route::middleware(['permission:subscriber wb profitability'])
     ->prefix('wb/profitability')
     ->name('subscriber.wb.profitability.')
     ->group(function () {
-        Route::get('/', [WbProfitabilityCabinetsController::class, 'index'])->name('index');
+        Route::redirect('/cabinets/{cabinet}', '/panel/wb/profitability');
 
-        Route::post('/cabinets', [WbProfitabilityCabinetsController::class, 'store'])->name('cabinets.store');
-        Route::put('/cabinets/{cabinet}', [WbProfitabilityCabinetsController::class, 'update'])->name('cabinets.update');
-        Route::delete('/cabinets/{cabinet}', [WbProfitabilityCabinetsController::class, 'destroy'])->name('cabinets.destroy');
-
-        Route::get('/cabinets/{cabinet}', [WbProfitabilityReportController::class, 'show'])->name('cabinets.show');
-        Route::get('/cabinets/{cabinet}/items', [WbProfitabilityReportController::class, 'items'])->name('cabinets.items');
-        Route::post('/cabinets/{cabinet}/report', [WbProfitabilityReportController::class, 'store'])->name('cabinets.report.store');
-        Route::post('/cabinets/{cabinet}/export', [WbProfitabilityReportController::class, 'exportStart'])->name('cabinets.export.start');
-        Route::get('/cabinets/{cabinet}/export/status', [WbProfitabilityReportController::class, 'exportStatus'])->name('cabinets.export.status');
-        Route::get('/cabinets/{cabinet}/export/download', [WbProfitabilityReportController::class, 'exportDownload'])->name('cabinets.export.download');
+        Route::get('/', [WbProfitabilityReportController::class, 'show'])->name('index');
+        Route::get('/items', [WbProfitabilityReportController::class, 'items'])->name('items');
+        Route::post('/report', [WbProfitabilityReportController::class, 'store'])->name('report.store');
+        Route::post('/export', [WbProfitabilityReportController::class, 'exportStart'])->name('export.start');
+        Route::get('/export/status', [WbProfitabilityReportController::class, 'exportStatus'])->name('export.status');
+        Route::get('/export/download', [WbProfitabilityReportController::class, 'exportDownload'])->name('export.download');
     });
 
 Route::middleware(['permission:subscriber wb ai cabinet analyzer'])
     ->prefix('wb/ai-cabinet-analyzer')
     ->name('subscriber.wb.ai-cabinet-analyzer.')
     ->group(function () {
-        Route::get('/', [WbAiCabinetAnalyzerCabinetsController::class, 'index'])->name('index');
+        Route::redirect('/cabinets/{cabinet}', '/panel/wb/ai-cabinet-analyzer');
 
-        Route::post('/cabinets', [WbAiCabinetAnalyzerCabinetsController::class, 'store'])->name('cabinets.store');
-        Route::put('/cabinets/{cabinet}', [WbAiCabinetAnalyzerCabinetsController::class, 'update'])->name('cabinets.update');
-        Route::delete('/cabinets/{cabinet}', [WbAiCabinetAnalyzerCabinetsController::class, 'destroy'])->name('cabinets.destroy');
-
-        Route::get('/cabinets/{cabinet}', [WbAiCabinetAnalyzerWorkspaceController::class, 'show'])->name('cabinets.show');
-        Route::post('/cabinets/{cabinet}/reports', [WbAiCabinetAnalyzerWorkspaceController::class, 'startReport'])->name('cabinets.reports.store');
+        Route::get('/', [WbAiCabinetAnalyzerWorkspaceController::class, 'show'])->name('index');
+        Route::post('/reports', [WbAiCabinetAnalyzerWorkspaceController::class, 'startReport'])->name('reports.store');
 
         Route::post('/ai-analyses/start', [WbAiCabinetAnalyzerAiAnalysesController::class, 'start'])->name('ai-analyses.start');
         Route::post('/ai-analyses/{analysis}/regenerate', [WbAiCabinetAnalyzerAiAnalysesController::class, 'regenerate'])->name('ai-analyses.regenerate');
@@ -204,6 +213,14 @@ Route::middleware(['permission:subscriber wb promo calculator'])
         Route::post('/calculate', [WbPromoCalculatorController::class, 'calculate'])->name('calculate');
         Route::post('/export', [WbPromoCalculatorController::class, 'export'])->name('export');
         Route::post('/repricer', [WbPromoCalculatorController::class, 'sendToRepricer'])->name('repricer');
+    });
+
+Route::middleware(['permission:subscriber wb ab testing'])
+    ->prefix('wb/ab-testing')
+    ->name('subscriber.wb.ab-testing.')
+    ->group(function () {
+        Route::get('/', [WbAbTestingWorkspaceController::class, 'show'])->name('index');
+        Route::post('/sync', [WbAbTestingWorkspaceController::class, 'sync'])->name('sync');
     });
 
 Route::prefix('ai')

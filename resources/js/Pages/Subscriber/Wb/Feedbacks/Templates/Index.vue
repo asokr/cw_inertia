@@ -21,7 +21,7 @@ const props = defineProps({
 const breadcrumbs = [
     { label: "Главная", href: "/panel" },
     { label: "Управление отзывами", href: "/panel/wb/feedbacks" },
-    { label: props.client.name, href: `/panel/wb/feedbacks/clients/${props.client.id}` },
+    { label: props.client.name, href: `/panel/wb/feedbacks` },
     { label: "Шаблоны" },
 ];
 
@@ -44,7 +44,7 @@ const editForm = useForm({
     maxRating: 5,
 });
 
-const baseUrl = `/panel/wb/feedbacks/clients/${props.client.id}`;
+const baseUrl = `/panel/wb/feedbacks`;
 const { showError, watchPropToast } = useFlashToast();
 watchPropToast(() => props.templatesError);
 const templatesUrl = `${baseUrl}/templates`;

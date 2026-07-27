@@ -2,16 +2,16 @@
 
 namespace App\Services\Admin;
 
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
+use App\Models\Subscribers\Wb\WbCabinet;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class AdminRepricerService
 {
     public function paginateCabinets(int $perPage = 25): LengthAwarePaginator
     {
-        return RepricerCabinets::query()
-            ->select(['id', 'user_id', 'name', 'created_at'])
+        return WbCabinet::query()
+            ->select(['id', 'user_id', 'name', 'created_at', 'error_code', 'error_message'])
             ->with([
                 'user' => function ($query) {
                     $query->select('id', 'name', 'email')->with([

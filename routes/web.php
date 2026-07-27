@@ -70,11 +70,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/email/verify', [VerificationController::class, 'notice'])->name('verification.notice');
 });
 
-Route::middleware(['auth', 'verified', 'panel.access'])
+Route::middleware(['auth', 'verified', 'panel.access', 'wb.cabinets.migrated'])
     ->prefix('panel')
     ->group(base_path('routes/subscriber.php'));
 
-Route::middleware(['auth', 'verified', 'panel.access'])
+Route::middleware(['auth', 'verified', 'panel.access', 'wb.cabinets.migrated'])
     ->prefix('panel')
     ->group(base_path('routes/subscriber-tools.php'));
 

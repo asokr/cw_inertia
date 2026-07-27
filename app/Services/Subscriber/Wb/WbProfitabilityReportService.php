@@ -7,7 +7,7 @@ use App\Http\Traits\WBApiTrait;
 use App\Jobs\ExportProfitabilityReportJob;
 use App\Jobs\ProcessProfitabilityReport;
 use App\Models\JobStatus;
-use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Support\ProfitabilityJobStatusPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -69,7 +69,7 @@ class WbProfitabilityReportService
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'cabinet_id' => 'required|exists:wb_profitability_cabinets,id',
+            'cabinet_id' => 'required|exists:wb_cabinets,id',
             'date_from' => 'required|date',
             'date_to' => 'required|date|after_or_equal:date_from',
             'dop_rashod' => 'nullable|numeric|min:0',
@@ -83,7 +83,7 @@ class WbProfitabilityReportService
             return response()->json(['success' => false, 'messages' => $validator->errors()->all()], 200);
         }
 
-        $cabinet = ProfitabilityCabinet::findOrFail($request->cabinet_id);
+        $cabinet = WbCabinet::findOrFail($request->cabinet_id);
 
         if ($this->hasActiveReportJob($cabinet->id)) {
             return response()->json([
@@ -121,14 +121,7 @@ class WbProfitabilityReportService
      */
     public function getCabinetPageData(int $cabinetId, int $userId): array
     {
-        $cabinet = DB::table('wb_profitability_cabinets')
-            ->select(['id', 'user_id'])
-            ->where('id', $cabinetId)
-            ->first();
-
-        if (! $cabinet || (int) $cabinet->user_id !== $userId) {
-            abort(403);
-        }
+        $this->assertOwnedCabinet($cabinetId, $userId);
 
         $jobStatus = $this->loadJobStatus($cabinetId);
 
@@ -164,14 +157,7 @@ class WbProfitabilityReportService
      */
     public function getItemsPage(int $cabinetId, int $userId, Request $request): array
     {
-        $cabinet = DB::table('wb_profitability_cabinets')
-            ->select(['id', 'user_id'])
-            ->where('id', $cabinetId)
-            ->first();
-
-        if (! $cabinet || (int) $cabinet->user_id !== $userId) {
-            abort(403);
-        }
+        $this->assertOwnedCabinet($cabinetId, $userId);
 
         $validated = Validator::make($request->all(), [
             'group' => ['required', Rule::in(['sales', 'returns', 'logistics', 'other'])],
@@ -230,14 +216,7 @@ class WbProfitabilityReportService
      */
     public function startExport(int $cabinetId, int $userId): array
     {
-        $cabinet = DB::table('wb_profitability_cabinets')
-            ->select(['id', 'user_id', 'name'])
-            ->where('id', $cabinetId)
-            ->first();
-
-        if (! $cabinet || (int) $cabinet->user_id !== $userId) {
-            abort(403);
-        }
+        $this->assertOwnedCabinet($cabinetId, $userId);
 
         $reportRow = DB::table('wb_profitability_reports')
             ->where('cabinet_id', $cabinetId)
@@ -335,14 +314,7 @@ class WbProfitabilityReportService
      */
     public function exportStatus(int $cabinetId, int $userId): array
     {
-        $cabinet = DB::table('wb_profitability_cabinets')
-            ->select(['id', 'user_id'])
-            ->where('id', $cabinetId)
-            ->first();
-
-        if (! $cabinet || (int) $cabinet->user_id !== $userId) {
-            abort(403);
-        }
+        $this->assertOwnedCabinet($cabinetId, $userId);
 
         $state = $this->getExportState($cabinetId);
 
@@ -418,14 +390,7 @@ class WbProfitabilityReportService
      */
     public function resolveExportDownload(int $cabinetId, int $userId): ?array
     {
-        $cabinet = DB::table('wb_profitability_cabinets')
-            ->select(['id', 'user_id'])
-            ->where('id', $cabinetId)
-            ->first();
-
-        if (! $cabinet || (int) $cabinet->user_id !== $userId) {
-            abort(403);
-        }
+        $this->assertOwnedCabinet($cabinetId, $userId);
 
         $state = $this->getExportState($cabinetId);
 
@@ -460,12 +425,12 @@ class WbProfitabilityReportService
 
     public function runExportJob(int $cabinetId, int $userId, int $reportId): void
     {
-        $cabinet = DB::table('wb_profitability_cabinets')
-            ->select(['id', 'user_id', 'name'])
+        $cabinet = WbCabinet::query()
             ->where('id', $cabinetId)
+            ->where('user_id', $userId)
             ->first();
 
-        if (! $cabinet || (int) $cabinet->user_id !== $userId) {
+        if (! $cabinet) {
             throw new \RuntimeException('Кабинет не найден');
         }
 
@@ -591,6 +556,20 @@ class WbProfitabilityReportService
     public static function exportCacheKey(int $cabinetId): string
     {
         return 'profitability_export_'.$cabinetId;
+    }
+
+    private function assertOwnedCabinet(int $cabinetId, int $userId): WbCabinet
+    {
+        $cabinet = WbCabinet::query()
+            ->where('id', $cabinetId)
+            ->where('user_id', $userId)
+            ->first();
+
+        if (! $cabinet) {
+            abort(403);
+        }
+
+        return $cabinet;
     }
 
     /**

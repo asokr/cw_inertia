@@ -15,9 +15,9 @@ use App\Services\Subscriber\Wb\WbProfitabilityReportService;
 use App\Services\Wb\ProfitabilityApiService;
 use App\Models\Subscribers\Wb\Profitability\Item;
 use App\Models\Subscribers\Wb\Profitability\Report;
-use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
-use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationCabinets;
+
 use App\Notifications\WbCabinetAuthorizationNotification;
 use App\Support\ProfitabilityJobStatusPresenter;
 use Illuminate\Support\Facades\Log;
@@ -53,7 +53,7 @@ class ProcessProfitabilityReport implements ShouldQueue
         $this->updateStatusProgress('preparing', ['waiting_for_api' => false]);
 
         try {
-            $cabinet = ProfitabilityCabinet::findOrFail($this->cabinetId);
+            $cabinet = WbCabinet::findOrFail($this->cabinetId);
 
             $operations = [
                 'logistics'            => 'Логистика',
@@ -94,11 +94,8 @@ class ProcessProfitabilityReport implements ShouldQueue
             $logisticsSum1 = 0;
             $logisticsSum2 = 0;
 
-            $priceCalcCabinets = PriceCalculationCabinets::where('user_id', $this->userId)
-                ->get(['id', 'name', 'apikey']);
-
-            $priceCalcCabinetIds = $this->resolveRelevantPriceCalcCabinetIds($cabinet, $priceCalcCabinets->all());
-            $costLookup = $this->buildPriceCalculationCostLookup($priceCalcCabinetIds);
+            // Unified cabinet: price-calc data shares the same cabinet_id.
+            $costLookup = $this->buildPriceCalculationCostLookup([(int) $cabinet->id]);
 
             $totals['margin'] = 0;
             $totals['purchase_cost'] = 0;
@@ -631,7 +628,7 @@ class ProcessProfitabilityReport implements ShouldQueue
         ]);
     }
 
-    private function notifyTokenExpired(ProfitabilityCabinet $cabinet): void
+    private function notifyTokenExpired(WbCabinet $cabinet): void
     {
         try {
             $cabinet->loadMissing('user');
@@ -679,45 +676,6 @@ class ProcessProfitabilityReport implements ShouldQueue
     private function safeDivide(float $numerator, float $denominator): float
     {
         return abs($denominator) > 0.0000001 ? $numerator / $denominator : 0.0;
-    }
-
-    /**
-     * Подбираем наиболее релевантные кабинеты ценообразования: сначала точный матч по api key/имени,
-     * затем fallback на все кабинеты пользователя.
-     *
-     * @param  array<int, PriceCalculationCabinets>  $priceCalcCabinets
-     * @return array<int, int>
-     */
-    private function resolveRelevantPriceCalcCabinetIds(ProfitabilityCabinet $profitabilityCabinet, array $priceCalcCabinets): array
-    {
-        $priorityIds = [];
-        $allIds = [];
-
-        $profitabilityApiKey = trim((string) ($profitabilityCabinet->apikey ?? ''));
-        $profitabilityName = mb_strtolower(trim((string) ($profitabilityCabinet->name ?? '')));
-
-        foreach ($priceCalcCabinets as $priceCabinet) {
-            $priceCabinetId = (int) ($priceCabinet->id ?? 0);
-            if ($priceCabinetId <= 0) {
-                continue;
-            }
-
-            $allIds[] = $priceCabinetId;
-
-            $priceApiKey = trim((string) ($priceCabinet->apikey ?? ''));
-            $priceName = mb_strtolower(trim((string) ($priceCabinet->name ?? '')));
-
-            if ($profitabilityApiKey !== '' && $priceApiKey !== '' && hash_equals($profitabilityApiKey, $priceApiKey)) {
-                $priorityIds[] = $priceCabinetId;
-                continue;
-            }
-
-            if ($profitabilityName !== '' && $priceName !== '' && $profitabilityName === $priceName) {
-                $priorityIds[] = $priceCabinetId;
-            }
-        }
-
-        return array_values(array_unique(array_merge($priorityIds, $allIds)));
     }
 
     /**

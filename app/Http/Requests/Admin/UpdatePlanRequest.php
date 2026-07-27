@@ -2,17 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
-use Illuminate\Foundation\Http\FormRequest;
-
-class UpdatePlanRequest extends FormRequest
+class UpdatePlanRequest extends StorePlanRequest
 {
-    public function authorize(): bool
-    {
-        return true;
-    }
-
-    public function rules(): array
-    {
-        return (new StorePlanRequest())->rules();
-    }
+    // Inherits authorize, prepareForValidation, rules, messages.
 }

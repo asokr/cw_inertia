@@ -2,6 +2,8 @@
 
 namespace App\Models\Subscribers\Wb\AiCabinetAnalyzer;
 
+use App\Models\Subscribers\Wb\WbCabinet;
+
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -27,7 +29,7 @@ class AiCabinetAnalyzerReport extends Model
 
     public function cabinet(): BelongsTo
     {
-        return $this->belongsTo(AiCabinetAnalyzerCabinet::class, 'cabinet_id');
+        return $this->belongsTo(WbCabinet::class, 'cabinet_id');
     }
 
     public function aiAnalyses(): HasMany

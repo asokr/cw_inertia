@@ -147,18 +147,18 @@ const showZeroAxis = computed(() => distributionStats.value.minNegative < 0);
 </script>
 
 <template>
-    <Card class="p-5">
-        <header class="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div class="flex flex-col gap-1">
-                <h2 class="text-xl font-semibold tracking-tight">Структура выручки</h2>
+    <Card class="min-w-0 overflow-hidden p-3 sm:p-5">
+        <header class="mb-3 flex flex-wrap items-start justify-between gap-2 sm:mb-4 sm:gap-3">
+            <div class="flex min-w-0 flex-col gap-1">
+                <h2 class="text-lg font-semibold tracking-tight sm:text-xl">Структура выручки</h2>
                 <span v-if="periodRangeText" class="text-xs uppercase tracking-wide text-muted-foreground">
                     {{ periodRangeText }}
                 </span>
             </div>
         </header>
 
-        <div v-if="hasAnyData" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <div class="col-span-1 md:col-span-2 xl:col-span-1">
+        <div v-if="hasAnyData" class="grid min-w-0 grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            <div class="min-w-0 lg:col-span-2 xl:col-span-1">
                 <RevenueStructure
                     v-if="hasBreakdownData"
                     :items="breakdownItems"
@@ -173,7 +173,7 @@ const showZeroAxis = computed(() => distributionStats.value.minNegative < 0);
 
         <div
             v-else
-            class="flex flex-col items-center gap-2 rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground"
+            class="flex flex-col items-center gap-2 rounded-2xl border border-dashed p-4 text-center text-sm text-muted-foreground sm:p-6"
         >
             <p>Данных по прибыльности для выбранного кабинета пока нет.</p>
         </div>

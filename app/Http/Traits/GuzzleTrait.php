@@ -36,7 +36,7 @@ trait GuzzleTrait
             ];
         }
 
-        $this->trackWbApiUsage($apiKey, 'PUT', $url, $data, $result['code']);
+        $this->trackWbApiUsage($apiKey, 'PUT', $url, $data, $result['code'], $result['response'] ?? null);
 
         return $result;
     }
@@ -70,7 +70,7 @@ trait GuzzleTrait
             ];
         }
 
-        $this->trackWbApiUsage($apiKey, 'PATCH', $url, $data, $result['code']);
+        $this->trackWbApiUsage($apiKey, 'PATCH', $url, $data, $result['code'], $result['response'] ?? null);
 
         return $result;
     }
@@ -109,7 +109,7 @@ trait GuzzleTrait
         }
 
         if ($apiKey != '') {
-            $this->trackWbApiUsage($apiKey, 'GET', $url, $data, $result['code']);
+            $this->trackWbApiUsage($apiKey, 'GET', $url, $data, $result['code'], $result['response'] ?? null);
         }
 
         return $result;
@@ -148,13 +148,19 @@ trait GuzzleTrait
             ];
         }
 
-        $this->trackWbApiUsage($apiKey, 'POST', $url, $data, $result['code']);
+        $this->trackWbApiUsage($apiKey, 'POST', $url, $data, $result['code'], $result['response'] ?? null);
 
         return $result;
     }
 
-    private function trackWbApiUsage(?string $apiKey, string $method, string $url, ?array $requestData = null, ?int $responseCode = null): void
-    {
+    private function trackWbApiUsage(
+        ?string $apiKey,
+        string $method,
+        string $url,
+        ?array $requestData = null,
+        ?int $responseCode = null,
+        mixed $responseBody = null,
+    ): void {
         if (! class_exists(WbApiUsageService::class)) {
             return;
         }
@@ -170,7 +176,14 @@ trait GuzzleTrait
         }
 
         try {
-            app(WbApiUsageService::class)->recordRequest($apiKey, $method, $url, $requestData, $responseCode);
+            app(WbApiUsageService::class)->recordRequest(
+                $apiKey,
+                $method,
+                $url,
+                $requestData,
+                $responseCode,
+                $responseBody,
+            );
         } catch (\Throwable $exception) {
             report($exception);
         }

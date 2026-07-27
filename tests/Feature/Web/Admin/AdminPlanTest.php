@@ -72,7 +72,7 @@ class AdminPlanTest extends WebAuthTestCase
                 'status' => 1,
                 'hidden' => 0,
             ])
-            ->assertSessionHasErrors('permissions.0');
+            ->assertSessionHasErrors('permissions');
     }
 
     public function test_plan_update_accepts_subscriber_permissions(): void
@@ -109,6 +109,54 @@ class AdminPlanTest extends WebAuthTestCase
 
         $this->assertSame('Оптимальный', $plan->name);
         $this->assertSame(['subscriber ai', 'subscriber wb feedbacks'], $plan->permissions);
+    }
+
+    public function test_plan_update_strips_legacy_removed_permissions(): void
+    {
+        $user = $this->makeSuperAdmin();
+
+        $plan = SubscribersPlans::create([
+            'name' => 'Legacy',
+            'price' => 1000,
+            'duration' => 30,
+            'description' => '',
+            'limits_plan' => ['feedbacks_clients' => 5],
+            'limits_month' => [],
+            'permissions' => [
+                'subscriber wb feedbacks',
+                'subscriber wb autosupply',
+                'subscriber wb profit analyzer',
+            ],
+            'status' => 1,
+            'hidden' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->put("/cw-page/plans/{$plan->id}", [
+                'name' => 'Legacy',
+                'price' => 1000,
+                'duration' => 30,
+                'description' => '',
+                'limits_plan' => 'wb_cabinets:3|repricer_nmid:100',
+                'limits_month' => '',
+                // Frontend may still send a legacy name once; service must drop it.
+                'permissions' => [
+                    'subscriber wb feedbacks',
+                    'subscriber ai',
+                    'subscriber wb autosupply',
+                ],
+                'status' => 1,
+                'hidden' => 0,
+            ])
+            ->assertRedirect(route('admin.plans.index'));
+
+        $plan->refresh();
+
+        $this->assertSame(['subscriber wb feedbacks', 'subscriber ai'], $plan->permissions);
+        $this->assertSame([
+            'wb_cabinets' => '3',
+            'repricer_nmid' => '100',
+        ], $plan->limits_plan);
     }
 
     private function makeSuperAdmin(): User

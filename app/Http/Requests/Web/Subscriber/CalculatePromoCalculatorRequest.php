@@ -18,7 +18,7 @@ class CalculatePromoCalculatorRequest extends FormRequest
     {
         return [
             'file' => ['required', 'string', 'max:255'],
-            'cabinet_id' => ['required', 'integer', 'exists:wb_price_cabinets,id'],
+            'cabinet_id' => ['required', 'integer', 'exists:wb_cabinets,id'],
         ];
     }
 

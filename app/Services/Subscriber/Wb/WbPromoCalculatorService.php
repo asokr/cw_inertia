@@ -15,7 +15,7 @@ use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx as XlsxWriter;
-use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
+use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV2Data;
 
@@ -332,7 +332,7 @@ class WbPromoCalculatorService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = RepricerCabinets::find($request->cabinet_id);
+        $cabinet = WbCabinet::find($request->cabinet_id);
         // Проверим, принадлежит-ли кабинет текущему юзеру
         $belongs = $cabinet->user_id == auth()->user()->id;
         if (! $belongs) {
