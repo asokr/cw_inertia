@@ -154,7 +154,10 @@ function markTourSeen() {
         </div>
 
         <div class="subscriber-cabinet__fade subscriber-cabinet__fade--5 mt-6 grid gap-4 lg:grid-cols-2">
-            <PanelLimitsWidget :remaining-limits="subscription?.remaining_limits ?? {}" />
+            <PanelLimitsWidget
+                :remaining-limits="subscription?.remaining_limits ?? {}"
+                :remaining-limits-display="subscription?.remaining_limits_display ?? null"
+            />
             <PanelRecentPayments :payments="dashboard.recent_payments ?? []" />
         </div>
 

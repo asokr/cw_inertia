@@ -4,6 +4,7 @@ namespace App\Services\Subscriber;
 
 use App\Enums\SubscriptionsControlActionEnum;
 use App\Http\Traits\SubscriptionsTrait;
+use App\Support\PlanLimitPresenter;
 use App\Support\SubscriberLimitLabels;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
@@ -63,10 +64,19 @@ class SubscriptionManagementService
             ->get()
             ->toArray();
 
+        $limitsPlan = is_array($subscription->limits_plan) ? $subscription->limits_plan : [];
+        $limitsMonth = is_array($subscription->limits_month) ? $subscription->limits_month : [];
+        $extraMonth = is_array($subscription->extra_limits_month) ? $subscription->extra_limits_month : [];
+
         return [
             'subscription' => $subscription,
             'plan' => $plan,
             'next' => $next,
+            'display_limits' => [
+                'plan' => PlanLimitPresenter::displayEntries($limitsPlan, null),
+                'month' => PlanLimitPresenter::displayEntries(null, $limitsMonth),
+                'extra' => PlanLimitPresenter::displayEntries(null, $extraMonth),
+            ],
         ];
     }
 

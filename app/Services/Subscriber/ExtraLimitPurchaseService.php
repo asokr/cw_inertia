@@ -15,8 +15,10 @@ class ExtraLimitPurchaseService
      */
     public function listCatalog(): array
     {
-        return ExtraLimits::select(['id', 'price', 'limit_name', 'quantity'])
+        return ExtraLimits::query()
+            ->select(['id', 'slug', 'name', 'price', 'order'])
             ->orderBy('order')
+            ->orderBy('id')
             ->get()
             ->toArray();
     }
@@ -42,7 +44,7 @@ class ExtraLimitPurchaseService
     /**
      * @return array{success: bool, messages: array<int, string>, data?: array<string, mixed>}
      */
-    public function purchase(User $user, int $extraLimitId): array
+    public function purchase(User $user, int $extraLimitId, int $quantity): array
     {
         $extraLimits = ExtraLimits::find($extraLimitId);
 
@@ -50,17 +52,28 @@ class ExtraLimitPurchaseService
             return ['success' => false, 'messages' => ['Ошибка в данных']];
         }
 
+        if ($quantity < 1) {
+            return ['success' => false, 'messages' => ['Укажите количество']];
+        }
+
+        $unitPrice = (float) $extraLimits->price;
+        $total = round($quantity * $unitPrice, 2);
+        $slug = (string) $extraLimits->slug;
+        $displayName = (string) $extraLimits->name;
+
         $logContext = [
             'user_id' => $user->id,
             'subscription_id' => null,
             'extra_limit_id' => $extraLimits->id,
-            'limit_name' => $extraLimits->limit_name,
-            'quantity' => $extraLimits->quantity,
-            'price' => $extraLimits->price,
+            'slug' => $slug,
+            'name' => $displayName,
+            'quantity' => $quantity,
+            'unit_price' => $unitPrice,
+            'total' => $total,
             'currency' => 'RUB',
         ];
 
-        if (! $user->isEnoughFunds($extraLimits->price, 'RUB')) {
+        if (! $user->isEnoughFunds($total, 'RUB')) {
             Log::channel('balance')->warning('Extra limit purchase aborted: insufficient funds', $logContext);
 
             return ['success' => false, 'messages' => ['Недостаточно средств']];
@@ -77,18 +90,16 @@ class ExtraLimitPurchaseService
         $data = [];
 
         try {
-            DB::transaction(function () use (&$data, $subscription, $extraLimits, $user, $logContext) {
+            DB::transaction(function () use (&$data, $subscription, $extraLimits, $user, $quantity, $total, $slug, $displayName, $unitPrice, $logContext) {
                 $subscriptionExtraLimits = $subscription->extra_limits_month ?? [];
-                $limitKey = $extraLimits->limit_name;
-                $previousQuantity = (int) ($subscriptionExtraLimits[$limitKey] ?? 0);
-                $purchasedQuantity = (int) $extraLimits->quantity;
-                $updatedQuantity = $previousQuantity + $purchasedQuantity;
-                $subscriptionExtraLimits[$limitKey] = $updatedQuantity;
+                $previousQuantity = (int) ($subscriptionExtraLimits[$slug] ?? 0);
+                $updatedQuantity = $previousQuantity + $quantity;
+                $subscriptionExtraLimits[$slug] = $updatedQuantity;
                 $subscription->extra_limits_month = $subscriptionExtraLimits;
                 $subscription->save();
 
-                $charge = charge($extraLimits->price, 'RUB')->from($user)->meta([
-                    'description' => "Покупка дополнительного лимита {$limitKey}: было {$previousQuantity}, купили {$purchasedQuantity}, стало {$updatedQuantity}",
+                $charge = charge($total, 'RUB')->from($user)->meta([
+                    'description' => "Покупка доп. лимита «{$displayName}» ({$slug}): +{$quantity} × {$unitPrice} ₽ = {$total} ₽; было {$previousQuantity}, стало {$updatedQuantity}",
                 ])->commit();
 
                 if ($charge === false) {

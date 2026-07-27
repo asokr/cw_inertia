@@ -6,6 +6,7 @@ use App\Enums\SubscriptionsControlActionEnum;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptionsControl;
 use App\Models\User;
+use App\Support\PlanLimitPresenter;
 use Carbon\Carbon;
 
 class PlansPageService
@@ -65,6 +66,10 @@ class PlansPageService
                 $plan['downgrade_overages'] = $plan['lower'] && $subscriberId
                     ? $this->subscriptionService->previewPlanLimitOverages($subscriberId, $plan['limits_plan'] ?? [])
                     : [];
+                $plan['display_limits'] = PlanLimitPresenter::displayEntries(
+                    $plan['limits_plan'] ?? [],
+                    $plan['limits_month'] ?? [],
+                );
 
                 return $plan;
             })

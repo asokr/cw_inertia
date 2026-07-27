@@ -1,6 +1,6 @@
 <script setup>
 import { Head, useForm } from "@inertiajs/vue3";
-import { computed, ref } from "vue";
+import { computed, ref, watchEffect } from "vue";
 import AdminLayout from "@/Layouts/AdminLayout.vue";
 import PageHeader from "@/components/admin/PageHeader.vue";
 import SubscribersSubnav from "@/components/admin/SubscribersSubnav.vue";
@@ -17,6 +17,7 @@ import TabsContent from "@/components/ui/TabsContent.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import Badge from "@/components/ui/Badge.vue";
 import SubscriberLimitsEditor from "@/components/admin/SubscriberLimitsEditor.vue";
+import { setLimitLabels } from "@/utils/limitLabels";
 
 const props = defineProps({
     subscriber: { type: Object, required: true },
@@ -24,6 +25,11 @@ const props = defineProps({
     totalDeposits: { type: Number, default: 0 },
     plans: { type: Array, default: () => [] },
     limitKeys: { type: Array, default: () => [] },
+    limitLabels: { type: Object, default: () => ({}) },
+});
+
+watchEffect(() => {
+    setLimitLabels(props.limitLabels);
 });
 
 const activeTab = ref("profile");

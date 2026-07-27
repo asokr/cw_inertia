@@ -9,15 +9,15 @@ class AdminExtraLimitService
 {
     public function all(): Collection
     {
-        return ExtraLimits::query()->orderBy('order')->get();
+        return ExtraLimits::query()->orderBy('order')->orderBy('id')->get();
     }
 
     public function create(array $data): ExtraLimits
     {
         return ExtraLimits::create([
+            'slug' => $data['slug'],
+            'name' => $data['name'],
             'price' => $data['price'],
-            'limit_name' => $data['limit_name'],
-            'quantity' => $data['quantity'],
             'order' => $data['order'] ?? 0,
         ]);
     }
@@ -25,9 +25,9 @@ class AdminExtraLimitService
     public function update(ExtraLimits $extraLimit, array $data): ExtraLimits
     {
         $extraLimit->update([
+            'slug' => $data['slug'],
+            'name' => $data['name'],
             'price' => $data['price'],
-            'limit_name' => $data['limit_name'],
-            'quantity' => $data['quantity'],
             'order' => $data['order'] ?? 0,
         ]);
 

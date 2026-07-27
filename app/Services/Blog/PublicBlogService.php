@@ -69,8 +69,8 @@ class PublicBlogService
      */
     public function getPublishedBySlug(string $slug): array
     {
-        /** @var Post $post */
-        $post = $this->blogCacheService->getSubscriberPostBySlug($slug, function () use ($slug) {
+        /** @var array<string, mixed> $payload */
+        $payload = $this->blogCacheService->getSubscriberPostBySlug($slug, function () use ($slug) {
             $model = Post::query()
                 ->published()
                 ->where('slug', $slug)
@@ -80,12 +80,18 @@ class PublicBlogService
 
             $this->blogCacheService->rememberSubscriberPostIdSlug($model->id, $model->slug);
 
-            return $model;
+            // Cache plain arrays, not Eloquent models — unserialized models can become
+            // __PHP_Incomplete_Class and blow up on property writes (production.ERROR).
+            return (new SubscriberPostResource($model))->resolve();
         });
 
-        $post->views_count++;
+        // Optimistic display (+1) for the current request; real increment is POST /view.
+        // Do not mutate the cached value — only the local response copy.
+        if (array_key_exists('views_count', $payload)) {
+            $payload['views_count'] = (int) $payload['views_count'] + 1;
+        }
 
-        return (new SubscriberPostResource($post))->resolve();
+        return $payload;
     }
 
     public function incrementView(string $slug): void

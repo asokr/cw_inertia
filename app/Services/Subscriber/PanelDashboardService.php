@@ -12,6 +12,7 @@ use App\Models\Subscribers\Wb\Feedbacks\WbFeedbacksSettings;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
 use App\Services\SubscriptionService;
+use App\Support\PlanLimitPresenter;
 use Illuminate\Support\Facades\Schema;
 
 class PanelDashboardService
@@ -49,11 +50,14 @@ class PanelDashboardService
         $plan = $subscription->plan ?? SubscribersPlans::query()->find($subscription->plan_id);
         $limitsSubscription = $this->resolveActiveSubscription($subscriberId) ?? $subscription;
 
+        $remainingLimits = $this->buildRemainingLimits($limitsSubscription);
+
         return [
             'plan_name' => $plan?->name,
             'end_date' => $subscription->end_date,
             'status' => (int) $subscription->status,
-            'remaining_limits' => $this->buildRemainingLimits($limitsSubscription),
+            'remaining_limits' => $remainingLimits,
+            'remaining_limits_display' => PlanLimitPresenter::displayEntries($remainingLimits, null),
         ];
     }
 
@@ -110,13 +114,29 @@ class PanelDashboardService
         }
 
         $planLimits = is_array($subscription->limits_plan) ? $subscription->limits_plan : [];
-        foreach ($this->planLimitKeys() as $key) {
+
+        // Prefer unified WB cabinets; fall back to max of legacy per-tool keys.
+        if (array_key_exists('wb_cabinets', $planLimits)) {
+            $limits['wb_cabinets'] = (int) $planLimits['wb_cabinets'];
+        } else {
+            $legacyValues = [];
+            foreach (['feedbacks_clients', 'price_calc_clients', 'adverts_clients'] as $legacyKey) {
+                if (array_key_exists($legacyKey, $planLimits)) {
+                    $legacyValues[] = (int) $planLimits[$legacyKey];
+                }
+            }
+            if ($legacyValues !== []) {
+                $limits['wb_cabinets'] = max($legacyValues);
+            }
+        }
+
+        foreach (['oz_feedbacks_clients', 'oz_price_calc_clients', 'repricer_nmid'] as $key) {
             if (array_key_exists($key, $planLimits)) {
                 $limits[$key] = (int) $planLimits[$key];
             }
         }
 
-        return $limits;
+        return PlanLimitPresenter::normalizeRemainingMap($limits);
     }
 
     /**
@@ -234,18 +254,4 @@ class PanelDashboardService
         ];
     }
 
-    /**
-     * @return array<int, string>
-     */
-    private function planLimitKeys(): array
-    {
-        return [
-            'feedbacks_clients',
-            'oz_feedbacks_clients',
-            'price_calc_clients',
-            'oz_price_calc_clients',
-            'repricer_nmid',
-            'adverts_clients',
-        ];
-    }
 }

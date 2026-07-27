@@ -13,9 +13,12 @@ class ExtraLimitController extends Controller
         BuyExtraLimitRequest $request,
         ExtraLimitPurchaseService $service,
     ): RedirectResponse {
+        $validated = $request->validated();
+
         $result = $service->purchase(
             $request->user(),
-            (int) $request->validated('id'),
+            (int) $validated['id'],
+            (int) $validated['quantity'],
         );
 
         if (! $result['success']) {

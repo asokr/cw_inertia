@@ -10,14 +10,14 @@ class ExtraLimits extends Model
     use HasFactory;
 
     protected $fillable = [
+        'slug',
+        'name',
         'price',
-        'limit_name',
-        'quantity',
-        'order'
+        'order',
     ];
 
     protected $casts = [
         'price' => 'float',
+        'order' => 'integer',
     ];
-
 }

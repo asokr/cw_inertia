@@ -34,6 +34,7 @@ class SubscriberController extends Controller
         return Inertia::render('Admin/Subscribers/Index', [
             'subscribers' => $subscribers,
             'plans' => $this->planService->available(),
+            'limitLabels' => SubscriberLimitLabels::all(),
             'filters' => [
                 'search' => $filters['search'] ?? '',
                 'plan_id' => $filters['plan_id'] ?? null,
@@ -60,6 +61,7 @@ class SubscriberController extends Controller
                 'last_page' => 1,
             ],
             'plans' => $this->planService->available(),
+            'limitLabels' => SubscriberLimitLabels::all(),
             'filters' => [
                 'search' => $query,
                 'plan_id' => null,
@@ -81,6 +83,7 @@ class SubscriberController extends Controller
             'totalDeposits' => $detail['total_deposits'],
             'plans' => $this->planService->available(),
             'limitKeys' => array_keys(SubscriberLimitLabels::all()),
+            'limitLabels' => SubscriberLimitLabels::all(),
         ]);
     }
 

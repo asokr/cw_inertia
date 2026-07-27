@@ -10,7 +10,6 @@ import Label from "@/components/ui/Label.vue";
 import ExtraLimitsShop from "@/components/subscriber/profile/ExtraLimitsShop.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useSubscriberContext } from "@/composables/useSubscriberContext";
-import { formatLimitLabel } from "@/utils/limitLabels";
 
 const props = defineProps({
     subscriptionData: { type: Object, default: null },
@@ -41,6 +40,18 @@ const subscription = computed(() => props.subscriptionData?.subscription ?? null
 const plan = computed(() => props.subscriptionData?.plan ?? null);
 const nextActions = computed(() => props.subscriptionData?.next ?? []);
 const hasStopAction = computed(() => nextActions.value?.some((item) => item.action === "STOP"));
+
+/** Server-prepared limit rows (unified WB cabinets + DB names for monthly). */
+const displayLimits = computed(() => props.subscriptionData?.display_limits ?? null);
+const planLimitEntries = computed(() =>
+    Array.isArray(displayLimits.value?.plan) ? displayLimits.value.plan : []
+);
+const monthLimitEntries = computed(() =>
+    Array.isArray(displayLimits.value?.month) ? displayLimits.value.month : []
+);
+const extraLimitEntries = computed(() =>
+    Array.isArray(displayLimits.value?.extra) ? displayLimits.value.extra : []
+);
 
 const formattedBalance = computed(() =>
     new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 }).format(
@@ -79,10 +90,6 @@ function resubscribe() {
     router.post("/panel/user/resubscribe", { id: subscription.value.id }, { preserveScroll: true });
 }
 
-function limitEntries(limits) {
-    if (!limits || typeof limits !== "object") return [];
-    return Object.entries(limits);
-}
 </script>
 
 <template>
@@ -196,34 +203,35 @@ function limitEntries(limits) {
                     <div><span class="text-muted-foreground">Затем спишется:</span> <strong>{{ plan.price }} ₽</strong></div>
                 </div>
 
-                <div v-if="limitEntries(subscription.limits_plan).length" class="mb-3">
+                <div v-if="planLimitEntries.length" class="mb-3">
                     <p class="mb-1 text-xs text-muted-foreground">По тарифу</p>
                     <ul class="list-inside list-disc text-sm">
-                        <li v-for="[key, value] in limitEntries(subscription.limits_plan)" :key="key">
-                            {{ formatLimitLabel(key) }}: <strong>{{ value }}</strong>
+                        <li v-for="item in planLimitEntries" :key="item.key">
+                            <span :title="item.hint || undefined">{{ item.label }}</span>:
+                            <strong>{{ item.value }}</strong>
                         </li>
                     </ul>
                 </div>
 
-                <div v-if="limitEntries(subscription.limits_month).length" class="mb-3">
+                <div v-if="monthLimitEntries.length" class="mb-3">
                     <p class="mb-1 text-xs text-muted-foreground">На действие тарифа</p>
                     <ul class="list-inside list-disc text-sm">
-                        <li v-for="[key, value] in limitEntries(subscription.limits_month)" :key="key">
-                            {{ formatLimitLabel(key) }}: <strong>{{ value }}</strong>
+                        <li v-for="item in monthLimitEntries" :key="item.key">
+                            {{ item.label }}: <strong>{{ item.value }}</strong>
                         </li>
                     </ul>
                 </div>
 
-                <div v-if="limitEntries(subscription.extra_limits_month).length" class="mb-4">
+                <div v-if="extraLimitEntries.length" class="mb-4">
                     <p class="mb-2 text-xs text-muted-foreground">Дополнительные лимиты</p>
                     <div class="flex flex-wrap gap-2">
                         <span
-                            v-for="[key, value] in limitEntries(subscription.extra_limits_month)"
-                            :key="key"
+                            v-for="item in extraLimitEntries"
+                            :key="item.key"
                             class="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs"
                         >
-                            <span class="text-muted-foreground">{{ formatLimitLabel(key) }}</span>
-                            <strong class="tabular-nums text-primary">+{{ value }}</strong>
+                            <span class="text-muted-foreground">{{ item.label }}</span>
+                            <strong class="tabular-nums text-primary">+{{ item.value }}</strong>
                         </span>
                     </div>
                 </div>

@@ -1,10 +1,10 @@
 <script setup>
 import { Head, router } from "@inertiajs/vue3";
-import { h, reactive, ref } from "vue";
+import { h, reactive, ref, watchEffect } from "vue";
 import { actionsColumn, renderRowActions } from "@/lib/tableActions";
 import LimitList from "@/components/admin/widgets/LimitList.vue";
 import OAuthProviderBadge from "@/components/admin/OAuthProviderBadge.vue";
-import { formatLimitLabel } from "@/utils/limitLabels";
+import { formatLimitLabel, normalizePlanLimits, setLimitLabels } from "@/utils/limitLabels";
 import AdminLayout from "@/Layouts/AdminLayout.vue";
 import PageHeader from "@/components/admin/PageHeader.vue";
 import SubscribersSubnav from "@/components/admin/SubscribersSubnav.vue";
@@ -19,6 +19,11 @@ const props = defineProps({
     plans: { type: Array, default: () => [] },
     filters: { type: Object, required: true },
     searchMode: { type: Boolean, default: false },
+    limitLabels: { type: Object, default: () => ({}) },
+});
+
+watchEffect(() => {
+    setLimitLabels(props.limitLabels);
 });
 
 const search = ref(props.filters.search ?? "");
@@ -53,8 +58,8 @@ function limitsSummary(subscription) {
 }
 
 function firstLimitPreview(subscription) {
-    const subscriptionLimits = subscription?.limits_plan ?? {};
-    const tariffLimits = subscription?.plan?.limits_plan ?? {};
+    const subscriptionLimits = normalizePlanLimits(subscription?.limits_plan ?? {});
+    const tariffLimits = normalizePlanLimits(subscription?.plan?.limits_plan ?? {});
     const firstEntry = Object.entries(subscriptionLimits)[0];
     if (!firstEntry) return null;
 

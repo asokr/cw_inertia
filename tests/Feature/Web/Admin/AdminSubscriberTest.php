@@ -231,7 +231,9 @@ class AdminSubscriberTest extends WebAuthTestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Admin/Subscribers/Edit')
                 ->has('limitKeys')
-                ->where('limitKeys.0', 'adverts_clients'));
+                ->has('limitLabels')
+                ->where('limitKeys.0', 'wb_cabinets')
+                ->where('limitLabels.wb_cabinets', 'Единый кабинет Wildberries'));
     }
 
     public function test_super_admin_can_open_plans_and_payments_pages(): void
@@ -290,9 +292,9 @@ class AdminSubscriberTest extends WebAuthTestCase
         if (! Schema::hasTable('extra_limits')) {
             Schema::create('extra_limits', function (Blueprint $table) {
                 $table->id();
-                $table->string('limit_name');
-                $table->unsignedInteger('quantity')->default(0);
-                $table->decimal('price', 10, 2)->default(0);
+                $table->string('slug')->unique();
+                $table->string('name');
+                $table->decimal('price', 12, 4)->default(0);
                 $table->unsignedInteger('order')->default(0);
                 $table->timestamps();
             });

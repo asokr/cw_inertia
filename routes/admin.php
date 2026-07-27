@@ -86,8 +86,12 @@ Route::middleware(['admin.access', 'verified'])
 
             Route::get('extra-limits', [ExtraLimitController::class, 'index'])->name('extra-limits.index');
             Route::post('extra-limits', [ExtraLimitController::class, 'store'])->name('extra-limits.store');
-            Route::put('extra-limits/{extraLimit}', [ExtraLimitController::class, 'update'])->name('extra-limits.update');
-            Route::delete('extra-limits/{extraLimit}', [ExtraLimitController::class, 'destroy'])->name('extra-limits.destroy');
+            Route::put('extra-limits/{extraLimit}', [ExtraLimitController::class, 'update'])
+                ->whereNumber('extraLimit')
+                ->name('extra-limits.update');
+            Route::delete('extra-limits/{extraLimit}', [ExtraLimitController::class, 'destroy'])
+                ->whereNumber('extraLimit')
+                ->name('extra-limits.destroy');
 
             Route::get('payments', [PaymentController::class, 'index'])->name('payments.index');
 

@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from "vue";
-import { formatLimitLabel } from "@/utils/limitLabels";
+import { buildNormalizedLimitItems, formatLimitLabel } from "@/utils/limitLabels";
 
 const props = defineProps({
     base: { type: Object, default: () => ({}) },
@@ -8,23 +8,16 @@ const props = defineProps({
     tariff: { type: Object, default: () => ({}) },
     labeled: { type: Boolean, default: true },
     showTariff: { type: Boolean, default: true },
+    /** Optional map slug → name (from server / extra_limits). */
+    labelsMap: { type: Object, default: null },
 });
 
-const items = computed(() => {
-    const keys = Array.from(new Set([
-        ...Object.keys(props.base || {}),
-        ...Object.keys(props.extra || {}),
-        ...Object.keys(props.tariff || {}),
-    ]));
-
-    return keys.map((name) => ({
-        name,
-        label: props.labeled ? formatLimitLabel(name) : name,
-        base: props.base?.[name] ?? 0,
-        extra: props.extra?.[name] ?? 0,
-        tariff: props.tariff?.[name],
-    }));
-});
+const items = computed(() =>
+    buildNormalizedLimitItems(props.base, props.extra, props.tariff).map((item) => ({
+        ...item,
+        label: props.labeled ? formatLimitLabel(item.name, props.labelsMap) : item.name,
+    }))
+);
 </script>
 
 <template>

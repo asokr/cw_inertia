@@ -195,9 +195,9 @@ class AdminCwPageRoutesTest extends WebAuthTestCase
             },
             'extra_limits' => function (Blueprint $table) {
                 $table->id();
-                $table->string('limit_name');
-                $table->unsignedInteger('quantity')->default(0);
-                $table->decimal('price', 10, 2)->default(0);
+                $table->string('slug')->unique();
+                $table->string('name');
+                $table->decimal('price', 12, 4)->default(0);
                 $table->unsignedInteger('order')->default(0);
                 $table->timestamps();
             },

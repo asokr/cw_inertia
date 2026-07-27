@@ -1,9 +1,8 @@
 <script setup>
-import { Check } from "lucide-vue-next";
+import { Check, CircleHelp } from "lucide-vue-next";
 import { computed } from "vue";
 import Badge from "@/components/ui/Badge.vue";
 import Button from "@/components/ui/Button.vue";
-import { formatLimitLabel } from "@/utils/limitLabels";
 
 const props = defineProps({
     plan: { type: Object, required: true },
@@ -14,9 +13,13 @@ const props = defineProps({
 
 const emit = defineEmits(["select", "cancel"]);
 
+/** Prefer server-prepared display_limits (unified WB cabinets + DB names). */
 const limitEntries = computed(() => {
-    const limits = { ...props.plan.limits_plan, ...props.plan.limits_month };
-    return Object.entries(limits ?? {}).filter(([, value]) => value != null && value !== "");
+    if (Array.isArray(props.plan.display_limits) && props.plan.display_limits.length) {
+        return props.plan.display_limits;
+    }
+
+    return [];
 });
 
 const formattedPrice = computed(() =>
@@ -89,15 +92,35 @@ function handleSelect() {
         </div>
 
         <ul v-if="limitEntries.length" class="mb-8 flex-1 space-y-2.5">
-            <li v-for="[key, value] in limitEntries" :key="key" class="flex items-start gap-2 text-sm">
+            <li v-for="item in limitEntries" :key="item.key" class="flex items-start gap-2 text-sm">
                 <Check class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <span>
-                    <span class="text-muted-foreground">{{ formatLimitLabel(key) }}:</span>
-                    <strong class="ml-1">{{ value }}</strong>
+                <span class="min-w-0">
+                    <span class="inline-flex items-center gap-1 text-muted-foreground">
+                        {{ item.label }}
+                        <span
+                            v-if="item.hint"
+                            class="group/hint relative inline-flex shrink-0"
+                        >
+                            <CircleHelp
+                                class="h-3.5 w-3.5 cursor-help text-muted-foreground/70 transition-colors group-hover/hint:text-primary"
+                                aria-hidden="true"
+                            />
+                            <span
+                                role="tooltip"
+                                class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-52 -translate-x-1/2 rounded-md border border-border/70 bg-popover px-2.5 py-1.5 text-center text-xs font-normal leading-snug text-popover-foreground opacity-0 shadow-md transition-opacity group-hover/hint:opacity-100 group-focus-within/hint:opacity-100"
+                            >
+                                {{ item.hint }}
+                            </span>
+                        </span>
+                        :
+                    </span>
+                    <strong class="ml-1 tabular-nums text-foreground">{{ item.value }}</strong>
                 </span>
             </li>
         </ul>
-        <p v-else class="mb-8 flex-1 text-sm text-muted-foreground">Все инструменты платформы без ограничений по кабинетам</p>
+        <p v-else class="mb-8 flex-1 text-sm text-muted-foreground">
+            Все инструменты платформы без ограничений по кабинетам
+        </p>
 
         <Button
             class="w-full"

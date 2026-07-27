@@ -28,20 +28,30 @@ class ExtraLimitController extends Controller
     {
         $this->extraLimitService->create($request->validated());
 
-        return redirect()->back()->with('success', 'Лимит добавлен');
+        return redirect()
+            ->route('admin.extra-limits.index')
+            ->with('success', 'Лимит добавлен');
     }
 
-    public function update(UpdateExtraLimitRequest $request, ExtraLimits $extraLimit): RedirectResponse
+    public function update(UpdateExtraLimitRequest $request, int $extraLimit): RedirectResponse
     {
-        $this->extraLimitService->update($extraLimit, $request->validated());
+        $model = ExtraLimits::query()->findOrFail($extraLimit);
 
-        return redirect()->back()->with('success', 'Лимит обновлён');
+        $this->extraLimitService->update($model, $request->validated());
+
+        return redirect()
+            ->route('admin.extra-limits.index')
+            ->with('success', 'Лимит обновлён');
     }
 
-    public function destroy(ExtraLimits $extraLimit): RedirectResponse
+    public function destroy(int $extraLimit): RedirectResponse
     {
-        $this->extraLimitService->delete($extraLimit);
+        $model = ExtraLimits::query()->findOrFail($extraLimit);
 
-        return redirect()->back()->with('success', 'Лимит удалён');
+        $this->extraLimitService->delete($model);
+
+        return redirect()
+            ->route('admin.extra-limits.index')
+            ->with('success', 'Лимит удалён');
     }
 }

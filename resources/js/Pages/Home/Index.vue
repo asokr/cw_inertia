@@ -4,6 +4,7 @@ import {
     ArrowRight,
     Bot,
     Check,
+    CircleHelp,
     LogIn,
     Rocket,
     Star,
@@ -16,7 +17,7 @@ import ReviewsSection from "@/components/landing/ReviewsSection.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import Dialog from "@/components/ui/Dialog.vue";
-import { aiToolScreenshotSize, aiTools, faqItems, features, highlights, plans } from "@/config/homeContent";
+import { aiToolScreenshotSize, aiTools, faqItems, features, highlights, plans as fallbackPlans } from "@/config/homeContent";
 import LandingLayout from "@/Layouts/LandingLayout.vue";
 
 const props = defineProps({
@@ -25,7 +26,11 @@ const props = defineProps({
     homeUrl: { type: String, default: "/login" },
     cabinetLabel: { type: String, default: "В кабинет" },
     isSubscriber: { type: Boolean, default: false },
+    /** From DB: unified WB cabinets + labels by extra_limits.slug */
+    pricingPlans: { type: Array, default: () => [] },
 });
+
+const plans = computed(() => (props.pricingPlans?.length ? props.pricingPlans : fallbackPlans));
 
 const openFaq = ref(0);
 const specialModalOpen = ref(false);
@@ -274,7 +279,8 @@ const heroImage = {
                     Выберите тариф под масштаб бизнеса
                 </h2>
                 <p class="mx-auto mt-3 max-w-2xl text-muted-foreground">
-                    Все инструменты платформы включены в каждый тариф. Разница — только в лимитах кабинетов и объёме ИИ-генераций.
+                    Все инструменты платформы включены в каждый тариф. Один кабинет Wildberries — для всех WB-сервисов;
+                    отдельно считаются кабинеты Ozon и объём ИИ-генераций.
                 </p>
             </div>
 
@@ -321,24 +327,60 @@ const heroImage = {
                     </Button>
 
                     <div class="space-y-4 text-sm">
-                        <div>
-                            <p class="mb-2 font-medium text-foreground">Лимиты по тарифу</p>
+                        <div v-if="plan.display_limits?.length">
+                            <p class="mb-2 font-medium text-foreground">Лимиты тарифа</p>
                             <ul class="space-y-1.5 text-muted-foreground">
-                                <li v-for="limit in plan.limits" :key="limit" class="flex gap-2">
+                                <li
+                                    v-for="item in plan.display_limits"
+                                    :key="item.key"
+                                    class="flex gap-2"
+                                >
                                     <Check class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                    {{ limit }}
+                                    <span class="min-w-0">
+                                        <span class="inline-flex items-center gap-1">
+                                            {{ item.label }}
+                                            <span
+                                                v-if="item.hint"
+                                                class="group/hint relative inline-flex shrink-0"
+                                            >
+                                                <CircleHelp
+                                                    class="h-3.5 w-3.5 cursor-help text-muted-foreground/70 transition-colors group-hover/hint:text-primary"
+                                                    aria-hidden="true"
+                                                />
+                                                <span
+                                                    role="tooltip"
+                                                    class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-52 -translate-x-1/2 rounded-md border border-border/70 bg-popover px-2.5 py-1.5 text-center text-xs font-normal leading-snug text-popover-foreground opacity-0 shadow-md transition-opacity group-hover/hint:opacity-100 group-focus-within/hint:opacity-100"
+                                                >
+                                                    {{ item.hint }}
+                                                </span>
+                                            </span>
+                                            :
+                                        </span>
+                                        <strong class="ml-1 tabular-nums text-foreground">{{ item.value }}</strong>
+                                    </span>
                                 </li>
                             </ul>
                         </div>
-                        <div>
-                            <p class="mb-2 font-medium text-foreground">Обновляемые лимиты</p>
-                            <ul class="space-y-1.5 text-muted-foreground">
-                                <li v-for="item in plan.monthly" :key="item" class="flex gap-2">
-                                    <Check class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                    {{ item }}
-                                </li>
-                            </ul>
-                        </div>
+                        <template v-else>
+                            <div>
+                                <p class="mb-2 font-medium text-foreground">Лимиты по тарифу</p>
+                                <ul class="space-y-1.5 text-muted-foreground">
+                                    <li v-for="limit in plan.limits" :key="limit" class="flex gap-2">
+                                        <Check class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                        {{ limit }}
+                                    </li>
+                                </ul>
+                            </div>
+                            <div>
+                                <p class="mb-2 font-medium text-foreground">Обновляемые лимиты</p>
+                                <ul class="space-y-1.5 text-muted-foreground">
+                                    <li v-for="item in plan.monthly" :key="item" class="flex gap-2">
+                                        <Check class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                        {{ item }}
+                                    </li>
+                                </ul>
+                            </div>
+                        </template>
                     </div>
                 </Card>
             </div>

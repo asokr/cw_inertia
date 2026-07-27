@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Events\EmailSent;
+use App\Support\SubscriberLimitLabels;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -36,7 +37,8 @@ class LimitEndsNotification extends Notification
      */
     public function toMail(object $notifiable): MailMessage
     {
-        $limit = $this->data['limit'];
+        $limitKey = (string) ($this->data['limit'] ?? '');
+        $limit = SubscriberLimitLabels::label($limitKey);
 
         $recipientEmail = $notifiable->email;
         $recipientName = $notifiable->name;
@@ -44,20 +46,7 @@ class LimitEndsNotification extends Notification
 
         $subject = 'Лимиты подходят к концу';
 
-
         $from = 'noreply@' . config('app.APP_DOMAIN');
-
-        switch ($limit) {
-            case 'feedbacks_gpt_query':
-                $limit = 'Запросы к ИИ для автоответов на отзывы';
-                break;
-            case 'repricer_nmid':
-                $limit = 'Кол-во номенклатур в репрайсере';
-                break;
-            default:
-                # code...
-                break;
-        }
 
         $body = view('emails.limits_ends', [
             'name' => $notifiable->name,

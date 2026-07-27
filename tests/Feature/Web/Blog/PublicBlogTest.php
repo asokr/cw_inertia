@@ -40,6 +40,30 @@ class PublicBlogTest extends TestCase
                 ->where('post.title', 'My Title'));
     }
 
+    public function test_blog_show_works_on_cache_hit(): void
+    {
+        $this->createPublishedPost('cached-slug', 'Cached Title');
+
+        // First request populates cache with resolved resource array.
+        $this->get('/blog/cached-slug')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Blog/Show')
+                ->where('post.slug', 'cached-slug')
+                ->where('post.title', 'Cached Title')
+                ->where('post.views_count', 1));
+
+        // Second request is a cache hit — must not throw incomplete-object errors
+        // (previously cached Eloquent Post and mutated views_count on unserialize).
+        $this->get('/blog/cached-slug')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Blog/Show')
+                ->where('post.slug', 'cached-slug')
+                ->where('post.title', 'Cached Title')
+                ->where('post.views_count', 1));
+    }
+
     public function test_blog_show_includes_cover_image_url_for_frontend_media_proxy(): void
     {
         Post::query()->create([
