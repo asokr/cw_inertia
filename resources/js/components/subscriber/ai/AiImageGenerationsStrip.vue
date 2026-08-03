@@ -1,5 +1,5 @@
 <script setup>
-import { ImageIcon, Loader2, Trash2 } from "lucide-vue-next";
+import { ImageIcon, Loader2, Plus, Trash2 } from "lucide-vue-next";
 import { computed } from "vue";
 import Button from "@/components/ui/Button.vue";
 import { toAiMediaUrl } from "@/composables/useAiMediaUrl";
@@ -12,7 +12,7 @@ const props = defineProps({
     isDraft: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["open", "delete"]);
+const emit = defineEmits(["open", "delete", "create"]);
 
 const hasItems = computed(() => props.items.length > 0);
 
@@ -26,6 +26,19 @@ function previewUrl(item) {
         <div
             class="flex min-w-0 flex-1 items-end gap-2.5 overflow-x-auto p-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
+            <button
+                type="button"
+                class="flex h-[108px] w-[80px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed bg-muted/30 text-muted-foreground transition-all duration-200 hover:border-primary/50 hover:bg-muted/50 hover:text-foreground sm:w-[88px]"
+                :class="isDraft
+                    ? 'border-primary bg-primary/5 text-primary ring-2 ring-primary ring-offset-2 ring-offset-background'
+                    : ''"
+                title="Начать новую генерацию"
+                @click="emit('create')"
+            >
+                <Plus class="h-5 w-5" />
+                <span class="text-[10px] font-medium leading-none">Новая</span>
+            </button>
+
             <article
                 v-for="item in items"
                 :key="item.id"

@@ -43,10 +43,10 @@ Prefix: `/panel/wb/price-calc` · name: `subscriber.wb.price-calc.*`
 | Method | URL | Named route | Назначение |
 |--------|-----|-------------|------------|
 | GET | `/` | `index` | `Subscriber/Wb/PriceCalc/Cabinet/Show` |
-| POST | `/sync` | `sync` | Синхронизация карточек WB |
+| POST | `/sync` | `sync` | Очередь: синхронизация карточек WB |
 | POST | `/settings` | `settings.save` | Сохранение настроек |
-| POST | `/import-volume` | `import-volume` | Импорт объёмов (xlsx/zip) |
-| POST | `/import-excel` | `import-excel` | Импорт пользовательских колонок |
+| POST | `/import-volume` | `import-volume` | Импорт объёмов (xlsx/zip, sync) |
+| POST | `/import-excel` | `import-excel` | Очередь: импорт Excel + пересчёт |
 | POST | `/export-excel` | `export-excel` | Экспорт xlsx |
 
 Редирект legacy: `/cabinets/{cabinet}` → `/panel/wb/price-calc`.
@@ -218,36 +218,92 @@ Prefix: `/panel/wb/price-calc` · name: `subscriber.wb.price-calc.*`
 
 ## Внешние WB API (что используем и что забираем)
 
+Источник лимитов: [WB OpenAPI](https://dev.wildberries.ru/docs/openapi/) (Personal token).
+
 ### 1) Карточки товаров для sync
 
 - Endpoint: `POST https://content-api.wildberries.ru/content/v2/get/cards/list?locale=ru`
 - Где используется: sync карточек (`POST /panel/wb/price-calc/sync`)
 - Что забираем: `cards[]` (brand, subjectName, vendorCode, nmID, sizes.wbSize, sizes.skus), cursor pagination
+- Personal limit: **100 req / 1 min**, interval **600 ms**, burst 5
+- Пагинация: пауза ≥ 600 ms между страницами
 
 ### 2) Продажи по складам
 
 - Endpoint: `GET https://statistics-api.wildberries.ru/api/v1/supplier/sales`
 - Блок средней логистики: `warehouseName`, `warehouseType` (только `Склад WB`), `lastChangeDate`
+- Personal limit: **1 req / 1 min**, interval 1 min, burst 1
+- Пагинация: пауза **60 s** между страницами
 
 ### 3) Тарифы логистики
 
 - Endpoint: `GET https://common-api.wildberries.ru/api/v1/tariffs/box`
 - `warehouseList[].warehouseName`, `boxDeliveryBase`, `boxDeliveryLiter`
+- Personal limit: **60 req / 1 min**
 
 ### 4) Комиссии WB
 
 - Endpoint: `GET https://common-api.wildberries.ru/api/v1/tariffs/commission?locale=ru`
 - `report[].subjectName`, `kgvpMarketplace` (fbs), `paidStorageKgvp` (fbo)
+- Personal limit: **1 req / 1 min**, interval 1 min, burst 2
+- Повтор при ошибке — через 60 s
 
 ### 5) Финансовый отчёт
 
 - Endpoint: `POST https://finance-api.wildberries.ru/api/finance/v1/sales-reports/detailed`
 - При `commission_source=reports` или `acquiring_source=reports`: `sellerOperName`, `commissionPercent`, `acquiringPercent`
+- Personal limit: **1 req / 1 min**, interval 1 min
 
 ### 6) Воронка продаж
 
 - Endpoint: `POST https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products`
 - `buyout_percent` / `sales_count` по nmId
+- Personal limit: **3 req / 1 min**, interval **20 s**, burst 3
+- Пагинация: пауза **20 s** между страницами
+
+## Async jobs (как Рентабельность)
+
+Тяжёлые операции выполняются в очереди `price_calc`:
+
+| Job | Trigger | Stages |
+|-----|---------|--------|
+| `ProcessPriceCalcJob` operation=`sync` | `POST /sync` | queued → fetching → saving → done |
+| `ProcessPriceCalcJob` operation=`import_excel` | `POST /import-excel` | queued → importing → fetching → calculating → saving → done |
+
+- Статус: таблица `job_statuses` (`job_name` = `ProcessPriceCalcJob`, `data.cabinet_id`)
+- Prop `jobStatus` + `JobProgressPanel` + poll (`usePriceCalcPoll`, Inertia `only: jobStatus, cards, …`)
+- По `done` — **success toast** с текстом вроде «Готово: данные загружены (N строк), цены пересчитаны.»
+- По `failed` — error toast
+- Worker: `php artisan queue:work --queue=price_calc,default`
+- `POST /import-volume` / export / settings — синхронно (без job)
+
+### Server-side (`WbPriceCalcOperationGuard` + JobStatus)
+
+- Нельзя поставить второй job, пока `processing` или cooldown.
+- Job держит busy-lock на время работы; cooldown 60 s после success, 65 s после 429/timeout.
+- Prop `operationLock: { busy, retry_after, reason }`.
+
+### Client-side (`CabinetToolbar`)
+
+- Disabled при job processing / countdown / busy.
+- Тексты: «Идёт обработка…», «Подождите… Операции временно недоступны.», «Через N с».
+
+## Сетевые таймауты (`stream timeout`)
+
+Симптом toast: `Данные загружены. Обновлено строк: N … stream timeout` (или «не ответил вовремя»).
+
+Что произошло:
+
+1. **Импорт Excel в БД успешен** (N строк).
+2. Авто-`calculate()` ходил в WB API и **один HTTP-запрос оборвался по таймауту** (раньше PHP `default_socket_timeout` ≈ 60 с; Guzzle без явного `timeout`).
+3. Сырой текст exception попадал в toast.
+
+Защита:
+
+- `GuzzleTrait`: `connect_timeout=15`, `timeout=120`, лог exception в `storage/logs/wb_api_response.log`.
+- Retry 1–2 раза (пауза ~4 с) на timeout/сетевые ошибки для sales / funnel / tariffs / report / cards.
+- Пользователю — человекочитаемое сообщение; `retry_after` ~65 с (не долбить API сразу).
+- Логи WB: канал `wb_api_response` → `storage/logs/wb_api_response.log` (не только `laravel.log`).
 
 ## Правила экспорта Excel
 

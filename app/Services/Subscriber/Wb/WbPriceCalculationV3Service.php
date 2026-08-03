@@ -8,18 +8,51 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use App\Exports\Wb\PriceCalc\PriceCalcV3Export;
+use App\Jobs\Wb\PriceCalc\ProcessPriceCalcJob;
 use App\Services\Wb\WbPriceCalculationService;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV2Settings;
+use App\Support\Wb\PriceCalcJobStatusPresenter;
+use App\Support\Wb\WbPriceCalcOperationGuard;
 
 class WbPriceCalculationV3Service
 {
-    public function __construct(private readonly WbPriceCalculationService $wbPriceCalculationService) {}
+    public function __construct(
+        private readonly WbPriceCalculationService $wbPriceCalculationService,
+        private readonly WbPriceCalcOperationGuard $operationGuard,
+    ) {}
+
+    /**
+     * @return array{busy: bool, retry_after: int, reason: string|null}
+     */
+    public function getOperationLockState(int $cabinetId): array
+    {
+        $state = $this->operationGuard->state($cabinetId);
+
+        if (PriceCalcJobStatusPresenter::hasActiveJob($cabinetId)) {
+            return [
+                'busy' => true,
+                'retry_after' => max(5, (int) ($state['retry_after'] ?? 0)),
+                'reason' => 'busy',
+            ];
+        }
+
+        return $state;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getJobStatus(int $cabinetId): array
+    {
+        return PriceCalcJobStatusPresenter::forCabinet($cabinetId);
+    }
 
     /**
      * Получить все данные по кабинету
@@ -95,16 +128,36 @@ class WbPriceCalculationV3Service
             return response()->json(['success' => false, 'messages' => ['Такого кабинета не существует']], 200);
         }
 
+        return $this->queueOperation(
+            (int) $cabinet->id,
+            (int) Auth::id(),
+            PriceCalcJobStatusPresenter::OPERATION_SYNC,
+            null,
+            'Обновление списка товаров запущено. Это может занять несколько минут.'
+        );
+    }
+
+    /**
+     * @param  callable(string, array<string, mixed>): void  $onStage
+     * @return array{success: bool, message?: string, success_message?: string, products_count?: int, cooldown?: bool}
+     */
+    public function runSyncForJob(int $cabinetId, callable $onStage): array
+    {
+        $cabinet = WbCabinet::find($cabinetId);
+        if (! $cabinet) {
+            return ['success' => false, 'message' => 'Кабинет не найден'];
+        }
+
+        $onStage(PriceCalcJobStatusPresenter::STAGE_FETCHING);
+
         $settings = PriceCalculationV2Settings::firstOrCreate(
             ['cabinet_id' => $cabinet->id],
             ['hide_sizes' => true]
         );
 
         $hideSizes = (bool) $settings->hide_sizes;
-
         $apiKey = $cabinet->apikey;
 
-        // Получаем все карточки из WB API (с учётом размеров)
         $params = [
             'settings' => [
                 'cursor' => [
@@ -119,14 +172,24 @@ class WbPriceCalculationV3Service
         $cardsResponse = $this->wbPriceCalculationService->getAllCards($apiKey, $params);
         $cardsResult = $this->wbPriceCalculationService->parseApiResponse($cardsResponse, 'getAllCards');
 
-        if (!$cardsResult['success']) {
-            $message = $cardsResult['code'] === 401
+        if (! $cardsResult['success']) {
+            $message = (int) ($cardsResult['code'] ?? 0) === 401
                 ? 'Неверный ключ API'
-                : (is_string($cardsResult['data']) ? $cardsResult['data'] : 'Не удалось получить данные из API');
+                : (is_string($cardsResult['data'])
+                    ? $this->humanizeUserFacingApiMessage((string) $cardsResult['data'])
+                    : 'Не удалось получить данные. Попробуйте позже.');
 
-            return response()->json(['success' => false, 'messages' => [$message]], 200);
+            return [
+                'success' => false,
+                'message' => $message,
+                'cooldown' => (int) ($cardsResult['code'] ?? 0) === 429
+                    || (int) ($cardsResult['code'] ?? 0) === 504
+                    || $this->messageLooksLikeTimeout($message)
+                    || $this->messageLooksLikeRateLimit($message),
+            ];
         }
 
+        $onStage(PriceCalcJobStatusPresenter::STAGE_SAVING);
         $cards = data_get($cardsResult['data'], 'cards', []);
 
         // Собираем ключи синхронизированных записей для soft delete старых строк
@@ -242,15 +305,17 @@ class WbPriceCalculationV3Service
                 ->delete();
         }
 
-        $data = PriceCalculationV3Data::where('cabinet_id', $cabinet->id)
-            ->orderBy('nm_id')
-            ->get();
+        $productsCount = PriceCalculationV3Data::where('cabinet_id', $cabinet->id)->count();
 
-        return response()->json([
+        $successMessage = $productsCount > 0
+            ? "Список товаров обновлён ({$productsCount} ".($productsCount === 1 ? 'позиция' : ($productsCount < 5 ? 'позиции' : 'позиций')).').'
+            : 'Список товаров обновлён. Товары не найдены — проверьте API-ключ кабинета.';
+
+        return [
             'success' => true,
-            'messages' => ['Номенклатура загружена'],
-            'data' => $data,
-        ], 200);
+            'products_count' => $productsCount,
+            'success_message' => $successMessage,
+        ];
     }
 
     /**
@@ -401,20 +466,66 @@ class WbPriceCalculationV3Service
             return response()->json(['success' => false, 'messages' => ['Такого кабинета не существует']], 200);
         }
 
-        // Используем текущие настройки кабинета (как в V2)
         $settings = PriceCalculationV2Settings::where('cabinet_id', $cabinet->id)->first();
         if (!$settings) {
             return response()->json(['success' => false, 'messages' => ['Сначала сохраните настройки кабинета']], 200);
         }
 
+        $file = $request->file('file');
+        if (! $file instanceof UploadedFile) {
+            return response()->json(['success' => false, 'messages' => ['Прикрепите файл']], 200);
+        }
+
+        $storedPath = $file->storeAs(
+            'wb/price-calc-imports/'.$cabinet->id,
+            uniqid('import_', true).'.xlsx',
+            'local'
+        );
+
+        if (! is_string($storedPath) || $storedPath === '') {
+            return response()->json(['success' => false, 'messages' => ['Не удалось сохранить файл']], 200);
+        }
+
+        return $this->queueOperation(
+            (int) $cabinet->id,
+            (int) Auth::id(),
+            PriceCalcJobStatusPresenter::OPERATION_IMPORT_EXCEL,
+            $storedPath,
+            'Импорт и пересчёт цен запущены. Это может занять несколько минут — дождитесь уведомления.'
+        );
+    }
+
+    /**
+     * @param  callable(string, array<string, mixed>): void  $onStage
+     * @return array{success: bool, message?: string, success_message?: string, updated_rows?: int, cooldown?: bool}
+     */
+    public function runImportExcelForJob(int $cabinetId, string $storedPath, callable $onStage): array
+    {
+        $cabinet = WbCabinet::find($cabinetId);
+        if (! $cabinet) {
+            return ['success' => false, 'message' => 'Кабинет не найден'];
+        }
+
+        $absolutePath = Storage::disk('local')->path($storedPath);
+        if (! is_file($absolutePath)) {
+            return ['success' => false, 'message' => 'Файл импорта не найден'];
+        }
+
+        $onStage(PriceCalcJobStatusPresenter::STAGE_IMPORTING);
+
+        $settings = PriceCalculationV2Settings::where('cabinet_id', $cabinet->id)->first();
+        if (! $settings) {
+            return ['success' => false, 'message' => 'Сначала сохраните настройки кабинета'];
+        }
+
         $reader = new Xlsx();
         $reader->setReadDataOnly(true);
-        $spreadsheet = $reader->load($request->file('file'));
+        $spreadsheet = $reader->load($absolutePath);
         $worksheet = $spreadsheet->getActiveSheet();
         $rows = $worksheet->toArray();
 
-        if (empty($rows) || !is_array($rows[0] ?? null)) {
-            return response()->json(['success' => false, 'messages' => ['Файл пустой или повреждён']], 200);
+        if (empty($rows) || ! is_array($rows[0] ?? null)) {
+            return ['success' => false, 'message' => 'Файл пустой или повреждён'];
         }
 
         $headers = $rows[0];
@@ -441,11 +552,11 @@ class WbPriceCalculationV3Service
 
         $hideSizes = (bool) $settings->hide_sizes;
         if ($hideSizes && $columns['nm_id'] === null) {
-            return response()->json(['success' => false, 'messages' => ['Не найдена обязательная колонка "Артикул WB"']], 200);
+            return ['success' => false, 'message' => 'Не найдена обязательная колонка «Артикул WB»'];
         }
 
-        if (!$hideSizes && $columns['barcode'] === null) {
-            return response()->json(['success' => false, 'messages' => ['Не найдена обязательная колонка "Баркод"']], 200);
+        if (! $hideSizes && $columns['barcode'] === null) {
+            return ['success' => false, 'message' => 'Не найдена обязательная колонка «Баркод»'];
         }
 
         $updated = 0;
@@ -636,39 +747,83 @@ class WbPriceCalculationV3Service
             $updated++;
         }
 
-        // После импорта выполняем полный перерасчёт всех формул, а не только stop_price.
-        $calculateResponse = $this->calculate(new Request([
-            'cabinet_id' => (int) $cabinet->id,
-        ]));
+        $onStage(PriceCalcJobStatusPresenter::STAGE_FETCHING, ['updated_rows' => $updated]);
+        $onStage(PriceCalcJobStatusPresenter::STAGE_CALCULATING, ['updated_rows' => $updated]);
 
-        $calculatePayload = $calculateResponse->getData(true);
+        // Пересчёт без Auth::getCabinet: job уже владеет моделью кабинета.
+        $calculatePayload = $this->runCalculateForCabinet($cabinet);
         if (! (bool) ($calculatePayload['success'] ?? false)) {
+            $needsCooldown = $this->payloadLooksLikeRateLimit($calculatePayload)
+                || $this->payloadLooksLikeTimeout($calculatePayload)
+                || (int) ($calculatePayload['retry_after'] ?? 0) > 0;
+
+            $calcMessages = (array) ($calculatePayload['messages'] ?? ['Не удалось выполнить полный пересчёт после импорта']);
+            $calcMessages = array_map(function ($message) {
+                return $this->humanizeUserFacingApiMessage((string) $message);
+            }, $calcMessages);
+
+            $detail = implode(' ', $calcMessages);
+
+            return [
+                'success' => false,
+                'message' => "Данные загружены ({$updated} строк). Пересчёт не завершён. {$detail}",
+                'updated_rows' => $updated,
+                'cooldown' => $needsCooldown,
+            ];
+        }
+
+        $onStage(PriceCalcJobStatusPresenter::STAGE_SAVING, ['updated_rows' => $updated]);
+
+        return [
+            'success' => true,
+            'updated_rows' => $updated,
+            'success_message' => "Готово: данные загружены ({$updated} строк), цены пересчитаны.",
+        ];
+    }
+
+    /**
+     * @return JsonResponse
+     */
+    private function queueOperation(
+        int $cabinetId,
+        int $userId,
+        string $operation,
+        ?string $storedFilePath,
+        string $queuedMessage,
+    ): JsonResponse {
+        $lock = $this->getOperationLockState($cabinetId);
+        if (($lock['busy'] ?? false) || (($lock['reason'] ?? null) === 'cooldown' && (int) ($lock['retry_after'] ?? 0) > 0)) {
+            $message = ($lock['reason'] ?? null) === 'cooldown'
+                ? 'Подождите '.((int) $lock['retry_after']).' с и попробуйте снова.'
+                : PriceCalcJobStatusPresenter::DUPLICATE_REJECTION_ERROR;
+
+            if ($storedFilePath) {
+                Storage::disk('local')->delete($storedFilePath);
+            }
+
             return response()->json([
                 'success' => false,
-                'messages' => array_merge(
-                    ["Данные загружены. Обновлено строк: {$updated}"],
-                    (array) ($calculatePayload['messages'] ?? ['Не удалось выполнить полный пересчёт после импорта'])
-                ),
-                'data' => [
-                    'import' => [
-                        'updated' => $updated,
-                        'not_found' => $notFound,
-                        'skipped' => $skipped,
-                    ],
-                ],
+                'messages' => [$message],
+                'retry_after' => max(5, (int) ($lock['retry_after'] ?? 0)),
+                'busy' => ($lock['reason'] ?? null) === 'busy',
             ], 200);
         }
 
+        PriceCalcJobStatusPresenter::markQueued($cabinetId, $userId, $operation);
+
+        ProcessPriceCalcJob::dispatch(
+            $cabinetId,
+            $userId,
+            $operation,
+            $storedFilePath,
+        );
+
         return response()->json([
             'success' => true,
-            'messages' => ["Данные загружены. Обновлено строк: {$updated}", 'Полный пересчёт выполнен'],
+            'messages' => [$queuedMessage],
+            'queued' => true,
             'data' => [
-                'import' => [
-                    'updated' => $updated,
-                    'not_found' => $notFound,
-                    'skipped' => $skipped,
-                ],
-                'calculate' => $calculatePayload['data'] ?? null,
+                'job_status' => PriceCalcJobStatusPresenter::forCabinet($cabinetId),
             ],
         ], 200);
     }
@@ -939,16 +1094,31 @@ class WbPriceCalculationV3Service
             return response()->json(['success' => false, 'messages' => ['Такого кабинета не существует']], 200);
         }
 
+        $payload = $this->runCalculateForCabinet($cabinet);
+
+        return response()->json($payload, 200);
+    }
+
+    /**
+     * Ядро calculate без Auth — для HTTP и queue jobs.
+     *
+     * @return array<string, mixed>
+     */
+    public function runCalculateForCabinet(WbCabinet $cabinet): array
+    {
         $settings = PriceCalculationV2Settings::firstOrCreate(['cabinet_id' => $cabinet->id]);
 
         $products = PriceCalculationV3Data::where('cabinet_id', $cabinet->id)->get();
         if ($products->isEmpty()) {
-            return response()->json(['success' => false, 'messages' => ['Нет данных для расчёта. Сначала загрузите номенклатуру']], 200);
+            return [
+                'success' => false,
+                'messages' => ['Нет данных для расчёта. Сначала загрузите номенклатуру'],
+            ];
         }
 
         $salesResult = $this->getWarehouseSalesPercent($cabinet->apikey);
         if (! $salesResult['success']) {
-            return response()->json(['success' => false, 'messages' => [$salesResult['message']]], 200);
+            return $this->calculateApiFailurePayload($salesResult);
         }
 
         $tariffsResult = $this->getAverageLogisticsByWarehouseShare(
@@ -958,7 +1128,7 @@ class WbPriceCalculationV3Service
             $salesResult['total_sales'] ?? 0
         );
         if (! $tariffsResult['success']) {
-            return response()->json(['success' => false, 'messages' => [$tariffsResult['message']]], 200);
+            return $this->calculateApiFailurePayload($tariffsResult);
         }
 
         $avgBaseLogistics = $tariffsResult['avg_base_logistics'];
@@ -970,7 +1140,7 @@ class WbPriceCalculationV3Service
         // Всегда собираем статистику по артикулам, так как нам нужны данные о продажах (выкупах)
         $articleStatsResult = $this->getArticleStats($cabinet->apikey, true);
         if (! $articleStatsResult['success']) {
-            return response()->json(['success' => false, 'messages' => [$articleStatsResult['message']]], 200);
+            return $this->calculateApiFailurePayload($articleStatsResult);
         }
 
         $articleStats = $articleStatsResult['stats'];
@@ -985,7 +1155,8 @@ class WbPriceCalculationV3Service
             $wbTariffs = $this->wbPriceCalculationService->parseApiResponse($wbTariffsResponse, 'getWBTariffs');
 
             if (! $wbTariffs['success'] || empty(data_get($wbTariffs['data'], 'report'))) {
-                sleep(2);
+                // Personal limit for commission: 1 req/min — wait full interval before retry.
+                sleep(60);
                 $wbTariffsResponse = $this->wbPriceCalculationService->getWBTariffs($cabinet->apikey);
                 $wbTariffs = $this->wbPriceCalculationService->parseApiResponse($wbTariffsResponse, 'getWBTariffs');
             }
@@ -998,7 +1169,15 @@ class WbPriceCalculationV3Service
                     }
                 }
             } else {
-                return response()->json(['success' => false, 'messages' => ['Не удалось получить комиссии WB для данного кабинета. Попробуйте позже.']], 200);
+                $retryAfter = (int) ($wbTariffs['code'] ?? 0) === 429
+                    ? WbPriceCalcOperationGuard::COOLDOWN_AFTER_429_SECONDS
+                    : 0;
+
+                return [
+                    'success' => false,
+                    'messages' => ['Не удалось получить комиссии WB для данного кабинета. Попробуйте позже.'],
+                    'retry_after' => $retryAfter,
+                ];
             }
         }
 
@@ -1008,7 +1187,7 @@ class WbPriceCalculationV3Service
         if ($settings->commission_source === 'reports' || $settings->acquiring_source === 'reports') {
             $reportsResult = $this->getReportsCommissions($cabinet->apikey);
             if (!$reportsResult['success']) {
-                return response()->json(['success' => false, 'messages' => [$reportsResult['message']]], 200);
+                return $this->calculateApiFailurePayload($reportsResult);
             }
             $avgReportCommission = $reportsResult['avg_commission'];
             $avgReportAcquiring = $reportsResult['avg_acquiring'];
@@ -1191,11 +1370,11 @@ class WbPriceCalculationV3Service
             ->orderBy('nm_id')
             ->get();
 
-        return response()->json([
+        return [
             'success' => true,
             'messages' => ['Рассчет произведен'],
             'data' => $data,
-        ], 200);
+        ];
     }
 
     /**
@@ -1475,7 +1654,11 @@ class WbPriceCalculationV3Service
 
         if (! $sales['success'] || ! is_array($sales['data'])) {
             $message = is_string($sales['data']) ? $sales['data'] : 'Ошибка в получении данных о продажах. Попробуйте позже.';
-            return ['success' => false, 'message' => $message];
+            return [
+                'success' => false,
+                'message' => $message,
+                'code' => (int) ($sales['code'] ?? 0),
+            ];
         }
 
         $monthSales = $sales['data'];
@@ -1530,7 +1713,11 @@ class WbPriceCalculationV3Service
 
         if (! $whTariffs['success'] || empty(data_get($whTariffs['data'], 'response.data.warehouseList'))) {
             $message = is_string($whTariffs['data']) ? $whTariffs['data'] : 'Ошибка в получении тарифов складов. Попробуйте позже.';
-            return ['success' => false, 'message' => $message];
+            return [
+                'success' => false,
+                'message' => $message,
+                'code' => (int) ($whTariffs['code'] ?? 0),
+            ];
         }
 
         $whTariffsData = data_get($whTariffs['data'], 'response.data.warehouseList', []);
@@ -1576,7 +1763,11 @@ class WbPriceCalculationV3Service
 
         if (!$result['success']) {
             $message = is_string($result['data']) ? $result['data'] : 'Ошибка в получении финансовых отчетов. Попробуйте позже.';
-            return ['success' => false, 'message' => $message];
+            return [
+                'success' => false,
+                'message' => $message,
+                'code' => (int) ($result['code'] ?? 0),
+            ];
         }
 
         // В API WB данные могут лежать в разных контейнерах в зависимости от версии endpoint.
@@ -1660,7 +1851,11 @@ class WbPriceCalculationV3Service
 
             if (! $analytics['success']) {
                 $message = is_string($analytics['data']) ? $analytics['data'] : 'Ошибка в получении аналитики продаж. Попробуйте позже.';
-                return ['success' => false, 'message' => $message];
+                return [
+                    'success' => false,
+                    'message' => $message,
+                    'code' => (int) ($analytics['code'] ?? 0),
+                ];
             }
 
             $products = data_get($analytics['data'], 'data.products', []);
@@ -1703,7 +1898,8 @@ class WbPriceCalculationV3Service
                 break;
             }
 
-            sleep(1);
+            // Personal limit for sales-funnel/products: interval 20 s, max 3 req/min.
+            sleep(20);
             $offset += $limit;
         }
 
@@ -1719,6 +1915,104 @@ class WbPriceCalculationV3Service
             'cabinet_buyouts' => $cabinetBuyouts,
             'cabinet_buyout_percent' => $cabinetBuyoutPercent,
         ];
+    }
+
+    /**
+     * @param  array{ok?: bool, message?: string, retry_after?: int, reason?: string}  $blocked
+     */
+    private function blockedResponse(array $blocked): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'messages' => [(string) ($blocked['message'] ?? 'Операция временно недоступна')],
+            'retry_after' => (int) ($blocked['retry_after'] ?? 0),
+            'busy' => ($blocked['reason'] ?? null) === 'busy',
+        ], 200);
+    }
+
+    /**
+     * @param  array{success?: bool, message?: string, code?: int}  $result
+     * @return array{success: false, messages: list<string>, retry_after: int}
+     */
+    private function calculateApiFailurePayload(array $result): array
+    {
+        $code = (int) ($result['code'] ?? 0);
+        $message = $this->humanizeUserFacingApiMessage(
+            (string) ($result['message'] ?? 'Ошибка API Wildberries. Попробуйте позже.')
+        );
+        $retryAfter = 0;
+
+        if ($code === 429 || $this->messageLooksLikeRateLimit($message)) {
+            $retryAfter = WbPriceCalcOperationGuard::COOLDOWN_AFTER_429_SECONDS;
+        } elseif ($code === 504 || $this->messageLooksLikeTimeout($message)) {
+            $retryAfter = WbPriceCalcOperationGuard::COOLDOWN_AFTER_429_SECONDS;
+        }
+
+        return [
+            'success' => false,
+            'messages' => [$message],
+            'retry_after' => $retryAfter,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function payloadLooksLikeRateLimit(array $payload): bool
+    {
+        if ((int) ($payload['retry_after'] ?? 0) > 0) {
+            return true;
+        }
+
+        foreach ((array) ($payload['messages'] ?? []) as $message) {
+            if ($this->messageLooksLikeRateLimit((string) $message)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function messageLooksLikeRateLimit(string $message): bool
+    {
+        $normalized = mb_strtolower($message);
+
+        return str_contains($normalized, 'лимит запросов')
+            || str_contains($normalized, '429')
+            || str_contains($normalized, 'too many requests');
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function payloadLooksLikeTimeout(array $payload): bool
+    {
+        foreach ((array) ($payload['messages'] ?? []) as $message) {
+            if ($this->messageLooksLikeTimeout((string) $message)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function messageLooksLikeTimeout(string $message): bool
+    {
+        $normalized = mb_strtolower($message);
+
+        return str_contains($normalized, 'timeout')
+            || str_contains($normalized, 'timed out')
+            || str_contains($normalized, 'не ответил вовремя')
+            || str_contains($normalized, 'curl error 28');
+    }
+
+    private function humanizeUserFacingApiMessage(string $message): string
+    {
+        if ($this->messageLooksLikeTimeout($message) && ! str_contains(mb_strtolower($message), 'не ответил вовремя')) {
+            return 'Сервер Wildberries не ответил вовремя. Данные импорта сохранены; повторите пересчёт чуть позже.';
+        }
+
+        return $message;
     }
 
     private function extractReportRows(mixed $data): array
@@ -1877,13 +2171,15 @@ class WbPriceCalculationV3Service
     }
 
     /**
-     * Проверка принадлежности кабинета текущему юзеру
+     * Проверка принадлежности кабинета текущему юзеру.
+     * $userId — для queue jobs (Auth может быть пустым без Auth::onceUsingId).
      */
-    private function getCabinet(int $cabinetId): ?WbCabinet
+    private function getCabinet(int $cabinetId, ?int $userId = null): ?WbCabinet
     {
         $cabinet = WbCabinet::find($cabinetId);
+        $ownerId = $userId ?? Auth::id();
 
-        if (!$cabinet || (int) $cabinet->user_id !== (int) Auth::id()) {
+        if (! $cabinet || $ownerId === null || (int) $cabinet->user_id !== (int) $ownerId) {
             return null;
         }
 

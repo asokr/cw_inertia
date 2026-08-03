@@ -98,6 +98,8 @@ class CabinetsController extends SubscriberToolController
             return back()->withErrors($e->errors());
         }
 
-        return back()->with('success', 'Активный кабинет изменён');
+        return redirect()
+            ->route('subscriber.panel')
+            ->with('success', 'Активный кабинет изменён');
     }
 }

@@ -18,6 +18,7 @@ Ozon-инструменты по-прежнему имеют **свои** каб
 | Элемент | Поведение |
 |---------|-----------|
 | Переключатель в шапке | `resources/js/components/subscriber/wb/WbCabinetSwitcher.vue` — список, выбор, создание, редактирование, удаление |
+| Смена активного кабинета | POST `/select` → редирект на главную панели (`/panel`), чтобы не оставаться в workspace старого кабинета |
 | Нет кабинета | Инструменты показывают `Subscriber/Wb/Shared/NoCabinet` |
 | Старые URL с `/cabinets/{id}` | Редирект на flat workspace (без id в path) |
 | Миграция со старых кабинетов | Wizard `/panel/wb/cabinets/migration` — обязателен, пока есть немигрированные legacy-кабинеты |
@@ -164,6 +165,7 @@ Jobs и background-команды берут `WbCabinet::find($cabinetId)` (id �
    - **удалить** (с каскадом tool-данных).
 4. `WbCabinetMigrationService::migrate()`:
    - rewrite children (`cabinet_id` → new id);
+   - **profitability reports** — отдельный two-phase rewrite: у `wb_profitability_reports` unique по `cabinet_id` (один отчёт на кабинет), id legacy-кабинетов и `wb_cabinets` пересекаются, поэтому отчёты сначала паркуются на временные `cabinet_id`, затем слот цели освобождается (удаление blocker + items) и выставляется финальный `wb_cabinets.id`. Иначе — `Duplicate entry` на `wb_profit_reports_period_unique`;
    - для feedbacks — перенос настроек в `wb_feedbacks_settings`;
    - для repricer — перенос `error_code` / `error_message` на `WbCabinet`;
    - mark legacy `is_migrated = true`, `wb_cabinet_id = …`;

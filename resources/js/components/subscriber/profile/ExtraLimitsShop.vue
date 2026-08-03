@@ -9,6 +9,7 @@ import Dialog from "@/components/ui/Dialog.vue";
 import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
 import Select from "@/components/ui/Select.vue";
+import { formatLimitLabel } from "@/utils/limitLabels";
 
 const props = defineProps({
     catalog: { type: Array, default: () => [] },
@@ -80,7 +81,12 @@ function formatPrice(price) {
 }
 
 function limitNameBySlug(slug) {
-    return nameBySlug.value[slug] ?? slug;
+    const fromCatalog = nameBySlug.value[slug];
+    if (typeof fromCatalog === "string" && fromCatalog !== "" && fromCatalog !== slug) {
+        return fromCatalog;
+    }
+
+    return formatLimitLabel(slug);
 }
 
 function canAfford(total) {

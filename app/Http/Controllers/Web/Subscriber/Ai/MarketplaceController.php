@@ -48,6 +48,8 @@ class MarketplaceController extends SubscriberToolController
     {
         return Inertia::render('Subscriber/Ai/Image', [
             'limits' => $this->loadLimits($request),
+            // Always present so partial reloads can clear the active session.
+            'generationUuid' => null,
         ]);
     }
 
@@ -70,6 +72,8 @@ class MarketplaceController extends SubscriberToolController
     {
         return Inertia::render('Subscriber/Ai/Video', [
             'limits' => $this->loadLimits($request),
+            // Always present so partial reloads can clear the active session.
+            'generationUuid' => null,
         ]);
     }
 

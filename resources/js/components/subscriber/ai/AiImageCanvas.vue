@@ -1,12 +1,17 @@
 <script setup>
 import { computed, ref } from "vue";
-import { Download, ImageIcon, Loader2 } from "lucide-vue-next";
+import { Download, Loader2 } from "lucide-vue-next";
+import AiImageUploader from "@/components/subscriber/ai/AiImageUploader.vue";
 import { toAiMediaUrl } from "@/composables/useAiMediaUrl";
 
 const props = defineProps({
     image: { type: String, default: "" },
     loading: { type: Boolean, default: false },
+    disabled: { type: Boolean, default: false },
+    multiple: { type: Boolean, default: true },
 });
+
+const emit = defineEmits(["files-added", "error"]);
 
 const downloading = ref(false);
 
@@ -40,7 +45,12 @@ async function downloadImage() {
 </script>
 
 <template>
-    <div class="relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-2xl border bg-muted/30">
+    <div
+        class="relative flex h-full min-h-0 w-full overflow-hidden rounded-2xl border bg-muted/30"
+        :class="!displayUrl && !loading
+            ? 'border-dashed'
+            : 'items-center justify-center'"
+    >
         <template v-if="displayUrl">
             <img
                 :src="displayUrl"
@@ -72,11 +82,16 @@ async function downloadImage() {
             <p class="text-sm">Генерация...</p>
         </div>
 
-        <div v-else class="flex max-w-sm flex-col items-center gap-2 px-6 text-center text-muted-foreground">
-            <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
-                <ImageIcon class="h-7 w-7 opacity-40" />
-            </div>
-            <p class="text-sm">Опишите изображение ниже или выберите сессию в истории сверху</p>
-        </div>
+        <AiImageUploader
+            v-else
+            variant="canvas"
+            model-value=""
+            :multiple="multiple"
+            :disabled="disabled"
+            hint="Либо опишите изображение ниже или выберите сессию в истории сверху"
+            class="h-full w-full"
+            @files-added="emit('files-added', $event)"
+            @error="emit('error', $event)"
+        />
     </div>
 </template>

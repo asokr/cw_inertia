@@ -1,0 +1,10 @@
+Ѕ | 1 Р·Р°РїСЂРѕСЃ |
+*   `analytics::default_api::post_v1_item_rating` вЂ” `POST /api/analytics/v1/item-rating`
+*   `analytics::default_api::post_v1_stocks_report_wb_warehouses` вЂ” `POST /api/analytics/v1/stocks-report/wb-warehouses` вЂ” \<div class="description\_token"> РњРµС‚РѕРґ \<a href="/openapi/api-information#tag/authorization/Pravila-ispolzovaniya-tokenov-dostupa-k-API">РґРѕСЃС‚СѓРїРµРЅ РїРѕ **РџРµСЂСЃРѕРЅР°Р»СЊРЅРѕРјСѓ** С‚РѕРєРµРЅСѓ, **РЎРµСЂРІРёСЃРЅРѕРјСѓ** С‚РѕРєРµРЅСѓ, **Р‘Р°Р·РѕРІРѕРјСѓ** С‚РѕРєРµРЅСѓ **СЃ СЃРµРєСЂРµС‚РѕРј** РњРµС‚РѕРґ РІРѕР·РІСЂР°С‰Р°РµС‚ С‚РµРєСѓС‰РёРµ РѕСЃС‚Р°С‚РєРё С‚РѕРІР°СЂРѕРІ РЅР° СЃРєР»Р°РґР°С… WB.
+
+     Р”Р°РЅРЅС‹Рµ РѕР±РЅРѕРІР»СЏСЋС‚СЃСЏ 1 СЂР°Р· РІ 30 РјРёРЅСѓС‚.
+
+     1 СЃС‚СЂРѕРєР° РѕС‚РІРµС‚Р° вЂ” РґР°РЅРЅС‹Рµ РѕР± 1 СЂР°Р·РјРµСЂРµ С‚РѕРІР°СЂР° РЅР° 1 СЃРєР»Р°РґРµ WB. \<div class="description\_limit"> \<a href="/openapi/api-information#tag/introduction/Limity-zaprosov">Р›РёРјРёС‚ Р·Р°РїСЂРѕСЃРѕРІ РЅР° РѕРґРёРЅ Р°РєРєР°СѓРЅС‚ РїСЂРѕРґР°РІС†Р°: | РџРµСЂРёРѕРґ | Р›РёРјРёС‚ | РРЅС‚РµСЂРІР°Р» | Р’СЃРїР»РµСЃРє | | --- | --- | --- | --- | | 1 РјРёРЅ | 3 Р·Р°РїСЂРѕСЃР° | 20 СЃРµРє | 1 Р·Р°РїСЂРѕСЃ |
+*   `analytics::default_api::post_v2_item_rating` вЂ” `POST /api/analytics/v2/item-rating` вЂ” \<div class="description\_token"> РњРµС‚РѕРґ \<a href="/openapi/api-information#tag/authorization/Pravila-ispolzovaniya-tokenov-dostupa-k-API">РґРѕСЃС‚СѓРїРµРЅ РїРѕ **РџРµСЂСЃРѕРЅР°Р»СЊРЅРѕРјСѓ** С‚РѕРєРµРЅСѓ, **РЎРµСЂРІРёСЃРЅРѕРјСѓ** С‚РѕРєРµРЅСѓ РњРµС‚РѕРґ С„РѕСЂРјРёСЂСѓРµС‚ РЅР°Р±РѕСЂ РґР°РЅРЅС‹С… РѕР± РѕС†РµРЅРєР°С… С‚РѕРІР°СЂРѕРІ.
+
+     Р”Р°РЅРЅС‹Рµ РѕС‚С‡С‘С‚Р° РѕР±РЅРѕРІР»СЏСЋС‚СЃСЏ 1 СЂР°Р· РІ С‡Р°СЃ. \<div class="description\_limit"> \<a href="/openapi/api-information#tag/introduction/Limity-zaprosov">Р›РёРјРёС‚ Р·Р°РїСЂРѕСЃРѕРІ РЅР°

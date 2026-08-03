@@ -114,11 +114,19 @@ function handleImageError(type) {
 }
 
 function onFilesAdded(results) {
+    if (!Array.isArray(results)) {
+        return;
+    }
+
     for (const res of results) {
         if (form.images.length < 7) {
             form.images.push(res);
         }
     }
+}
+
+function addImages(results) {
+    onFilesAdded(results);
 }
 
 function updateImage(idx, imgBase64) {
@@ -178,7 +186,7 @@ function applySnapshot(snapshot = {}) {
     }
 }
 
-defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm });
+defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm, addImages });
 </script>
 
 <template>

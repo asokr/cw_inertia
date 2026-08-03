@@ -2,16 +2,24 @@
 
 namespace Tests\Feature\Web\Subscriber\Wb;
 
+use App\Enums\WbAbTestStatus;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Models\Subscribers\Wb\AbTesting\AbCampaign;
+use App\Models\Subscribers\Wb\AbTesting\AbExperiment;
+use App\Models\Subscribers\Wb\AbTesting\AbExperimentPhoto;
 use App\Models\Subscribers\Wb\AbTesting\AbProduct;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
+use App\Services\Subscriber\Wb\WbAbTestingService;
+use App\Services\Wb\WbAdvertApiClient;
 use App\Services\Wb\WbPriceCalculationService;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Mockery;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
@@ -189,6 +197,2775 @@ class WbAbTestingTest extends WebAuthTestCase
             ->assertSessionHas('error');
     }
 
+    public function test_sync_preserves_existing_price_and_rating(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Preserve Metrics Cabinet');
+
+        AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 555001,
+            'vendor_code' => 'OLD-VC',
+            'title' => 'Old title',
+            'price' => 1500,
+            'rating' => 4.7,
+        ]);
+
+        $mock = Mockery::mock(WbPriceCalculationService::class);
+        $mock->shouldReceive('getAllCards')
+            ->once()
+            ->andReturn([
+                'code' => 200,
+                'response' => json_encode([
+                    'cards' => [
+                        [
+                            'nmID' => 555001,
+                            'vendorCode' => 'NEW-VC',
+                            'title' => 'New title',
+                            'brand' => 'BrandX',
+                            'subjectName' => 'Одежда',
+                            'photos' => [
+                                ['c246x328' => 'https://example.test/photo.webp'],
+                            ],
+                        ],
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]);
+        $mock->shouldReceive('parseApiResponse')
+            ->once()
+            ->andReturnUsing(function ($resp) {
+                return [
+                    'success' => true,
+                    'code' => 200,
+                    'data' => json_decode($resp['response'], true),
+                ];
+            });
+
+        $this->app->instance(WbPriceCalculationService::class, $mock);
+
+        $this->actingAs($user)
+            ->post('/panel/wb/ab-testing/sync')
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('wb_ab_products', [
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 555001,
+            'vendor_code' => 'NEW-VC',
+            'title' => 'New title',
+            'price' => 1500,
+            'rating' => 4.7,
+        ]);
+    }
+
+    public function test_enrich_ratings_updates_feedback_rating(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Ratings Cabinet');
+
+        AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 777001,
+            'vendor_code' => 'R1',
+            'title' => 'Rated product',
+            'rating' => null,
+        ]);
+
+        $service = new class(
+            app(WbPriceCalculationService::class),
+            app(WbAdvertApiClient::class),
+            app(\App\Services\Subscriber\Wb\AbTesting\WbAbExperimentEngine::class),
+        ) extends WbAbTestingService
+        {
+            public function apiPostItemRating(string $apiKey, array $body): array
+            {
+                return [
+                    'data' => [
+                        'code' => 200,
+                        'response' => json_encode([
+                            'data' => [
+                                'items' => [
+                                    [
+                                        'nmId' => 777001,
+                                        'feedbackRating' => [
+                                            'current' => 4.6,
+                                            'percentile' => 80.0,
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ], JSON_UNESCAPED_UNICODE),
+                    ],
+                    'function' => 'apiPostItemRating',
+                ];
+            }
+        };
+
+        $result = $service->enrichRatingsFromItemRatingApi($cabinet);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(1, $result['updated']);
+        $this->assertDatabaseHas('wb_ab_products', [
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 777001,
+            'rating' => 4.6,
+        ]);
+    }
+
+    public function test_index_with_product_id_returns_selected_product_and_experiments(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Experiments Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 333001,
+            'vendor_code' => 'SKU-EXP',
+            'title' => 'Товар для экспериментов',
+            'brand' => 'BrandY',
+            'subject_name' => 'Обувь',
+        ]);
+
+        AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Первый эксперимент',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->get('/panel/wb/ab-testing?product_id='.$product->id)
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Wb/AbTesting/Index')
+                ->where('selectedProduct.id', $product->id)
+                ->where('selectedProduct.nm_id', 333001)
+                ->has('experiments', 1)
+                ->where('experiments.0.name', 'Первый эксперимент')
+                ->where('experiments.0.status', 'draft')
+                ->where('experiments.0.progress', 0));
+    }
+
+    public function test_create_experiment_creates_draft_for_own_product(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Create Exp Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 444001,
+            'vendor_code' => 'SKU-NEW',
+            'title' => 'Новый товар',
+        ]);
+
+        $this->actingAs($user)
+            ->post('/panel/wb/ab-testing/experiments', [
+                'product_id' => $product->id,
+            ])
+            ->assertRedirect('/panel/wb/ab-testing?product_id='.$product->id)
+            ->assertSessionHas('success')
+            ->assertSessionHas('createdExperiment');
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'status' => 'draft',
+            'progress' => 0,
+        ]);
+    }
+
+    public function test_cannot_create_experiment_for_foreign_product(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->createUnifiedCabinet($user, 'Own Cabinet');
+
+        $otherUser = $this->createSubscriberUser(withPermission: true);
+        $otherCabinet = $this->createUnifiedCabinet($otherUser, 'Other Cabinet');
+
+        $foreignProduct = AbProduct::query()->create([
+            'cabinet_id' => $otherCabinet->id,
+            'nm_id' => 555002,
+            'vendor_code' => 'FOREIGN',
+            'title' => 'Чужой товар',
+        ]);
+
+        $this->actingAs($user)
+            ->from('/panel/wb/ab-testing')
+            ->post('/panel/wb/ab-testing/experiments', [
+                'product_id' => $foreignProduct->id,
+            ])
+            ->assertSessionHasErrors('product_id');
+
+        $this->assertDatabaseMissing('wb_ab_experiments', [
+            'ab_product_id' => $foreignProduct->id,
+        ]);
+    }
+
+    public function test_guest_cannot_create_experiment(): void
+    {
+        $this->post('/panel/wb/ab-testing/experiments', [
+            'product_id' => 1,
+        ])->assertRedirect('/login');
+    }
+
+    public function test_can_rename_own_experiment_via_json(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Rename Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 888001,
+            'vendor_code' => 'RN',
+            'title' => 'Rename product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Эксперимент от 01.01.2026 12:00',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->patchJson('/panel/wb/ab-testing/experiments/'.$experiment->id, [
+                'name' => 'Тест главной фото',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.name', 'Тест главной фото');
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'name' => 'Тест главной фото',
+        ]);
+    }
+
+    public function test_cannot_rename_foreign_experiment(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->createUnifiedCabinet($user, 'Own Rename Cabinet');
+
+        $otherUser = $this->createSubscriberUser(withPermission: true);
+        $otherCabinet = $this->createUnifiedCabinet($otherUser, 'Other Rename Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $otherCabinet->id,
+            'nm_id' => 888002,
+            'vendor_code' => 'FRN',
+            'title' => 'Foreign',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $otherCabinet->id,
+            'name' => 'Чужой',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->patchJson('/panel/wb/ab-testing/experiments/'.$experiment->id, [
+                'name' => 'Hack',
+            ])
+            ->assertNotFound();
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'name' => 'Чужой',
+        ]);
+    }
+
+    public function test_product_list_shows_latest_experiment_status(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Status Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 666001,
+            'vendor_code' => 'SKU-ST',
+            'title' => 'Статусный товар',
+        ]);
+
+        AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Старый',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+            'created_at' => now()->subDay(),
+            'updated_at' => now()->subDay(),
+        ]);
+
+        AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Актуальный',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 35,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($user)
+            ->get('/panel/wb/ab-testing?search=666001')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('products', 1)
+                ->where('products.0.test_status', 'running'));
+    }
+
+    public function test_list_campaigns_returns_only_our_registry_campaigns(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Campaigns List Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900001,
+            'vendor_code' => 'AB-SKU',
+            'title' => 'AB product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Draft exp',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 111,
+            'name' => 'Our with product',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+            'created_by_experiment_id' => $experiment->id,
+        ]);
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 222,
+            'name' => 'Our without product',
+            'bid_type' => 'manual',
+            'payment_type' => 'cpc',
+            'created_by_experiment_id' => $experiment->id,
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldNotReceive('listAdvertIds');
+        $client->shouldReceive('getAdvertsBatched')
+            ->once()
+            ->withArgs(function (string $apiKey, array $ids) {
+                sort($ids);
+
+                return $ids === [111, 222];
+            })
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'adverts' => [
+                    [
+                        'id' => 111,
+                        'status' => 4,
+                        'bid_type' => 'unified',
+                        'settings' => [
+                            'name' => 'With product',
+                            'payment_type' => 'cpm',
+                        ],
+                        'nm_settings' => [
+                            ['nm_id' => 900001, 'subject' => ['id' => 1, 'name' => 'Cat']],
+                        ],
+                    ],
+                    [
+                        'id' => 222,
+                        'status' => 11,
+                        'bid_type' => 'manual',
+                        'settings' => [
+                            'name' => 'Without product',
+                            'payment_type' => 'cpc',
+                        ],
+                        'nm_settings' => [
+                            ['nm_id' => 111111, 'subject' => ['id' => 1, 'name' => 'Cat']],
+                        ],
+                    ],
+                ],
+                'messages' => [],
+            ]);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->getJson('/panel/wb/ab-testing/campaigns?experiment_id='.$experiment->id)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonCount(2, 'campaigns')
+            ->assertJsonPath('campaigns.0.contains_product', true)
+            ->assertJsonPath('campaigns.0.can_edit_nms', true)
+            ->assertJsonPath('campaigns.0.can_select', true)
+            ->assertJsonPath('campaigns.0.can_deposit', true)
+            ->assertJsonPath('campaigns.0.can_delete', true)
+            ->assertJsonPath('campaigns.0.can_pause', false)
+            ->assertJsonPath('default_campaign_name', 'A/B тест — AB-SKU');
+    }
+
+    public function test_create_campaign_registers_and_binds_without_start(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Create Campaign Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900002,
+            'vendor_code' => 'CREATE-SKU',
+            'title' => 'Create product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Create draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('createSeacatCampaign')
+            ->once()
+            ->withArgs(function (string $apiKey, array $payload) use ($product) {
+                return $apiKey === 'test-api-key'
+                    && ($payload['nms'][0] ?? null) === (int) $product->nm_id
+                    && ($payload['bid_type'] ?? null) === 'unified'
+                    && ($payload['payment_type'] ?? null) === 'cpm';
+            })
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'advert_id' => 555666,
+                'data' => 555666,
+            ]);
+        $client->shouldNotReceive('depositBudget');
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns', [
+                'experiment_id' => $experiment->id,
+                'name' => 'A/B тест — CREATE-SKU',
+                'bid_type' => 'unified',
+                'payment_type' => 'cpm',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.wb_advert_id', 555666)
+            ->assertJsonPath('experiment.progress', 30);
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'wb_advert_id' => 555666,
+            'wb_advert_name' => 'A/B тест — CREATE-SKU',
+            'progress' => 30,
+        ]);
+
+        $this->assertDatabaseHas('wb_ab_campaigns', [
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 555666,
+            'name' => 'A/B тест — CREATE-SKU',
+            'created_by_experiment_id' => $experiment->id,
+        ]);
+    }
+
+    public function test_prepare_campaign_swaps_nm_and_binds(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Prepare Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900003,
+            'vendor_code' => 'PREP-SKU',
+            'title' => 'Prepare product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Prepare draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 777001,
+            'name' => 'Reusable',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+            'created_by_experiment_id' => $experiment->id,
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getAdverts')
+            ->twice()
+            ->andReturn(
+                [
+                    'success' => true,
+                    'code' => 200,
+                    'data' => [
+                        'adverts' => [
+                            [
+                                'id' => 777001,
+                                'status' => 4,
+                                'bid_type' => 'unified',
+                                'settings' => ['name' => 'Reusable', 'payment_type' => 'cpm'],
+                                'nm_settings' => [
+                                    ['nm_id' => 111111],
+                                    ['nm_id' => 222222],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                [
+                    'success' => true,
+                    'code' => 200,
+                    'data' => [
+                        'adverts' => [
+                            [
+                                'id' => 777001,
+                                'status' => 4,
+                                'bid_type' => 'unified',
+                                'settings' => ['name' => 'Reusable', 'payment_type' => 'cpm'],
+                                'nm_settings' => [
+                                    ['nm_id' => 900003],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            );
+        $client->shouldReceive('patchAuctionNms')
+            ->once()
+            ->withArgs(function (string $apiKey, int $advertId, array $add, array $delete) {
+                sort($delete);
+
+                return $advertId === 777001
+                    && $add === [900003]
+                    && $delete === [111111, 222222];
+            })
+            ->andReturn(['success' => true, 'code' => 200, 'data' => []]);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns/777001/prepare', [
+                'experiment_id' => $experiment->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.wb_advert_id', 777001)
+            ->assertJsonPath('campaign.contains_product', true);
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'wb_advert_id' => 777001,
+        ]);
+    }
+
+    public function test_prepare_rejects_active_wb_campaign(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Active Prepare Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900013,
+            'vendor_code' => 'ACT-SKU',
+            'title' => 'Active product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Active draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 777009,
+            'name' => 'Active on WB',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        [
+                            'id' => 777009,
+                            'status' => 9,
+                            'bid_type' => 'unified',
+                            'settings' => ['name' => 'Active on WB', 'payment_type' => 'cpm'],
+                            'nm_settings' => [['nm_id' => 111]],
+                        ],
+                    ],
+                ],
+            ]);
+        $client->shouldNotReceive('patchAuctionNms');
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns/777009/prepare', [
+                'experiment_id' => $experiment->id,
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_cannot_use_foreign_advert_not_in_registry(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Foreign Advert Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900023,
+            'vendor_code' => 'FRN-ADV',
+            'title' => 'Foreign advert product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns/999999/prepare', [
+                'experiment_id' => $experiment->id,
+            ])
+            ->assertStatus(422);
+    }
+
+    public function test_add_product_to_our_campaign_and_bind(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Add Nms Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900033,
+            'vendor_code' => 'ADD-SKU',
+            'title' => 'Add product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Add draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 777001,
+            'name' => 'Target',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getAdverts')
+            ->twice()
+            ->andReturn(
+                [
+                    'success' => true,
+                    'code' => 200,
+                    'data' => [
+                        'adverts' => [
+                            [
+                                'id' => 777001,
+                                'status' => 4,
+                                'bid_type' => 'unified',
+                                'settings' => ['name' => 'Target', 'payment_type' => 'cpm'],
+                                'nm_settings' => [],
+                            ],
+                        ],
+                    ],
+                ],
+                [
+                    'success' => true,
+                    'code' => 200,
+                    'data' => [
+                        'adverts' => [
+                            [
+                                'id' => 777001,
+                                'status' => 4,
+                                'bid_type' => 'unified',
+                                'settings' => ['name' => 'Target', 'payment_type' => 'cpm'],
+                                'nm_settings' => [
+                                    ['nm_id' => 900033],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            );
+        $client->shouldReceive('patchAuctionNms')
+            ->once()
+            ->withArgs(function (string $apiKey, int $advertId, array $add, array $delete) {
+                return $advertId === 777001 && $add === [900033] && $delete === [];
+            })
+            ->andReturn(['success' => true, 'code' => 200, 'data' => []]);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns/777001/nms', [
+                'experiment_id' => $experiment->id,
+                'bind' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.wb_advert_id', 777001);
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'wb_advert_id' => 777001,
+        ]);
+    }
+
+    public function test_remove_product_requires_confirm(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Remove Confirm Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900014,
+            'vendor_code' => 'RMC-SKU',
+            'title' => 'Remove confirm product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Remove confirm draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 30,
+            'wb_advert_id' => 888011,
+            'wb_advert_name' => 'Bound campaign',
+            'campaign_bound_at' => now(),
+        ]);
+
+        $this->actingAs($user)
+            ->deleteJson('/panel/wb/ab-testing/campaigns/888011/nms', [
+                'experiment_id' => $experiment->id,
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_remove_product_unbinds_experiment(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Remove Nms Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900004,
+            'vendor_code' => 'RM-SKU',
+            'title' => 'Remove product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Remove draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 30,
+            'wb_advert_id' => 888001,
+            'wb_advert_name' => 'Bound campaign',
+            'campaign_bound_at' => now(),
+        ]);
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 888001,
+            'name' => 'Bound campaign',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        [
+                            'id' => 888001,
+                            'status' => 11,
+                            'bid_type' => 'unified',
+                            'settings' => ['name' => 'Bound campaign', 'payment_type' => 'cpm'],
+                            'nm_settings' => [
+                                ['nm_id' => 900004],
+                            ],
+                        ],
+                    ],
+                ],
+            ]);
+        $client->shouldReceive('patchAuctionNms')
+            ->once()
+            ->withArgs(function (string $apiKey, int $advertId, array $add, array $delete) {
+                return $advertId === 888001 && $add === [] && $delete === [900004];
+            })
+            ->andReturn(['success' => true, 'code' => 200, 'data' => []]);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->deleteJson('/panel/wb/ab-testing/campaigns/888001/nms', [
+                'experiment_id' => $experiment->id,
+                'confirm' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.wb_advert_id', null);
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'wb_advert_id' => null,
+            'progress' => 0,
+        ]);
+    }
+
+    public function test_cannot_bind_campaign_to_running_experiment(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Running Bind Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900005,
+            'vendor_code' => 'RUN-SKU',
+            'title' => 'Running product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Running',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 50,
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/experiments/'.$experiment->id.'/campaign', [
+                'advert_id' => 123,
+                'add_product' => true,
+            ])
+            ->assertStatus(422);
+    }
+
+    public function test_prepare_rejects_campaign_busy_by_running_ab(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Busy Campaign Cabinet');
+
+        $productA = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900051,
+            'vendor_code' => 'BUSY-A',
+            'title' => 'Product A',
+        ]);
+        $productB = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900052,
+            'vendor_code' => 'BUSY-B',
+            'title' => 'Product B',
+        ]);
+
+        AbExperiment::query()->create([
+            'ab_product_id' => $productA->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Running owner',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 50,
+            'wb_advert_id' => 555001,
+            'wb_advert_name' => 'Shared',
+        ]);
+
+        $draft = AbExperiment::query()->create([
+            'ab_product_id' => $productB->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Draft wants reuse',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 555001,
+            'name' => 'Shared',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        [
+                            'id' => 555001,
+                            'status' => 4,
+                            'bid_type' => 'unified',
+                            'settings' => ['name' => 'Shared', 'payment_type' => 'cpm'],
+                            'nm_settings' => [['nm_id' => 900051]],
+                        ],
+                    ],
+                ],
+            ]);
+        $client->shouldNotReceive('patchAuctionNms');
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns/555001/prepare', [
+                'experiment_id' => $draft->id,
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_guest_cannot_list_campaigns(): void
+    {
+        $this->get('/panel/wb/ab-testing/campaigns?experiment_id=1')
+            ->assertRedirect('/login');
+    }
+
+    public function test_index_with_experiment_id_returns_selected_experiment(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Deep Link Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900006,
+            'vendor_code' => 'DL-SKU',
+            'title' => 'Deep link product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Deep link exp',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 30,
+            'wb_advert_id' => 424242,
+            'wb_advert_name' => 'Linked',
+        ]);
+
+        $this->actingAs($user)
+            ->get('/panel/wb/ab-testing?product_id='.$product->id.'&experiment_id='.$experiment->id)
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Wb/AbTesting/Index')
+                ->where('selectedExperiment.id', $experiment->id)
+                ->where('selectedExperiment.wb_advert_id', 424242)
+                ->where('filters.experiment_id', $experiment->id));
+    }
+
+    public function test_upload_photos_stores_on_private_disk_and_updates_progress(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Photos Cabinet');
+        [$product, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+
+        $fileA = UploadedFile::fake()->image('variant-a.jpg', 800, 800);
+        $fileB = UploadedFile::fake()->image('variant-b.png', 600, 600);
+
+        $this->actingAs($user)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos", [
+                'photos' => [$fileA, $fileB],
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.photos_count', 2)
+            ->assertJsonPath('experiment.progress', 50)
+            ->assertJsonPath('experiment.can_continue_photos', true)
+            ->assertJsonCount(2, 'photos');
+
+        $this->assertDatabaseCount('wb_ab_experiment_photos', 2);
+
+        $photos = AbExperimentPhoto::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->orderBy('sort_order')
+            ->get();
+
+        $this->assertCount(2, $photos);
+        foreach ($photos as $photo) {
+            $this->assertSame('private', $photo->disk);
+            Storage::disk('private')->assertExists($photo->path);
+        }
+
+        $list = $this->actingAs($user)
+            ->getJson("/panel/wb/ab-testing/experiments/{$experiment->id}/photos")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->json('photos');
+
+        $this->assertStringContainsString('/panel/wb/ab-testing/media/', $list[0]['preview_url']);
+        $this->assertStringNotContainsString('/storage/', $list[0]['preview_url']);
+    }
+
+    public function test_upload_rejects_seventh_photo(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Max Photos Cabinet');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+
+        $files = [];
+        for ($i = 0; $i < 6; $i++) {
+            $files[] = UploadedFile::fake()->image("p{$i}.jpg");
+        }
+
+        $this->actingAs($user)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos", [
+                'photos' => $files,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.photos_count', 6);
+
+        $this->actingAs($user)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos", [
+                'photos' => [UploadedFile::fake()->image('extra.jpg')],
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_delete_photo_compacts_sort_order_and_drops_progress(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Delete Photos Cabinet');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+
+        $this->actingAs($user)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos", [
+                'photos' => [
+                    UploadedFile::fake()->image('a.jpg'),
+                    UploadedFile::fake()->image('b.jpg'),
+                ],
+            ])
+            ->assertOk();
+
+        $photos = AbExperimentPhoto::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->orderBy('sort_order')
+            ->get();
+
+        $this->actingAs($user)
+            ->delete("/panel/wb/ab-testing/experiments/{$experiment->id}/photos/{$photos[0]->id}")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.photos_count', 1)
+            ->assertJsonPath('experiment.progress', 30)
+            ->assertJsonPath('experiment.can_continue_photos', false);
+
+        $remaining = AbExperimentPhoto::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->orderBy('sort_order')
+            ->get();
+
+        $this->assertCount(1, $remaining);
+        $this->assertSame(0, (int) $remaining[0]->sort_order);
+        $this->assertSame((int) $photos[1]->id, (int) $remaining[0]->id);
+        Storage::disk('private')->assertMissing($photos[0]->path);
+    }
+
+    public function test_reorder_and_replace_photos(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Reorder Photos Cabinet');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+
+        $this->actingAs($user)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos", [
+                'photos' => [
+                    UploadedFile::fake()->image('first.jpg'),
+                    UploadedFile::fake()->image('second.jpg'),
+                ],
+            ])
+            ->assertOk();
+
+        $photos = AbExperimentPhoto::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->orderBy('sort_order')
+            ->get();
+
+        $this->actingAs($user)
+            ->patchJson("/panel/wb/ab-testing/experiments/{$experiment->id}/photos/reorder", [
+                'order' => [$photos[1]->id, $photos[0]->id],
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('photos.0.id', $photos[1]->id)
+            ->assertJsonPath('photos.1.id', $photos[0]->id);
+
+        $oldPath = $photos[0]->path;
+
+        $this->actingAs($user)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos/{$photos[0]->id}", [
+                'photo' => UploadedFile::fake()->image('replaced.webp'),
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $photos[0]->refresh();
+        $this->assertNotSame($oldPath, $photos[0]->path);
+        Storage::disk('private')->assertMissing($oldPath);
+        Storage::disk('private')->assertExists($photos[0]->path);
+    }
+
+    public function test_media_route_requires_auth_and_cabinet_ownership(): void
+    {
+        Storage::fake('private');
+
+        $owner = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($owner, 'Media Owner Cabinet');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+
+        $this->actingAs($owner)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos", [
+                'photos' => [UploadedFile::fake()->image('secret.jpg')],
+            ])
+            ->assertOk();
+
+        $photo = AbExperimentPhoto::query()->where('ab_experiment_id', $experiment->id)->firstOrFail();
+
+        $this->actingAs($owner)
+            ->get("/panel/wb/ab-testing/media/{$photo->id}")
+            ->assertOk();
+
+        $other = $this->createSubscriberUser(withPermission: true);
+        $this->createUnifiedCabinet($other, 'Other Media Cabinet');
+
+        $this->actingAs($other)
+            ->get("/panel/wb/ab-testing/media/{$photo->id}")
+            ->assertNotFound();
+
+        auth()->logout();
+        $this->get("/panel/wb/ab-testing/media/{$photo->id}")
+            ->assertRedirect('/login');
+    }
+
+    public function test_running_experiment_cannot_upload_photos(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Running Photos Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900100,
+            'vendor_code' => 'RUN-SKU',
+            'title' => 'Running product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Running exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 60,
+            'wb_advert_id' => 999001,
+            'wb_advert_name' => 'Live',
+        ]);
+
+        $this->actingAs($user)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos", [
+                'photos' => [UploadedFile::fake()->image('nope.jpg')],
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_update_settings_persists_and_sets_progress_with_photos(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Settings Cabinet');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+
+        $this->actingAs($user)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos", [
+                'photos' => [
+                    UploadedFile::fake()->image('a.jpg'),
+                    UploadedFile::fake()->image('b.jpg'),
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('experiment.progress', 50);
+
+        $this->actingAs($user)
+            ->patchJson("/panel/wb/ab-testing/experiments/{$experiment->id}/settings", [
+                'impressions_per_photo' => 100000,
+                'impressions_per_round' => 10000,
+                'round_minutes' => 60,
+                'cpm' => 350,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.settings_ready', true)
+            ->assertJsonPath('experiment.settings.impressions_per_photo', 100000)
+            ->assertJsonPath('experiment.settings.cpm', 350)
+            ->assertJsonPath('experiment.progress', 70)
+            ->assertJsonPath('experiment.can_continue_workspace', true);
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'impressions_per_photo' => 100000,
+            'impressions_per_round' => 10000,
+            'round_minutes' => 60,
+            'cpm' => 350,
+            'progress' => 70,
+        ]);
+    }
+
+    public function test_settings_validation_rejects_per_round_above_target(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Settings Validation Cabinet');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+
+        $this->actingAs($user)
+            ->patchJson("/panel/wb/ab-testing/experiments/{$experiment->id}/settings", [
+                'impressions_per_photo' => 1000,
+                'impressions_per_round' => 5000,
+                'round_minutes' => 60,
+                'cpm' => 350,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['impressions_per_round']);
+    }
+
+    public function test_running_experiment_cannot_update_settings(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Settings Running Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900400,
+            'vendor_code' => 'SET-RUN',
+            'title' => 'Settings running product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Running settings',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 80,
+            'impressions_per_photo' => 100000,
+            'impressions_per_round' => 10000,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        $this->actingAs($user)
+            ->patchJson("/panel/wb/ab-testing/experiments/{$experiment->id}/settings", [
+                'impressions_per_photo' => 200000,
+                'impressions_per_round' => 10000,
+                'round_minutes' => 60,
+                'cpm' => 400,
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_only_one_running_experiment_per_product_allowed_to_start(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'One Running Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900300,
+            'vendor_code' => 'ONE-RUN',
+            'title' => 'One running product',
+        ]);
+
+        AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Already running',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 70,
+        ]);
+
+        $draft = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Another draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 50,
+        ]);
+
+        $service = app(WbAbTestingService::class);
+
+        $found = $service->findRunningExperimentForProduct((int) $cabinet->id, (int) $product->id);
+        $this->assertNotNull($found);
+        $this->assertSame('Already running', $found->name);
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $service->assertCanStartExperiment($draft);
+    }
+
+    public function test_start_rejects_incomplete_draft(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Start Incomplete');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/ab-testing/experiments/{$experiment->id}/start")
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertSame(WbAbTestStatus::Draft, $experiment->fresh()->status);
+    }
+
+    public function test_start_happy_path_sets_running_and_opens_cycle(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Start Happy');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        [$product, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+        $experiment->update([
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+            'progress' => 70,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/a.jpg', 'fake-image-a');
+        Storage::disk('private')->put('wb/ab-testing/b.jpg', 'fake-image-b');
+
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/a.jpg',
+            'original_name' => 'a.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/b.jpg',
+            'original_name' => 'b.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+
+        $advertId = (int) $experiment->wb_advert_id;
+        $nmId = (int) $product->nm_id;
+
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        [
+                            'id' => $advertId,
+                            'status' => 4,
+                            'nm_settings' => [['nm_id' => $nmId]],
+                        ],
+                    ],
+                ],
+            ]);
+        $advertApi->shouldReceive('getBudget')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => ['total' => 1000, 'cash' => 1000],
+            ]);
+        $advertApi->shouldReceive('extractBudgetTotal')
+            ->once()
+            ->andReturn(1000.0);
+        $advertApi->shouldReceive('startAdvert')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+        $advertApi->shouldReceive('fullstats')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'rows' => [['advertId' => $advertId, 'views' => 10, 'clicks' => 1, 'sum' => 5, 'orders' => 0]],
+            ]);
+        $advertApi->shouldReceive('extractStatsForAdvert')
+            ->once()
+            ->andReturn(['views' => 10, 'clicks' => 1, 'spend' => 5.0, 'orders' => 0, 'ctr' => 10.0]);
+
+        $mediaApi = Mockery::mock(\App\Services\Wb\WbContentMediaClient::class);
+        $mediaApi->shouldReceive('uploadMediaFile')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+        $this->app->instance(\App\Services\Wb\WbContentMediaClient::class, $mediaApi);
+
+        \Illuminate\Support\Facades\Queue::fake();
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/ab-testing/experiments/{$experiment->id}/start")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.status', 'running')
+            ->assertJsonPath('experiment.progress', 0)
+            ->assertJsonPath('experiment.progress_mode', 'pending');
+
+        \Illuminate\Support\Facades\Queue::assertPushed(
+            \App\Jobs\Wb\AbTesting\ProcessAbExperimentJob::class,
+            function ($job) use ($experiment) {
+                return (int) $job->experimentId === (int) $experiment->id;
+            },
+        );
+
+        $fresh = $experiment->fresh();
+        $this->assertSame(WbAbTestStatus::Running, $fresh->status);
+        $this->assertSame(0, (int) $fresh->progress);
+        $this->assertNotNull($fresh->started_at);
+
+        $openCycle = $fresh->resolveOpenCycle();
+        $this->assertNotNull($openCycle);
+        $this->assertNull($openCycle->ended_at);
+
+        $this->assertDatabaseHas('wb_ab_experiment_cycles', [
+            'ab_experiment_id' => $experiment->id,
+            'sequence' => 1,
+            'views_start' => 10,
+        ]);
+        $this->assertDatabaseHas('wb_ab_experiment_events', [
+            'ab_experiment_id' => $experiment->id,
+            'type' => 'experiment.started',
+        ]);
+    }
+
+    public function test_start_rejects_zero_budget_with_clear_message(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Zero Budget');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 910099,
+            'vendor_code' => 'ZERO-BUD',
+            'title' => 'Zero budget product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Zero budget draft',
+            'status' => WbAbTestStatus::Draft,
+            'wb_advert_id' => 800099,
+            'wb_advert_name' => 'Zero budget campaign',
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+            'progress' => 70,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/z-a.jpg', 'fake-a');
+        Storage::disk('private')->put('wb/ab-testing/z-b.jpg', 'fake-b');
+
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/z-a.jpg',
+            'original_name' => 'a.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/z-b.jpg',
+            'original_name' => 'b.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+
+        $advertId = (int) $experiment->wb_advert_id;
+        $nmId = (int) $product->nm_id;
+
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        [
+                            'id' => $advertId,
+                            'status' => 4,
+                            'nm_settings' => [['nm_id' => $nmId]],
+                        ],
+                    ],
+                ],
+            ]);
+        $advertApi->shouldReceive('getBudget')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => ['total' => 0, 'cash' => 0],
+            ]);
+        $advertApi->shouldReceive('extractBudgetTotal')
+            ->once()
+            ->andReturn(0.0);
+        $advertApi->shouldNotReceive('startAdvert');
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+
+        $response = $this->actingAs($user)
+            ->postJson("/panel/wb/ab-testing/experiments/{$experiment->id}/start")
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $message = (string) ($response->json('messages.0') ?? '');
+        $this->assertStringContainsString('нет бюджета', mb_strtolower($message));
+
+        $this->assertSame(WbAbTestStatus::Draft, $experiment->fresh()->status);
+    }
+
+    public function test_create_campaign_with_budget_deposit_calls_api(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Deposit Campaign Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900010,
+            'vendor_code' => 'DEP-SKU',
+            'title' => 'Deposit product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Deposit draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('createSeacatCampaign')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'advert_id' => 555777,
+                'data' => 555777,
+            ]);
+        $client->shouldReceive('depositBudget')
+            ->once()
+            ->withArgs(function (string $apiKey, int $advertId, int $sum, int $type) {
+                return $apiKey === 'test-api-key'
+                    && $advertId === 555777
+                    && $sum === 1000
+                    && $type === WbAdvertApiClient::BUDGET_DEPOSIT_TYPE_BALANCE;
+            })
+            ->andReturn(['success' => true, 'code' => 200, 'data' => ['total' => 1000]]);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns', [
+                'experiment_id' => $experiment->id,
+                'name' => 'A/B тест — DEP-SKU',
+                'bid_type' => 'unified',
+                'payment_type' => 'cpm',
+                'budget_deposit' => 1000,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('budget_deposited', true)
+            ->assertJsonPath('experiment.wb_advert_id', 555777);
+    }
+
+    public function test_create_campaign_deposit_fail_still_binds_with_flag(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Deposit Fail Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900011,
+            'vendor_code' => 'DEP-FAIL',
+            'title' => 'Deposit fail product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Deposit fail draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('createSeacatCampaign')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'advert_id' => 555778,
+                'data' => 555778,
+            ]);
+        $client->shouldReceive('depositBudget')
+            ->once()
+            ->andReturn([
+                'success' => false,
+                'code' => 400,
+                'data' => null,
+                'message' => 'Not enough money',
+            ]);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns', [
+                'experiment_id' => $experiment->id,
+                'name' => 'A/B тест — DEP-FAIL',
+                'bid_type' => 'unified',
+                'payment_type' => 'cpm',
+                'budget_deposit' => 1000,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('budget_deposited', false)
+            ->assertJsonPath('experiment.wb_advert_id', 555778);
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'wb_advert_id' => 555778,
+        ]);
+    }
+
+    public function test_pause_campaign_when_active(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Pause Campaign');
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 333001,
+            'name' => 'Active campaign',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getAdverts')
+            ->twice()
+            ->andReturn(
+                [
+                    'success' => true,
+                    'code' => 200,
+                    'data' => [
+                        'adverts' => [
+                            ['id' => 333001, 'status' => 9, 'settings' => ['name' => 'Active campaign']],
+                        ],
+                    ],
+                ],
+                [
+                    'success' => true,
+                    'code' => 200,
+                    'data' => [
+                        'adverts' => [
+                            ['id' => 333001, 'status' => 11, 'settings' => ['name' => 'Active campaign']],
+                        ],
+                    ],
+                ],
+            );
+        $client->shouldReceive('pauseAdvert')
+            ->once()
+            ->with('test-api-key', 333001)
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns/333001/pause')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('campaign.status', 11);
+    }
+
+    public function test_deposit_existing_campaign_budget(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Deposit Existing');
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 333002,
+            'name' => 'Depositable',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        ['id' => 333002, 'status' => 4, 'settings' => ['name' => 'Depositable']],
+                    ],
+                ],
+            ]);
+        $client->shouldReceive('depositBudget')
+            ->once()
+            ->withArgs(function (string $apiKey, int $advertId, int $sum, int $type) {
+                return $apiKey === 'test-api-key'
+                    && $advertId === 333002
+                    && $sum === 1500
+                    && $type === WbAdvertApiClient::BUDGET_DEPOSIT_TYPE_BALANCE;
+            })
+            ->andReturn(['success' => true, 'code' => 200, 'data' => ['total' => 1500]]);
+        $client->shouldReceive('extractBudgetTotal')
+            ->once()
+            ->with(['total' => 1500])
+            ->andReturn(1500.0);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns/333002/deposit', ['sum' => 1500])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('budget_total', 1500)
+            ->assertJsonPath('deposited_sum', 1500);
+    }
+
+    public function test_get_campaign_budget(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Get Budget');
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 333004,
+            'name' => 'Budget read',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getBudget')
+            ->once()
+            ->with('test-api-key', 333004)
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => ['total' => 2500, 'cash' => 2500],
+            ]);
+        $client->shouldReceive('extractBudgetTotal')
+            ->once()
+            ->andReturn(2500.0);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->getJson('/panel/wb/ab-testing/campaigns/333004/budget')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('budget_total', 2500);
+    }
+
+    public function test_delete_campaign_removes_registry_and_unbinds_draft(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Delete Campaign');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900020,
+            'vendor_code' => 'DEL-SKU',
+            'title' => 'Delete product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Bound draft',
+            'status' => WbAbTestStatus::Draft,
+            'wb_advert_id' => 333003,
+            'wb_advert_name' => 'To delete',
+            'progress' => 30,
+        ]);
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 333003,
+            'name' => 'To delete',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+            'created_by_experiment_id' => $experiment->id,
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        ['id' => 333003, 'status' => 11, 'settings' => ['name' => 'To delete']],
+                    ],
+                ],
+            ]);
+        $client->shouldReceive('deleteAdvert')
+            ->once()
+            ->with('test-api-key', 333003)
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->deleteJson('/panel/wb/ab-testing/campaigns/333003?experiment_id='.$experiment->id)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.wb_advert_id', null);
+
+        $this->assertDatabaseMissing('wb_ab_campaigns', [
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 333003,
+        ]);
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'wb_advert_id' => null,
+        ]);
+    }
+
+    public function test_can_restart_stopped_experiment(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Restart Exp');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 940001,
+            'vendor_code' => 'RESTART',
+            'title' => 'Restart product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Stopped exp',
+            'status' => WbAbTestStatus::Stopped,
+            'progress' => 40,
+            'wb_advert_id' => 840001,
+            'wb_advert_name' => 'Camp',
+            'started_at' => now()->subDay(),
+            'finished_at' => now()->subHour(),
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/r-a.jpg', 'a');
+        Storage::disk('private')->put('wb/ab-testing/r-b.jpg', 'b');
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/r-a.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/r-b.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => AbExperimentPhoto::query()->where('ab_experiment_id', $experiment->id)->value('id'),
+            'sequence' => 3,
+            'started_at' => now()->subHours(2),
+            'ended_at' => now()->subHour(),
+            'end_reason' => 'experiment_stopped',
+            'views_start' => 0,
+            'views_end' => 50,
+            'clicks_start' => 0,
+            'clicks_end' => 2,
+            'spend_start' => 0,
+            'spend_end' => 1,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('getAdverts')->once()->andReturn([
+            'success' => true,
+            'code' => 200,
+            'data' => [
+                'adverts' => [[
+                    'id' => 840001,
+                    'status' => 11,
+                    'nm_settings' => [['nm_id' => 940001]],
+                ]],
+            ],
+        ]);
+        $advertApi->shouldReceive('getBudget')->once()->andReturn([
+            'success' => true,
+            'code' => 200,
+            'data' => ['total' => 5000],
+        ]);
+        $advertApi->shouldReceive('extractBudgetTotal')->once()->andReturn(5000.0);
+        $advertApi->shouldReceive('startAdvert')->once()->andReturn(['success' => true, 'code' => 200]);
+        $advertApi->shouldReceive('fullstats')->once()->andReturn([
+            'success' => true,
+            'code' => 200,
+            'rows' => [['advertId' => 840001, 'views' => 100, 'clicks' => 3, 'sum' => 1, 'orders' => 0]],
+        ]);
+        $advertApi->shouldReceive('extractStatsForAdvert')->once()->andReturn([
+            'views' => 100, 'clicks' => 3, 'spend' => 1.0, 'orders' => 0, 'ctr' => 3.0,
+        ]);
+
+        $mediaApi = Mockery::mock(\App\Services\Wb\WbContentMediaClient::class);
+        $mediaApi->shouldReceive('uploadMediaFile')->once()->andReturn(['success' => true, 'code' => 200]);
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+        $this->app->instance(\App\Services\Wb\WbContentMediaClient::class, $mediaApi);
+        \Illuminate\Support\Facades\Queue::fake();
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/ab-testing/experiments/{$experiment->id}/start")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.status', 'running');
+
+        $this->assertDatabaseHas('wb_ab_experiment_cycles', [
+            'ab_experiment_id' => $experiment->id,
+            'sequence' => 4,
+        ]);
+        $this->assertNull($experiment->fresh()->finished_at);
+    }
+
+    public function test_stopped_experiment_can_update_settings(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Stopped Settings');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 940002,
+            'vendor_code' => 'ST-SET',
+            'title' => 'Stopped settings',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Stopped editable',
+            'status' => WbAbTestStatus::Stopped,
+            'progress' => 20,
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        $this->actingAs($user)
+            ->patchJson("/panel/wb/ab-testing/experiments/{$experiment->id}/settings", [
+                'impressions_per_photo' => 2000,
+                'impressions_per_round' => 200,
+                'round_minutes' => 30,
+                'cpm' => 400,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.can_edit', true)
+            ->assertJsonPath('experiment.settings.impressions_per_photo', 2000);
+    }
+
+    public function test_stop_running_experiment(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Stop Exp');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 910001,
+            'vendor_code' => 'STOP',
+            'title' => 'Stop product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Running to stop',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 85,
+            'wb_advert_id' => 800001,
+            'started_at' => now()->subHour(),
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/s.jpg', 'x');
+        $photo = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/s.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        $cycle = \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(30),
+            'views_start' => 0,
+            'clicks_start' => 0,
+            'spend_start' => 0,
+            'orders_start' => 0,
+        ]);
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('fullstats')->andReturn([
+            'success' => true,
+            'code' => 200,
+            'rows' => [['advertId' => 800001, 'views' => 50, 'clicks' => 2, 'sum' => 1, 'orders' => 0]],
+        ]);
+        $advertApi->shouldReceive('extractStatsForAdvert')->andReturn([
+            'views' => 50, 'clicks' => 2, 'spend' => 1.0, 'orders' => 0, 'ctr' => 4.0,
+        ]);
+        $advertApi->shouldReceive('pauseAdvert')->once()->andReturn(['success' => true, 'code' => 200]);
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+        $this->app->instance(
+            \App\Services\Wb\WbContentMediaClient::class,
+            Mockery::mock(\App\Services\Wb\WbContentMediaClient::class),
+        );
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/ab-testing/experiments/{$experiment->id}/stop")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.status', 'stopped');
+
+        $fresh = $experiment->fresh();
+        $this->assertSame(WbAbTestStatus::Stopped, $fresh->status);
+        $this->assertNotNull($cycle->fresh()->ended_at);
+        $this->assertSame('experiment_stopped', $cycle->fresh()->end_reason);
+    }
+
+    public function test_engine_process_switches_photo_on_impressions_limit(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Tick Switch');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 920001,
+            'vendor_code' => 'TICK',
+            'title' => 'Tick product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Tick exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 80,
+            'wb_advert_id' => 810001,
+            'started_at' => now()->subHours(2),
+            'impressions_per_photo' => 10000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 600,
+            'cpm' => 350,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/t1.jpg', '1');
+        Storage::disk('private')->put('wb/ab-testing/t2.jpg', '2');
+        $photo1 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/t1.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        $photo2 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/t2.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        $cycle = \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo1->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(10),
+            'views_start' => 0,
+            'clicks_start' => 0,
+            'spend_start' => 0,
+            'orders_start' => 0,
+        ]);
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('fullstats')->andReturn([
+            'success' => true,
+            'code' => 200,
+            'rows' => [['advertId' => 810001, 'views' => 150, 'clicks' => 5, 'sum' => 2, 'orders' => 0]],
+        ]);
+        $advertApi->shouldReceive('extractStatsForAdvert')->andReturn([
+            'views' => 150, 'clicks' => 5, 'spend' => 2.0, 'orders' => 0, 'ctr' => 3.3,
+        ]);
+
+        $mediaApi = Mockery::mock(\App\Services\Wb\WbContentMediaClient::class);
+        $mediaApi->shouldReceive('uploadMediaFile')
+            ->once()
+            ->withArgs(function ($key, $nm, $photoNumber) use ($product) {
+                return $nm === (int) $product->nm_id && $photoNumber === 1;
+            })
+            ->andReturn(['success' => true, 'code' => 200]);
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+        $this->app->instance(\App\Services\Wb\WbContentMediaClient::class, $mediaApi);
+
+        $engine = app(\App\Services\Subscriber\Wb\AbTesting\WbAbExperimentEngine::class);
+        $result = $engine->process($experiment->fresh(['photos', 'product', 'cabinet']));
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('switched', $result['action']);
+
+        $this->assertNotNull($cycle->fresh()->ended_at);
+        $this->assertSame('impressions_limit', $cycle->fresh()->end_reason);
+
+        $experiment->refresh();
+        $open = $experiment->resolveOpenCycle();
+        $this->assertNotNull($open);
+        $this->assertSame((int) $photo2->id, (int) $open->ab_experiment_photo_id);
+        // Bottleneck photo2 still at 0 views → progress 0 (not the old 80 floor).
+        $this->assertSame(0, (int) $experiment->progress);
+        $this->assertDatabaseHas('wb_ab_experiment_cycles', [
+            'ab_experiment_id' => $experiment->id,
+            'sequence' => 2,
+            'ab_experiment_photo_id' => $photo2->id,
+        ]);
+    }
+
+    public function test_impressions_progress_bottleneck_formula(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Progress Formula');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 930001,
+            'vendor_code' => 'PROG',
+            'title' => 'Progress product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Progress exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 0,
+            'wb_advert_id' => 820001,
+            'started_at' => now()->subHour(),
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        $photo1 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/p1.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        $photo2 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/p2.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        // Closed cycle: photo1 got 500 views (50% of 1000).
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo1->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(40),
+            'ended_at' => now()->subMinutes(20),
+            'end_reason' => 'impressions_limit',
+            'views_start' => 0,
+            'views_end' => 500,
+            'clicks_start' => 0,
+            'clicks_end' => 10,
+            'spend_start' => 0,
+            'spend_end' => 1,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+        // Open cycle on photo2 with no extra snapshot → 0 views so far.
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo2->id,
+            'sequence' => 2,
+            'started_at' => now()->subMinutes(20),
+            'views_start' => 500,
+            'clicks_start' => 10,
+            'spend_start' => 1,
+            'orders_start' => 0,
+        ]);
+
+        $engine = app(\App\Services\Subscriber\Wb\AbTesting\WbAbExperimentEngine::class);
+        $breakdown = $engine->impressionsProgressBreakdown($experiment->fresh(['photos']), 1000);
+
+        // Bottleneck is photo2 at 0 → progress 0, mode pending (total views from closed = 500 though!)
+        // total_views includes closed cycle 500, so mode should be views, progress still 0.
+        $this->assertSame(500, $breakdown['total_views']);
+        $this->assertSame('views', $breakdown['mode']);
+        $this->assertSame(0, $breakdown['progress']);
+
+        // If photo2 also had 500 via closed cycle, progress would be 50.
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->where('sequence', 2)
+            ->update([
+                'ended_at' => now()->subMinutes(5),
+                'end_reason' => 'impressions_limit',
+                'views_end' => 1000,
+                'clicks_end' => 20,
+                'spend_end' => 2,
+                'orders_end' => 0,
+            ]);
+        // Open cycle photo1 again with 0 extra
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo1->id,
+            'sequence' => 3,
+            'started_at' => now()->subMinutes(5),
+            'views_start' => 1000,
+            'clicks_start' => 20,
+            'spend_start' => 2,
+            'orders_start' => 0,
+        ]);
+
+        $breakdown2 = $engine->impressionsProgressBreakdown($experiment->fresh(['photos']), 1000);
+        // photo1: 500, photo2: 500 → min 50%
+        $this->assertSame(50, $breakdown2['progress']);
+        $this->assertSame('views', $breakdown2['mode']);
+    }
+
+    public function test_photo_aggregates_include_open_cycle_with_provisional_ends(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Agg Provisional');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 940001,
+            'vendor_code' => 'AGG',
+            'title' => 'Agg product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Agg exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 0,
+            'wb_advert_id' => 830001,
+            'started_at' => now()->subHour(),
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        $photo1 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/agg1.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        // Open cycle with provisional ends (mid-flight).
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo1->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(10),
+            'ended_at' => null,
+            'views_start' => 100,
+            'views_end' => 150,
+            'clicks_start' => 5,
+            'clicks_end' => 8,
+            'spend_start' => 0,
+            'spend_end' => 1,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+
+        $engine = app(\App\Services\Subscriber\Wb\AbTesting\WbAbExperimentEngine::class);
+        $agg = $engine->photoAggregates($experiment->fresh(['photos']));
+
+        $this->assertArrayHasKey($photo1->id, $agg);
+        $this->assertSame(50, $agg[$photo1->id]['views']);
+        $this->assertSame(3, $agg[$photo1->id]['clicks']);
+        $this->assertEqualsWithDelta(6.0, (float) $agg[$photo1->id]['ctr'], 0.01);
+    }
+
+    public function test_map_experiment_exposes_photo_stats_and_action_history(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Map History');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 950001,
+            'vendor_code' => 'MAP',
+            'title' => 'Map product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Map exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 10,
+            'wb_advert_id' => 840001,
+            'started_at' => now()->subHour(),
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        $photo1 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/map1.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        $photo2 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/map2.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo1->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(40),
+            'ended_at' => now()->subMinutes(20),
+            'end_reason' => 'impressions_limit',
+            'views_start' => 0,
+            'views_end' => 200,
+            'clicks_start' => 0,
+            'clicks_end' => 10,
+            'spend_start' => 0,
+            'spend_end' => 1,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo2->id,
+            'sequence' => 2,
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => null,
+            'views_start' => 200,
+            'views_end' => 250,
+            'clicks_start' => 10,
+            'clicks_end' => 15,
+            'spend_start' => 1,
+            'spend_end' => 2,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+
+        $experiment->load([
+            'photos',
+            'cycles' => fn ($q) => $q->with('photo')->orderByDesc('sequence')->limit(100),
+        ]);
+
+        $service = app(\App\Services\Subscriber\Wb\WbAbTestingService::class);
+        $mapped = $service->mapExperiment($experiment);
+
+        $photosById = collect($mapped['photos'])->keyBy('id');
+        $this->assertSame(200, $photosById[$photo1->id]['stats']['impressions']);
+        $this->assertSame(10, $photosById[$photo1->id]['stats']['clicks']);
+        $this->assertNotNull($photosById[$photo1->id]['stats']['ctr']);
+        $this->assertSame(50, $photosById[$photo2->id]['stats']['impressions']);
+        // Mid-flight: no efficiency % and no winner badge.
+        $this->assertNull($photosById[$photo1->id]['stats']['result_delta_pct']);
+        $this->assertNull($photosById[$photo2->id]['stats']['result_delta_pct']);
+        $this->assertFalse($photosById[$photo1->id]['is_winner']);
+        $this->assertFalse($photosById[$photo2->id]['is_winner']);
+
+        $this->assertArrayHasKey('action_history', $mapped);
+        $this->assertCount(2, $mapped['action_history']);
+        $this->assertTrue($mapped['action_history'][0]['in_progress']);
+        $this->assertSame(2, $mapped['action_history'][0]['round']);
+        $this->assertSame(50, $mapped['action_history'][0]['views']);
+        $this->assertSame(5, $mapped['action_history'][0]['clicks']);
+        $this->assertSame('В процессе', $mapped['action_history'][0]['duration_label']);
+        $this->assertFalse($mapped['action_history'][1]['in_progress']);
+        $this->assertSame(1, $mapped['action_history'][1]['variant']);
+    }
+
+    public function test_completed_result_delta_is_relative_to_max_ctr_winner(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Winner Delta');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 970001,
+            'vendor_code' => 'WIN',
+            'title' => 'Winner product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Winner exp',
+            'status' => WbAbTestStatus::Completed,
+            'progress' => 100,
+            'wb_advert_id' => 860001,
+            'started_at' => now()->subHours(3),
+            'finished_at' => now(),
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        $photo1 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/win1.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        $photo2 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/win2.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        $photo3 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 2,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/win3.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        // photo1 CTR = 1.5% (15/1000), photo2 = 2.2% (best), photo3 = 1.7% (17/1000)
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo1->id,
+            'sequence' => 1,
+            'started_at' => now()->subHours(3),
+            'ended_at' => now()->subHours(2),
+            'end_reason' => 'impressions_limit',
+            'views_start' => 0,
+            'views_end' => 1000,
+            'clicks_start' => 0,
+            'clicks_end' => 15,
+            'spend_start' => 0,
+            'spend_end' => 1,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo2->id,
+            'sequence' => 2,
+            'started_at' => now()->subHours(2),
+            'ended_at' => now()->subHour(),
+            'end_reason' => 'impressions_limit',
+            'views_start' => 1000,
+            'views_end' => 2000,
+            'clicks_start' => 15,
+            'clicks_end' => 37, // +22 clicks / 1000 views = 2.2%
+            'spend_start' => 1,
+            'spend_end' => 2,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo3->id,
+            'sequence' => 3,
+            'started_at' => now()->subHour(),
+            'ended_at' => now(),
+            'end_reason' => 'experiment_completed',
+            'views_start' => 2000,
+            'views_end' => 3000,
+            'clicks_start' => 37,
+            'clicks_end' => 54, // +17 / 1000 = 1.7%
+            'spend_start' => 2,
+            'spend_end' => 3,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+
+        $experiment->winner_photo_id = $photo2->id;
+        $experiment->save();
+
+        $experiment->load(['photos', 'cycles']);
+        $service = app(\App\Services\Subscriber\Wb\WbAbTestingService::class);
+        $mapped = $service->mapExperiment($experiment);
+        $photosById = collect($mapped['photos'])->keyBy('id');
+
+        $this->assertTrue($photosById[$photo2->id]['is_winner']);
+        $this->assertFalse($photosById[$photo1->id]['is_winner']);
+        $this->assertFalse($photosById[$photo3->id]['is_winner']);
+
+        $this->assertSame(0.0, (float) $photosById[$photo2->id]['stats']['result_delta_pct']);
+        // Losers are negative vs winner (max CTR), not vs first photo.
+        $this->assertLessThan(0, (float) $photosById[$photo1->id]['stats']['result_delta_pct']);
+        $this->assertLessThan(0, (float) $photosById[$photo3->id]['stats']['result_delta_pct']);
+        // First photo is not the baseline: photo1 lag should be larger than photo3 (lower CTR).
+        $this->assertLessThan(
+            (float) $photosById[$photo3->id]['stats']['result_delta_pct'],
+            (float) $photosById[$photo1->id]['stats']['result_delta_pct'],
+        );
+    }
+
+    public function test_index_selected_experiment_includes_action_history(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Index History');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 960001,
+            'vendor_code' => 'IDX',
+            'title' => 'Index product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Index exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 5,
+            'wb_advert_id' => 850001,
+            'started_at' => now()->subHour(),
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        $photo = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/idx1.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(5),
+            'views_start' => 0,
+            'views_end' => 10,
+            'clicks_start' => 0,
+            'clicks_end' => 1,
+            'spend_start' => 0,
+            'spend_end' => 0,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('subscriber.wb.ab-testing.index', [
+            'product_id' => $product->id,
+            'experiment_id' => $experiment->id,
+        ]));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Subscriber/Wb/AbTesting/Index')
+            ->has('selectedExperiment.action_history', 1)
+            ->where('selectedExperiment.action_history.0.round', 1)
+            ->where('selectedExperiment.action_history.0.in_progress', true)
+            ->where('selectedExperiment.photos.0.stats.impressions', 10)
+            ->where('selectedExperiment.photos.0.stats.clicks', 1)
+        );
+    }
+
+    /**
+     * @return array{0: AbProduct, 1: AbExperiment}
+     */
+    private function createDraftExperimentWithCampaign(WbCabinet $cabinet): array
+    {
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900200 + random_int(1, 9999),
+            'vendor_code' => 'PHOTO-SKU',
+            'title' => 'Photo product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Photo draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 30,
+            'wb_advert_id' => 700001,
+            'wb_advert_name' => 'Photo campaign',
+            'campaign_bound_at' => now(),
+        ]);
+
+        return [$product, $experiment];
+    }
+
     private function createSubscriberUser(bool $withPermission = false): User
     {
         $user = User::factory()->create([
@@ -313,8 +3090,124 @@ class WbAbTestingTest extends WebAuthTestCase
                 $table->string('photo_url', 1024)->nullable();
                 $table->decimal('price', 12, 2)->nullable();
                 $table->decimal('rating', 4, 2)->nullable();
+                $table->timestamp('rating_updated_at')->nullable();
                 $table->timestamps();
                 $table->unique(['cabinet_id', 'nm_id']);
+            });
+        } elseif (! Schema::hasColumn('wb_ab_products', 'rating_updated_at')) {
+            Schema::table('wb_ab_products', function (Blueprint $table) {
+                $table->timestamp('rating_updated_at')->nullable();
+            });
+        }
+
+        if (! Schema::hasTable('wb_ab_experiments')) {
+            Schema::create('wb_ab_experiments', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('ab_product_id')->index();
+                $table->unsignedBigInteger('cabinet_id')->index();
+                $table->string('name');
+                $table->string('status', 32)->default('draft');
+                $table->unsignedTinyInteger('progress')->default(0);
+                $table->unsignedBigInteger('wb_advert_id')->nullable();
+                $table->string('wb_advert_name')->nullable();
+                $table->timestamp('campaign_bound_at')->nullable();
+                $table->unsignedInteger('impressions_per_photo')->nullable();
+                $table->unsignedInteger('impressions_per_round')->nullable();
+                $table->unsignedInteger('round_minutes')->nullable();
+                $table->unsignedInteger('cpm')->nullable();
+                $table->timestamp('started_at')->nullable();
+                $table->timestamp('finished_at')->nullable();
+                $table->text('error_message')->nullable();
+                $table->unsignedBigInteger('winner_photo_id')->nullable();
+                $table->timestamp('last_processed_at')->nullable();
+                $table->unsignedTinyInteger('consecutive_failures')->default(0);
+                $table->timestamps();
+            });
+        } else {
+            Schema::table('wb_ab_experiments', function (Blueprint $table) {
+                $columns = [
+                    'wb_advert_id' => fn (Blueprint $t) => $t->unsignedBigInteger('wb_advert_id')->nullable(),
+                    'wb_advert_name' => fn (Blueprint $t) => $t->string('wb_advert_name')->nullable(),
+                    'campaign_bound_at' => fn (Blueprint $t) => $t->timestamp('campaign_bound_at')->nullable(),
+                    'impressions_per_photo' => fn (Blueprint $t) => $t->unsignedInteger('impressions_per_photo')->nullable(),
+                    'impressions_per_round' => fn (Blueprint $t) => $t->unsignedInteger('impressions_per_round')->nullable(),
+                    'round_minutes' => fn (Blueprint $t) => $t->unsignedInteger('round_minutes')->nullable(),
+                    'cpm' => fn (Blueprint $t) => $t->unsignedInteger('cpm')->nullable(),
+                    'started_at' => fn (Blueprint $t) => $t->timestamp('started_at')->nullable(),
+                    'finished_at' => fn (Blueprint $t) => $t->timestamp('finished_at')->nullable(),
+                    'error_message' => fn (Blueprint $t) => $t->text('error_message')->nullable(),
+                    'winner_photo_id' => fn (Blueprint $t) => $t->unsignedBigInteger('winner_photo_id')->nullable(),
+                    'last_processed_at' => fn (Blueprint $t) => $t->timestamp('last_processed_at')->nullable(),
+                    'consecutive_failures' => fn (Blueprint $t) => $t->unsignedTinyInteger('consecutive_failures')->default(0),
+                ];
+                foreach ($columns as $name => $adder) {
+                    if (! Schema::hasColumn('wb_ab_experiments', $name)) {
+                        $adder($table);
+                    }
+                }
+            });
+        }
+
+        if (! Schema::hasTable('wb_ab_campaigns')) {
+            Schema::create('wb_ab_campaigns', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('cabinet_id')->index();
+                $table->unsignedBigInteger('wb_advert_id');
+                $table->string('name');
+                $table->string('bid_type', 32)->nullable();
+                $table->string('payment_type', 16)->nullable();
+                $table->unsignedBigInteger('created_by_experiment_id')->nullable();
+                $table->timestamps();
+                $table->unique(['cabinet_id', 'wb_advert_id']);
+            });
+        }
+
+        if (! Schema::hasTable('wb_ab_experiment_photos')) {
+            Schema::create('wb_ab_experiment_photos', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('ab_experiment_id')->index();
+                $table->unsignedBigInteger('cabinet_id')->index();
+                $table->unsignedTinyInteger('sort_order')->default(0);
+                $table->string('disk', 32)->default('private');
+                $table->string('path');
+                $table->string('original_name')->nullable();
+                $table->string('mime', 64)->nullable();
+                $table->unsignedInteger('size')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        if (! Schema::hasTable('wb_ab_experiment_cycles')) {
+            Schema::create('wb_ab_experiment_cycles', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('ab_experiment_id')->index();
+                $table->unsignedBigInteger('cabinet_id')->index();
+                $table->unsignedBigInteger('ab_experiment_photo_id')->index();
+                $table->unsignedInteger('sequence')->default(1);
+                $table->timestamp('started_at');
+                $table->timestamp('ended_at')->nullable();
+                $table->string('end_reason', 32)->nullable();
+                $table->unsignedBigInteger('views_start')->default(0);
+                $table->unsignedBigInteger('views_end')->nullable();
+                $table->unsignedBigInteger('clicks_start')->default(0);
+                $table->unsignedBigInteger('clicks_end')->nullable();
+                $table->decimal('spend_start', 14, 2)->default(0);
+                $table->decimal('spend_end', 14, 2)->nullable();
+                $table->unsignedInteger('orders_start')->default(0);
+                $table->unsignedInteger('orders_end')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        if (! Schema::hasTable('wb_ab_experiment_events')) {
+            Schema::create('wb_ab_experiment_events', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('ab_experiment_id')->index();
+                $table->unsignedBigInteger('cabinet_id')->index();
+                $table->string('type', 64);
+                $table->string('message', 500);
+                $table->json('meta')->nullable();
+                $table->timestamp('created_at')->useCurrent();
             });
         }
     }

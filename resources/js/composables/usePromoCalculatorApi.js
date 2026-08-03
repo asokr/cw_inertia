@@ -49,7 +49,7 @@ export function usePromoCalculatorApi() {
         return payload.data?.file ?? null;
     }
 
-    async function calculate({ file, cabinetId }) {
+    async function calculate({ file }) {
         const response = await fetch("/panel/wb/promocalculator/calculate", {
             method: "POST",
             headers: {
@@ -61,7 +61,6 @@ export function usePromoCalculatorApi() {
             credentials: "same-origin",
             body: JSON.stringify({
                 file,
-                cabinet_id: cabinetId,
             }),
         });
 
@@ -96,7 +95,7 @@ export function usePromoCalculatorApi() {
         return payload.data ?? null;
     }
 
-    async function sendToRepricer({ data, dates, cabinetId }) {
+    async function sendToRepricer({ data, dates }) {
         const response = await fetch("/panel/wb/promocalculator/repricer", {
             method: "POST",
             headers: {
@@ -109,7 +108,6 @@ export function usePromoCalculatorApi() {
             body: JSON.stringify({
                 data,
                 dates,
-                cabinet_id: cabinetId,
             }),
         });
 

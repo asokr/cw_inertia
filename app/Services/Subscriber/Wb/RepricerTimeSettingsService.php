@@ -9,6 +9,7 @@ use App\Http\Traits\SubscriptionsTrait;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Support\ToolLimits;
+use App\Support\Wb\RepricerTimePeriod;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 
@@ -45,15 +46,13 @@ class RepricerTimeSettingsService
                 'strategy' => 'required',
                 'pricing_modifier_type' => 'required',
                 'terms' => 'required|array|min:1',
-                'terms.*.start' => 'required|date_format:H:i',
-                'terms.*.end'   => 'required|date_format:H:i',
+                'terms.*.start' => ['required', 'string', RepricerTimePeriod::validationRule()],
+                'terms.*.end' => ['required', 'string', RepricerTimePeriod::validationRule()],
                 'terms.*.value' => 'required|numeric',
                 'status' => 'required|boolean',
             ],
             [
                 'nmID.unique' => 'Такая номенклатура уже есть в системе',
-                'terms.start.date_format' => 'Не верный формат веремени. Пример: 11:25',
-                'terms.end.date_format' => 'Не верный формат веремени. Пример: 11:25',
             ]
         );
 
@@ -61,14 +60,17 @@ class RepricerTimeSettingsService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        if ($request->has('terms')) {
-            $overlapError = $this->validateNoOverlap($request->terms);
-            if ($overlapError) {
-                return response()->json([
-                    "success" => false,
-                    "messages" => [$overlapError]
-                ], 200);
-            }
+        $terms = RepricerTimePeriod::normalizeTerms($request->terms ?? []);
+        if ($terms === []) {
+            return response()->json(["success" => false, "messages" => ['Укажите хотя бы один период']], 200);
+        }
+
+        $overlapError = RepricerTimePeriod::validateNoOverlap($terms);
+        if ($overlapError) {
+            return response()->json([
+                "success" => false,
+                "messages" => [$overlapError],
+            ], 200);
         }
 
         $cabinet = WbCabinet::find($request->cabinet_id);
@@ -98,7 +100,7 @@ class RepricerTimeSettingsService
             'price_type' => $request->price_type,
             'strategy' => $request->strategy,
             'pricing_modifier_type' => $request->pricing_modifier_type,
-            'terms' => $request->terms,
+            'terms' => $terms,
             'status' => $request->status,
         ]);
 
@@ -130,28 +132,29 @@ class RepricerTimeSettingsService
             'strategy' => 'required',
             'pricing_modifier_type' => 'required',
             'terms' => 'required|array|min:1',
-            'terms.*.start' => 'required|date_format:H:i',
-            'terms.*.end'   => 'required|date_format:H:i',
+            'terms.*.start' => ['required', 'string', RepricerTimePeriod::validationRule()],
+            'terms.*.end' => ['required', 'string', RepricerTimePeriod::validationRule()],
             'terms.*.value' => 'required|numeric',
             'status' => 'required|boolean',
         ], [
             'nmID.unique' => 'Такая номенклатура уже есть в системе',
-            'terms.*.start.date_format' => 'Не верный формат веремени. Пример: 11:25',
-            'terms.*.end.date_format' => 'Не верный формат веремени. Пример: 11:25',
         ]);
 
         if ($validator->fails()) {
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        if ($request->has('terms')) {
-            $overlapError = $this->validateNoOverlap($request->terms);
-            if ($overlapError) {
-                return response()->json([
-                    "success" => false,
-                    "messages" => [$overlapError]
-                ], 200);
-            }
+        $terms = RepricerTimePeriod::normalizeTerms($request->terms ?? []);
+        if ($terms === []) {
+            return response()->json(["success" => false, "messages" => ['Укажите хотя бы один период']], 200);
+        }
+
+        $overlapError = RepricerTimePeriod::validateNoOverlap($terms);
+        if ($overlapError) {
+            return response()->json([
+                "success" => false,
+                "messages" => [$overlapError],
+            ], 200);
         }
 
         $model = RepricerSettings::find($id);
@@ -167,7 +170,7 @@ class RepricerTimeSettingsService
         $model->price_type = $request->price_type;
         $model->strategy = $request->strategy;
         $model->pricing_modifier_type = $request->pricing_modifier_type;
-        $model->terms = $request->terms;
+        $model->terms = $terms;
         $model->status = $request->status;
         if ($request->status) {
             $model->repeats_counter = 0;
@@ -421,34 +424,6 @@ class RepricerTimeSettingsService
 
     protected function validateNoOverlap($terms)
     {
-        $count = count($terms);
-        // Переводим в интервалы (массивов), поддерживающие переход через полночь
-        $expand = function ($start, $end) {
-            $s = strtotime($start);
-            $e = strtotime($end);
-            if ($e > $s) {
-                return [[$s, $e]];
-            } else {
-                // через полночь: [s, 24:00), [00:00, e)
-                return [[$s, strtotime('24:00')], [strtotime('00:00'), $e]];
-            }
-        };
-
-        for ($i = 0; $i < $count; $i++) {
-            $a = $terms[$i];
-            $aRanges = $expand($a['start'], $a['end']);
-            for ($j = $i + 1; $j < $count; $j++) {
-                $b = $terms[$j];
-                $bRanges = $expand($b['start'], $b['end']);
-                foreach ($aRanges as [$as, $ae]) {
-                    foreach ($bRanges as [$bs, $be]) {
-                        if ($as < $be && $bs < $ae) {
-                            return "Периоды #" . ($i + 1) . " и #" . ($j + 1) . " пересекаются";
-                        }
-                    }
-                }
-            }
-        }
-        return null;
+        return RepricerTimePeriod::validateNoOverlap(is_array($terms) ? $terms : []);
     }
 }

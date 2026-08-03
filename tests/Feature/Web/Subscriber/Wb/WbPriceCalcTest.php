@@ -9,7 +9,9 @@ use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV2Settings;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
 use App\Services\Wb\WbPriceCalculationService;
+use App\Support\Wb\WbPriceCalcOperationGuard;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -70,7 +72,93 @@ class WbPriceCalcTest extends WebAuthTestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Subscriber/Wb/PriceCalc/Cabinet/Show')
                 ->where('cabinet.id', $cabinet->id)
-                ->where('cabinet.name', 'Test Cabinet'));
+                ->where('cabinet.name', 'Test Cabinet')
+                ->has('operationLock')
+                ->has('jobStatus'));
+    }
+
+    public function test_sync_blocked_when_cabinet_is_busy(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Busy Cabinet');
+
+        $guard = app(WbPriceCalcOperationGuard::class);
+        $this->assertTrue(($guard->acquire((int) $cabinet->id)['ok'] ?? false));
+
+        $this->mock(WbPriceCalculationService::class, function ($mock): void {
+            $mock->shouldNotReceive('getAllCards');
+            $mock->shouldNotReceive('parseApiResponse');
+        });
+
+        $this->actingAs($user)
+            ->post('/panel/wb/price-calc/sync')
+            ->assertRedirect()
+            ->assertSessionHas('error')
+            ->assertSessionHas('price_calc_retry_after');
+
+        $this->assertStringContainsString('обработка', mb_strtolower((string) session('error')));
+
+        $guard->release((int) $cabinet->id);
+    }
+
+    public function test_sync_blocked_during_cooldown(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Cooldown Cabinet');
+
+        app(WbPriceCalcOperationGuard::class)->setCooldown((int) $cabinet->id, 45);
+
+        $this->mock(WbPriceCalculationService::class, function ($mock): void {
+            $mock->shouldNotReceive('getAllCards');
+            $mock->shouldNotReceive('parseApiResponse');
+        });
+
+        $this->actingAs($user)
+            ->post('/panel/wb/price-calc/sync')
+            ->assertRedirect()
+            ->assertSessionHas('error')
+            ->assertSessionHas('price_calc_retry_after');
+
+        $this->assertGreaterThan(0, (int) session('price_calc_retry_after'));
+        $this->assertStringContainsString('подождите', mb_strtolower((string) session('error')));
+    }
+
+    public function test_sync_on_selected_unified_cabinet_succeeds(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->createUnifiedCabinet($user, 'Sync Cabinet');
+
+        $this->mock(WbPriceCalculationService::class, function ($mock): void {
+            $mock->shouldReceive('getAllCards')
+                ->once()
+                ->andReturn(['code' => 200, 'response' => json_encode(['cards' => []])]);
+            $mock->shouldReceive('parseApiResponse')
+                ->once()
+                ->andReturn(['success' => true, 'code' => 200, 'data' => ['cards' => []]]);
+        });
+
+        $this->actingAs($user)
+            ->post('/panel/wb/price-calc/sync')
+            ->assertRedirect()
+            ->assertSessionHas('success')
+            ->assertSessionMissing('error');
+
+        $this->assertStringContainsString('список товаров', mb_strtolower((string) session('success')));
+    }
+
+    public function test_operation_lock_prop_reflects_cooldown_after_refresh(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Lock Prop Cabinet');
+
+        app(WbPriceCalcOperationGuard::class)->setCooldown((int) $cabinet->id, 40);
+
+        $this->actingAs($user)
+            ->get('/panel/wb/price-calc')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Wb/PriceCalc/Cabinet/Show')
+                ->where('operationLock.retry_after', fn ($v) => (int) $v > 0));
     }
 
     public function test_cabinet_show_renders_for_owner(): void
@@ -99,30 +187,27 @@ class WbPriceCalcTest extends WebAuthTestCase
             ->assertForbidden();
     }
 
-    public function test_sync_products_passes_cabinet_id_from_web_panel(): void
+    public function test_sync_products_queues_job_for_selected_cabinet(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'Sync Cabinet');
+        $this->createUnifiedCabinet($user, 'Sync Cabinet');
 
         $this->mock(WbPriceCalculationService::class, function ($mock): void {
             $mock->shouldReceive('getAllCards')
                 ->once()
-                ->andReturn(['httpCode' => 200, 'body' => json_encode(['cards' => []])]);
+                ->andReturn(['code' => 200, 'response' => json_encode(['cards' => []])]);
             $mock->shouldReceive('parseApiResponse')
                 ->once()
-                ->andReturn(['success' => true, 'data' => ['cards' => []]]);
+                ->andReturn(['success' => true, 'code' => 200, 'data' => ['cards' => []]]);
         });
 
         $this->actingAs($user)
-            ->post("/panel/wb/price-calc/cabinets/{$cabinet->id}/sync", [], [
-                'HTTP_ACCEPT' => 'text/html, application/json',
-                'CONTENT_TYPE' => 'application/json',
-            ])
+            ->post('/panel/wb/price-calc/sync')
             ->assertRedirect()
             ->assertSessionHas('success')
             ->assertSessionMissing('error');
 
-        $this->assertStringContainsString('Товары не найдены', session('success'));
+        $this->assertStringContainsString('список товаров', mb_strtolower((string) session('success')));
     }
 
     public function test_destroy_cabinet_redirects_with_success(): void
@@ -229,6 +314,17 @@ class WbPriceCalcTest extends WebAuthTestCase
                 $table->unsignedBigInteger('user_id')->index();
                 $table->string('name');
                 $table->text('apikey')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        if (! Schema::hasTable('job_statuses')) {
+            Schema::create('job_statuses', function (Blueprint $table) {
+                $table->id();
+                $table->string('job_name');
+                $table->json('data')->nullable();
+                $table->string('status')->default('processing');
+                $table->text('error')->nullable();
                 $table->timestamps();
             });
         }

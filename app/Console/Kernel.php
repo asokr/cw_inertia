@@ -29,6 +29,7 @@ class Kernel extends ConsoleKernel
         Commands\DispatchRepricerCompetitorsJobCommand::class,
         Commands\ResetStuckProfitabilityReportsCommand::class,
         Commands\AggregateAiCosts::class,
+        Commands\WbAbTestingTickCommand::class,
     ];
 
     /**
@@ -123,6 +124,13 @@ class Kernel extends ConsoleKernel
 
         // Сброс зависших profitability-отчётов (порог 35 мин = timeout Job 30 мин + запас на очередь)
         $schedule->command('subscriber:fail-stuck-profitability-reports --minutes=35')->everyFiveMinutes()->withoutOverlapping()->runInBackground();
+
+        // A/B-тестирование WB: fallback тик (primary = self-reschedule job после start)
+        $schedule->command('subscriber:wb-ab-testing-tick')
+            ->everyTwoMinutes()
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground();
     }
 
     /**

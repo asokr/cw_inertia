@@ -362,7 +362,7 @@ function closeMobile() {
                     </div>
                 </header>
                 <SubscriptionPromoBanner />
-                <main class="relative z-10 flex-1 p-4 md:p-6">
+                <main class="relative z-10 min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
                     <slot />
                 </main>
             </div>

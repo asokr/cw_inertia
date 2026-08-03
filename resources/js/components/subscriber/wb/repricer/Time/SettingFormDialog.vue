@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useForm } from "@inertiajs/vue3";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
@@ -7,6 +7,11 @@ import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
 import Select from "@/components/ui/Select.vue";
 import Switch from "@/components/ui/Switch.vue";
+import {
+    fromPeriodInputValue,
+    isDateTimePeriod,
+    toPeriodInputValue,
+} from "@/utils/repricerTerms";
 
 const props = defineProps({
     open: Boolean,
@@ -26,7 +31,7 @@ const form = useForm({
     price_type: "PRICE",
     strategy: "TIME",
     pricing_modifier_type: "FIXED",
-    terms: [{ start: "", end: "", value: "" }],
+    terms: [{ start: "", end: "", value: "", mode: "daily" }],
     status: false,
 });
 
@@ -46,6 +51,24 @@ const termsText = computed(() => {
     };
 });
 
+function mapTermsFromSetting(terms) {
+    const list = Array.isArray(terms)
+        ? terms
+        : terms?.start != null
+          ? [terms]
+          : [{ start: "", end: "", value: "" }];
+
+    return list.map((t) => {
+        const mode = isDateTimePeriod(t) ? "absolute" : "daily";
+        return {
+            start: toPeriodInputValue(t.start, mode),
+            end: toPeriodInputValue(t.end, mode),
+            value: t.value ?? "",
+            mode,
+        };
+    });
+}
+
 watch(
     () => props.open,
     (isOpen) => {
@@ -59,27 +82,37 @@ watch(
             form.price_type = props.setting.price_type ?? "PRICE";
             form.strategy = props.setting.strategy ?? "TIME";
             form.pricing_modifier_type = props.setting.pricing_modifier_type ?? "FIXED";
-            form.terms = (props.setting.terms?.length ? props.setting.terms : [{ start: "", end: "", value: "" }])
-                .map((t) => ({ ...t }));
+            form.terms = mapTermsFromSetting(props.setting.terms);
+            if (!form.terms.length) {
+                form.terms = [{ start: "", end: "", value: "", mode: "daily" }];
+            }
             form.status = Boolean(props.setting.status);
         } else {
             form.reset();
             form.price_type = "PRICE";
             form.strategy = "TIME";
             form.pricing_modifier_type = "FIXED";
-            form.terms = [{ start: "", end: "", value: "" }];
+            form.terms = [{ start: "", end: "", value: "", mode: "daily" }];
             form.status = false;
         }
     },
 );
 
-function addPeriod() {
-    form.terms.push({ start: "", end: "", value: "" });
+function addPeriod(mode = "daily") {
+    form.terms.push({ start: "", end: "", value: "", mode });
 }
 
 function removePeriod(index) {
     if (form.terms.length <= 1) return;
     form.terms.splice(index, 1);
+}
+
+function setPeriodMode(index, mode) {
+    const period = form.terms[index];
+    if (!period || period.mode === mode) return;
+    period.mode = mode;
+    period.start = "";
+    period.end = "";
 }
 
 function submit() {
@@ -97,7 +130,8 @@ function submit() {
         ...data,
         nmID: Number(data.nmID),
         terms: data.terms.map((t) => ({
-            ...t,
+            start: fromPeriodInputValue(t.start, t.mode || "daily"),
+            end: fromPeriodInputValue(t.end, t.mode || "daily"),
             value: Number(t.value),
         })),
     }));
@@ -147,28 +181,70 @@ function submit() {
             </div>
 
             <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                    <h4 class="text-sm font-medium">Периоды</h4>
-                    <Button type="button" variant="outline" size="sm" @click="addPeriod">Добавить период</Button>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <h4 class="text-sm font-medium">Периоды</h4>
+                        <p class="text-xs text-muted-foreground">
+                            Ежедневно — только время; разовый — дата и время (МСК).
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" @click="addPeriod('daily')">
+                            + Ежедневно
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" @click="addPeriod('absolute')">
+                            + С датой
+                        </Button>
+                    </div>
                 </div>
 
                 <div
                     v-for="(period, index) in form.terms"
                     :key="index"
-                    class="grid gap-3 rounded-md border p-3 sm:grid-cols-4"
+                    class="space-y-3 rounded-md border p-3"
                 >
-                    <Input v-model="period.start" type="time" placeholder="Старт" />
-                    <Input v-model="period.end" type="time" placeholder="Конец" />
-                    <Input v-model="period.value" type="number" :placeholder="termsText.label" />
-                    <Button
-                        v-if="form.terms.length > 1"
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        @click="removePeriod(index)"
-                    >
-                        Удалить
-                    </Button>
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <Select
+                            :model-value="period.mode"
+                            class="max-w-[14rem]"
+                            @update:model-value="setPeriodMode(index, $event)"
+                        >
+                            <option value="daily">Ежедневно (время)</option>
+                            <option value="absolute">Разовый (дата и время)</option>
+                        </Select>
+                        <Button
+                            v-if="form.terms.length > 1"
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            @click="removePeriod(index)"
+                        >
+                            Удалить
+                        </Button>
+                    </div>
+
+                    <div class="grid gap-3 sm:grid-cols-3">
+                        <div class="space-y-1">
+                            <Label class="text-xs text-muted-foreground">Начало</Label>
+                            <Input
+                                v-model="period.start"
+                                :type="period.mode === 'absolute' ? 'datetime-local' : 'time'"
+                                required
+                            />
+                        </div>
+                        <div class="space-y-1">
+                            <Label class="text-xs text-muted-foreground">Конец</Label>
+                            <Input
+                                v-model="period.end"
+                                :type="period.mode === 'absolute' ? 'datetime-local' : 'time'"
+                                required
+                            />
+                        </div>
+                        <div class="space-y-1">
+                            <Label class="text-xs text-muted-foreground">{{ termsText.label }}</Label>
+                            <Input v-model="period.value" type="number" :placeholder="termsText.label" required />
+                        </div>
+                    </div>
                 </div>
             </div>
 

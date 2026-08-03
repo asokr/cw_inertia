@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Web\Subscriber;
 
+use App\Support\Wb\RepricerTimePeriod;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreRepricerTimeSettingRequest extends FormRequest
@@ -23,10 +24,21 @@ class StoreRepricerTimeSettingRequest extends FormRequest
             'strategy' => ['required', 'string', 'in:TIME,STOCK'],
             'pricing_modifier_type' => ['required', 'string', 'in:PROCENT,FIXED'],
             'terms' => ['required', 'array', 'min:1'],
-            'terms.*.start' => ['required', 'date_format:H:i'],
-            'terms.*.end' => ['required', 'date_format:H:i'],
+            'terms.*.start' => ['required', 'string', RepricerTimePeriod::validationRule()],
+            'terms.*.end' => ['required', 'string', RepricerTimePeriod::validationRule()],
             'terms.*.value' => ['required', 'numeric'],
             'status' => ['required', 'boolean'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'terms.*.start.required' => 'Укажите начало периода',
+            'terms.*.end.required' => 'Укажите конец периода',
         ];
     }
 }

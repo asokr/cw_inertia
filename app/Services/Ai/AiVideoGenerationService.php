@@ -4,7 +4,9 @@ namespace App\Services\Ai;
 
 use App\Models\AiVideoGeneration;
 use App\Models\AiVideoGenerationTask;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class AiVideoGenerationService
@@ -85,11 +87,57 @@ class AiVideoGenerationService
                     ]);
                 }
 
-                return $existing->fresh();
+                // fresh() may return null if the row was deleted between select and refresh.
+                return $existing->fresh() ?? $existing;
             }
         }
 
         return $this->create($subscriberId, $userId, $this->titleFromPrompt($prompt));
+    }
+
+    /**
+     * Re-check that the generation row still exists before writing a task.
+     * Long AI requests can outlive the session if the user deletes it mid-flight.
+     */
+    public function ensureGenerationForWrite(
+        AiVideoGeneration $generation,
+        int $subscriberId,
+        int $userId,
+        ?string $prompt = null,
+    ): AiVideoGeneration {
+        $existing = AiVideoGeneration::query()
+            ->whereKey($generation->id)
+            ->where('subscriber_id', $subscriberId)
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        $preferredUuid = filled($generation->uuid) ? (string) $generation->uuid : null;
+        $uuidAvailable = $preferredUuid
+            && ! AiVideoGeneration::query()->where('uuid', $preferredUuid)->exists();
+
+        Log::warning('AI video generation missing before task create; recreating session', [
+            'missing_generation_id' => $generation->id,
+            'generation_uuid' => $preferredUuid,
+            'subscriber_id' => $subscriberId,
+            'user_id' => $userId,
+            'reuse_uuid' => $uuidAvailable,
+        ]);
+
+        $title = $this->normalizeTitle(
+            $prompt !== null && trim($prompt) !== ''
+                ? $this->titleFromPrompt($prompt)
+                : ($generation->title ?? null)
+        );
+
+        return AiVideoGeneration::query()->create(array_filter([
+            'uuid' => $uuidAvailable ? $preferredUuid : null,
+            'subscriber_id' => $subscriberId,
+            'user_id' => $userId,
+            'title' => $title,
+        ], static fn ($value) => $value !== null));
     }
 
     public function findTaskByExternalId(string $requestId, int $subscriberId): ?AiVideoGenerationTask
@@ -146,7 +194,9 @@ class AiVideoGenerationService
         ?string $model = null,
         ?string $errorMessage = null,
     ): AiVideoGenerationTask {
-        $task = AiVideoGenerationTask::query()->create([
+        $generation = $this->ensureGenerationForWrite($generation, $subscriberId, $userId, $prompt);
+
+        $attributes = [
             'video_generation_id' => $generation->id,
             'subscriber_id' => $subscriberId,
             'user_id' => $userId,
@@ -160,11 +210,53 @@ class AiVideoGenerationService
             'status' => $status,
             'model' => $model,
             'error_message' => $errorMessage,
-        ]);
+        ];
+
+        try {
+            $task = AiVideoGenerationTask::query()->create($attributes);
+        } catch (QueryException $exception) {
+            if (! $this->isGenerationForeignKeyViolation($exception)) {
+                throw $exception;
+            }
+
+            Log::warning('AI video task insert hit missing generation FK; retrying once', [
+                'missing_generation_id' => $generation->id,
+                'generation_uuid' => $generation->uuid,
+                'subscriber_id' => $subscriberId,
+                'user_id' => $userId,
+            ]);
+
+            $stale = new AiVideoGeneration();
+            $stale->forceFill([
+                'id' => 0,
+                'uuid' => $generation->uuid,
+                'subscriber_id' => $subscriberId,
+                'user_id' => $userId,
+                'title' => $generation->title,
+            ]);
+            $stale->syncOriginal();
+
+            $generation = $this->ensureGenerationForWrite($stale, $subscriberId, $userId, $prompt);
+            $attributes['video_generation_id'] = $generation->id;
+            $task = AiVideoGenerationTask::query()->create($attributes);
+        }
 
         $this->touchGeneration($generation);
+        $task->setRelation('generation', $generation);
 
         return $task;
+    }
+
+    private function isGenerationForeignKeyViolation(QueryException $exception): bool
+    {
+        if ((string) $exception->getCode() !== '23000') {
+            return false;
+        }
+
+        $message = $exception->getMessage();
+
+        return str_contains($message, 'video_generation_id')
+            || str_contains($message, 'ai_video_generation_tasks_video_generation_id_foreign');
     }
 
     /**

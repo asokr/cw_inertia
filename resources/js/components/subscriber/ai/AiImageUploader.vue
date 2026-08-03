@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { CloudUpload, Plus, X } from "lucide-vue-next";
 
 const props = defineProps({
@@ -7,6 +7,14 @@ const props = defineProps({
     disabled: { type: Boolean, default: false },
     multiple: { type: Boolean, default: false },
     compact: { type: Boolean, default: false },
+    /** 'default' | 'compact' | 'canvas' — canvas fills parent empty area */
+    variant: {
+        type: String,
+        default: "default",
+        validator: (value) => ["default", "compact", "canvas"].includes(value),
+    },
+    /** Secondary hint under the main drop label (canvas variant) */
+    hint: { type: String, default: "" },
 });
 
 const emit = defineEmits(["update:modelValue", "error", "files-added"]);
@@ -17,6 +25,11 @@ const isDragging = ref(false);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
+
+const isCompact = computed(() => props.compact || props.variant === "compact");
+const isCanvas = computed(() => props.variant === "canvas");
+/** Canvas mode always shows the drop zone (parent never binds preview here). */
+const showDropZone = computed(() => isCanvas.value || !props.modelValue);
 
 function openFilePicker() {
     if (!props.disabled) {
@@ -117,6 +130,7 @@ async function handleFileChange(event) {
 
 async function handleDrop(event) {
     isDragging.value = false;
+    if (props.disabled) return;
     const files = Array.from(event.dataTransfer?.files || []);
     await handleFiles(files);
 }
@@ -127,7 +141,12 @@ function clearImage() {
 </script>
 
 <template>
-    <div :class="disabled ? 'pointer-events-none opacity-50' : ''">
+    <div
+        :class="[
+            disabled ? 'pointer-events-none opacity-50' : '',
+            isCanvas ? 'flex h-full min-h-0 w-full flex-1' : '',
+        ]"
+    >
         <input
             ref="fileInput"
             type="file"
@@ -139,23 +158,50 @@ function clearImage() {
         />
 
         <div
-            v-if="!modelValue"
+            v-if="showDropZone"
             :class="[
                 'transition-colors',
-                compact
+                isCompact
                     ? 'flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg border border-dashed bg-muted/30 hover:border-primary/50 hover:bg-muted/50'
-                    : [
-                        'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-5 text-center',
-                        isDragging ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/60 hover:bg-muted/30',
-                    ],
+                    : isCanvas
+                        ? [
+                            'flex h-full min-h-0 w-full flex-1 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 text-center',
+                            isDragging
+                                ? 'border-primary bg-primary/5'
+                                : 'border-transparent hover:border-primary/40 hover:bg-muted/40',
+                        ]
+                        : [
+                            'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-5 text-center',
+                            isDragging
+                                ? 'border-primary bg-primary/5'
+                                : 'border-border bg-card hover:border-primary/60 hover:bg-muted/30',
+                        ],
             ]"
             @click="openFilePicker"
-            @dragover.prevent="isDragging = true"
+            @dragover.prevent="!disabled && (isDragging = true)"
             @dragleave.prevent="isDragging = false"
             @drop.prevent="handleDrop"
         >
-            <template v-if="compact">
+            <template v-if="isCompact">
                 <Plus class="h-4 w-4 text-muted-foreground" />
+            </template>
+            <template v-else-if="isCanvas">
+                <div
+                    class="flex h-16 w-16 items-center justify-center rounded-2xl transition-colors"
+                    :class="isDragging ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
+                >
+                    <CloudUpload class="h-8 w-8 opacity-70" />
+                </div>
+                <div class="max-w-sm space-y-1.5">
+                    <p class="text-sm text-muted-foreground">
+                        Перетащите изображение или
+                        <span class="font-semibold text-primary underline decoration-dotted underline-offset-2">выберите файл</span>
+                    </p>
+                    <p class="text-xs text-muted-foreground/80">PNG, JPG, WEBP, GIF — до 10 МБ</p>
+                    <p v-if="hint" class="pt-1 text-xs text-muted-foreground/70">
+                        {{ hint }}
+                    </p>
+                </div>
             </template>
             <template v-else>
                 <div class="mb-1 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">

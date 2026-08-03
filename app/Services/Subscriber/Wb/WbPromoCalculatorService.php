@@ -17,7 +17,7 @@ use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx as XlsxWriter;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
-use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV2Data;
+use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
 
 class WbPromoCalculatorService
 {
@@ -58,23 +58,20 @@ class WbPromoCalculatorService
         }
     }
 
-    public function calculate(Request $request)
+    public function calculate(Request $request, int $cabinetId)
     {
         $messages = [
-            'file.required'       => 'Нет отчёта по акциям. Загрузите его.',
-            'cabinet_id.required' => 'Вы не выбрали кабинет из инструмента Ценообразования',
+            'file.required' => 'Нет отчёта по акциям. Загрузите его.',
         ];
 
         $validator = Validator::make($request->all(), [
-            'file'       => 'required|',
-            'cabinet_id' => 'required|',
-
+            'file' => 'required|',
         ], $messages);
         if ($validator->fails()) {
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $priceCalcData = PriceCalculationV2Data::where('cabinet_id', $request->cabinet_id)
+        $priceCalcData = PriceCalculationV3Data::where('cabinet_id', $cabinetId)
             ->whereNotNull('nm_id')
             ->selectRaw('nm_id, AVG(cost_price) as cost_price, AVG(fulfillment_fee) as fulfillment_fee, AVG(wb_commission_percent) as wb_commission_percent, AVG(total_logistics) as total_logistics, AVG(min_price_promo) as min_price_promo, AVG(tax_percent) as tax_percent, AVG(advertising_percent) as advertising_percent, AVG(acquiring_percent) as acquiring_percent, AVG(maintenance_percent) as maintenance_percent')
             ->groupBy('nm_id')
@@ -82,7 +79,10 @@ class WbPromoCalculatorService
             ->toArray();
 
         if (! $priceCalcData) {
-            return response()->json(["success" => false, "messages" => ["Нет данных в ценообразовании для выбранного кабинета"]], 200);
+            return response()->json([
+                "success" => false,
+                "messages" => ["Нет данных в ценообразовании для активного кабинета. Обновите данные в инструменте «Ценообразование»."],
+            ], 200);
         }
 
         if (Storage::disk('public')->exists($request->file)) {
@@ -319,12 +319,11 @@ class WbPromoCalculatorService
         return response()->json(["success" => true, "messages" => ["Отчёт сформирован"], "data" => $link], 200);
     }
 
-    public function sendToRepricer(Request $request)
+    public function sendToRepricer(Request $request, WbCabinet $cabinet)
     {
         $validator = Validator::make($request->all(), [
-            'data'       => 'required|array',
-            'dates'      => 'required|array',
-            'cabinet_id' => 'required',
+            'data'  => 'required|array',
+            'dates' => 'required|array',
         ], [
             'required' => 'Не хватает данных для передачи в репрайсер',
         ]);
@@ -332,12 +331,33 @@ class WbPromoCalculatorService
             return response()->json(["success" => false, "messages" => $validator->errors()->all()], 200);
         }
 
-        $cabinet = WbCabinet::find($request->cabinet_id);
-        // Проверим, принадлежит-ли кабинет текущему юзеру
-        $belongs = $cabinet->user_id == auth()->user()->id;
-        if (! $belongs) {
-            return response()->json(["success" => false, "messages" => ["Такого кабинета не существует"]], 200);
+        $cabinetId = (int) $cabinet->id;
+
+        // Разовый период акции: полные даты+время (МСК), не ежедневное H:i
+        $startAt = $this->parseMoscowDateTime($request->dates['start'] ?? null);
+        $endAt = $this->parseMoscowDateTime($request->dates['end'] ?? null);
+
+        if (! $startAt || ! $endAt) {
+            return response()->json([
+                'success' => false,
+                'messages' => ['Укажите корректные даты начала и окончания акции'],
+            ], 200);
         }
+
+        if ($endAt->lessThanOrEqualTo($startAt)) {
+            return response()->json([
+                'success' => false,
+                'messages' => ['Дата окончания акции должна быть позже даты начала'],
+            ], 200);
+        }
+
+        $periodStart = $startAt->format('Y-m-d H:i:s');
+        $periodEnd = $endAt->format('Y-m-d H:i:s');
+        $strategyName = sprintf(
+            'Акция_%s_по_%s',
+            $startAt->format('Y-m-d H:i'),
+            $endAt->format('Y-m-d H:i')
+        );
 
         foreach ($request->data as $item) {
             $nmId = $this->resolveRepricerNmId($item);
@@ -351,24 +371,34 @@ class WbPromoCalculatorService
             if (! $base) {
                 return response()->json(["success" => false, 'type' => 'bigError', "messages" => ["Для одной из номенклатур не удалось получить текущую цену. Попробуйте позже. Некоторые номенклатуры могли попасть в репрайсер."]], 200);
             }
+
+            $discount = (float) ($base['discount'] ?? 0);
+            $denominator = 1 - ($discount / 100);
+            $value = $denominator > 0
+                ? round($planPrice / $denominator)
+                : round($planPrice);
+
+            // Массив периодов: absolute datetime (Y-m-d H:i:s) — разовый интервал акции
             $terms = [
-                'start' => $this->convertToMoscow($request->dates['start']),
-                'end'   => $this->convertToMoscow($request->dates['end']),
-                'value' => round($planPrice / (1 - $base['discount'] / 100)),
+                [
+                    'start' => $periodStart,
+                    'end' => $periodEnd,
+                    'value' => $value,
+                ],
             ];
 
             RepricerSettings::updateOrCreate(
-                ['nmID' => $nmId, 'cabinet_id' => $request->cabinet_id],
+                ['nmID' => $nmId, 'cabinet_id' => $cabinetId],
                 [
-                    'name'                  => "Акция_{$terms['start']}_по_{$terms['end']}",
-                    'base_value'            => $base['price'],
-                    'base_discount'         => $base['discount'],
-                    'price_type'            => 'PRICE',
-                    'strategy'              => 'TIME',
+                    'name' => $strategyName,
+                    'base_value' => $base['price'],
+                    'base_discount' => $base['discount'],
+                    'price_type' => 'PRICE',
+                    'strategy' => 'TIME',
                     'pricing_modifier_type' => 'FIXED',
-                    'terms'                 => $terms,
-                    'active'                => 0,
-                    'status'                => 1,
+                    'terms' => $terms,
+                    'active' => 0,
+                    'status' => 1,
                 ]
             );
         }
@@ -406,13 +436,19 @@ class WbPromoCalculatorService
 
 
     /**
-     * Преобразовать дату в формат Y-m-d H:i:s и часовую зону Moscow
+     * Парсит дату/время как московское (поля UI помечены как МСК).
      */
-    protected function convertToMoscow($dateTime)
+    protected function parseMoscowDateTime(mixed $dateTime): ?Carbon
     {
-        return Carbon::parse($dateTime)
-            ->setTimezone('Europe/Moscow')
-            ->format('Y-m-d H:i:s');
+        if ($dateTime === null || $dateTime === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse((string) $dateTime, 'Europe/Moscow');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

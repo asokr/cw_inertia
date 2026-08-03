@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { Head, router } from "@inertiajs/vue3";
-import { History } from "lucide-vue-next";
+import { History, Plus } from "lucide-vue-next";
 import AiGenerationDeleteDialog from "@/components/subscriber/ai/AiGenerationDeleteDialog.vue";
 import AiLimitsBadge from "@/components/subscriber/ai/AiLimitsBadge.vue";
 import AiVideoCanvas from "@/components/subscriber/ai/AiVideoCanvas.vue";
@@ -28,29 +28,17 @@ const props = defineProps({
     },
 });
 
-const breadcrumbs = computed(() => {
-    const items = [
-        { label: "Главная", href: "/panel" },
-        { label: "ИИ Инструменты", href: "/panel/ai/text" },
-        { label: "Видео", href: "/panel/ai/video" },
-    ];
-
-    if (props.generationUuid) {
-        items.push({ label: "Генерация" });
-    }
-
-    return items;
-});
-
 const videoFormRef = ref(null);
 const galleryScrollRef = ref(null);
 const activeGalleryId = ref(null);
 const pendingGalleryItem = ref(null);
 const seedingForm = ref(false);
+const sessionLoading = ref(false);
+const sessionSwitchToken = ref(0);
+const expectedSessionUuid = ref(props.generationUuid ?? null);
 const deletingGenerationUuid = ref(null);
 const deleteDialogOpen = ref(false);
 const pendingDeleteUuid = ref(null);
-const isDraftMode = computed(() => !props.generationUuid);
 const { showError, showSuccess } = useFlashToast();
 
 const {
@@ -68,6 +56,8 @@ const {
     refreshLimits,
     runVideoTask,
     runSceneVideoTask,
+    rememberActiveGeneration,
+    stopVideoPolling,
 } = useMarketplaceAi(props.limits, {
     limitsMode: "video",
     onVideoError: (message) => showError(message),
@@ -78,6 +68,43 @@ const {
         scrollGalleryToBottom();
     },
 });
+
+const SESSION_VISIT_OPTIONS = {
+    preserveState: true,
+    preserveScroll: true,
+    only: ["generationUuid"],
+};
+
+function normalizeSessionUuid(uuid) {
+    return uuid || null;
+}
+
+// Driven by client-side navigation target so the strip updates immediately,
+// without waiting for the soft Inertia URL sync to finish.
+const isDraftMode = computed(() => !normalizeSessionUuid(expectedSessionUuid.value));
+
+const breadcrumbs = computed(() => {
+    const items = [
+        { label: "Главная", href: "/panel" },
+        { label: "ИИ Инструменты", href: "/panel/ai/text" },
+        { label: "Видео", href: "/panel/ai/video" },
+    ];
+
+    if (!isDraftMode.value) {
+        items.push({ label: "Генерация" });
+    }
+
+    return items;
+});
+
+function syncSessionUrl(uuid, { replace = false } = {}) {
+    const target = uuid ? `/panel/ai/video/${uuid}` : "/panel/ai/video";
+
+    router.visit(target, {
+        ...SESSION_VISIT_OPTIONS,
+        replace,
+    });
+}
 
 function getTaskPosterUrl(task) {
     if (task?.status === "done") {
@@ -164,31 +191,68 @@ const activeCanvasTask = computed(() => {
 
 const canvasLoading = computed(() =>
     loading.value
+    || sessionLoading.value
     || activeGalleryItem.value?.status === "pending"
     || activeCanvasTask.value?.status === "pending",
 );
 
+const canvasUploadDisabled = computed(() =>
+    !hasVideoLimit.value || loading.value || seedingForm.value || sessionLoading.value,
+);
+
+const uploadErrorMessages = {
+    "size-exceeded": "Размер файла не должен превышать 10 МБ",
+    "format-not-allowed": "Формат не поддерживается. Загрузите PNG, JPG, JPEG, WEBP или статичный GIF.",
+    "animated-gif": "Анимированные GIF не поддерживаются.",
+};
+
+function handleCanvasFilesAdded(results) {
+    videoFormRef.value?.addImages?.(results);
+}
+
+function handleCanvasUploadError(type) {
+    showError(uploadErrorMessages[type] || "Ошибка загрузки изображения");
+}
+
 function resetWorkspace() {
+    stopVideoPolling();
     videoHistory.value = [];
     activeGalleryId.value = null;
     pendingGalleryItem.value = null;
+    rememberActiveGeneration(null);
     videoFormRef.value?.resetForm();
 }
 
-async function loadGenerationSession(uuid) {
+/**
+ * Load session tasks into the workspace without remounting the page.
+ * Returns false when the session could not be loaded.
+ */
+async function loadGenerationSession(uuid, { token = null } = {}) {
     if (!uuid) {
         resetWorkspace();
-        return;
+        return true;
     }
 
+    // Clear stale gallery immediately so previous session content does not flash.
+    stopVideoPolling();
+    videoHistory.value = [];
+    activeGalleryId.value = null;
+    pendingGalleryItem.value = null;
+
     const result = await openGeneration(uuid);
+    if (token !== null && token !== sessionSwitchToken.value) {
+        return false;
+    }
+
     if (!result.ok) {
         showError(result.message);
-        router.visit("/panel/ai/video");
-        return;
+        return false;
     }
 
     await nextTick();
+    if (token !== null && token !== sessionSwitchToken.value) {
+        return false;
+    }
 
     if (galleryItems.value.length > 0) {
         await selectLastGalleryItem();
@@ -196,14 +260,70 @@ async function loadGenerationSession(uuid) {
         activeGalleryId.value = null;
         videoFormRef.value?.resetForm();
     }
+
+    return true;
 }
 
-function handleOpenGeneration(generationUuid) {
-    if (generationUuid === props.generationUuid) {
+/**
+ * Client-side session switch: fetch only generation data, then soft-sync the URL.
+ */
+async function switchToSession(uuid, { replace = false } = {}) {
+    const targetUuid = normalizeSessionUuid(uuid);
+    const currentUuid = normalizeSessionUuid(props.generationUuid);
+
+    if (targetUuid === currentUuid && targetUuid === normalizeSessionUuid(expectedSessionUuid.value)) {
+        if (!targetUuid) {
+            resetWorkspace();
+        }
         return;
     }
 
-    router.visit(`/panel/ai/video/${generationUuid}`);
+    const token = ++sessionSwitchToken.value;
+    sessionLoading.value = true;
+    expectedSessionUuid.value = targetUuid;
+
+    // Optimistic strip highlight while session payload loads.
+    if (targetUuid) {
+        rememberActiveGeneration(targetUuid);
+    } else {
+        rememberActiveGeneration(null);
+    }
+
+    try {
+        if (targetUuid) {
+            const ok = await loadGenerationSession(targetUuid, { token });
+            if (token !== sessionSwitchToken.value) {
+                return;
+            }
+
+            if (!ok) {
+                expectedSessionUuid.value = null;
+                resetWorkspace();
+                if (currentUuid !== null) {
+                    syncSessionUrl(null, { replace: true });
+                }
+                return;
+            }
+        } else {
+            resetWorkspace();
+        }
+
+        if (targetUuid !== currentUuid) {
+            syncSessionUrl(targetUuid, { replace });
+        }
+    } finally {
+        if (token === sessionSwitchToken.value) {
+            sessionLoading.value = false;
+        }
+    }
+}
+
+function handleOpenGeneration(generationUuid) {
+    void switchToSession(generationUuid);
+}
+
+function handleNewGeneration() {
+    void switchToSession(null);
 }
 
 function handleDeleteGeneration(generationUuid) {
@@ -238,8 +358,8 @@ async function confirmDeleteGeneration() {
     pendingDeleteUuid.value = null;
     showSuccess("Сессия удалена");
 
-    if (props.generationUuid === generationUuid) {
-        router.visit("/panel/ai/video");
+    if (normalizeSessionUuid(expectedSessionUuid.value) === generationUuid) {
+        void switchToSession(null, { replace: true });
     }
 }
 
@@ -406,9 +526,10 @@ async function handleVideoSubmit(payload) {
 
     showSuccess("Генерация видео запущена");
 
-    if (!props.generationUuid && result.generationUuid) {
-        router.visit(`/panel/ai/video/${result.generationUuid}`);
-        return;
+    if (!normalizeSessionUuid(expectedSessionUuid.value) && result.generationUuid) {
+        // Session already contains the new task — only sync the URL, no remount.
+        expectedSessionUuid.value = result.generationUuid;
+        syncSessionUrl(result.generationUuid, { replace: true });
     }
 
     if (result.requestId) {
@@ -423,20 +544,63 @@ onMounted(async () => {
     await refreshLimits();
     await loadGenerations();
 
+    expectedSessionUuid.value = normalizeSessionUuid(props.generationUuid);
+
     if (props.generationUuid) {
-        await loadGenerationSession(props.generationUuid);
+        sessionLoading.value = true;
+        try {
+            const ok = await loadGenerationSession(props.generationUuid);
+            if (!ok) {
+                expectedSessionUuid.value = null;
+                resetWorkspace();
+                syncSessionUrl(null, { replace: true });
+            }
+        } finally {
+            sessionLoading.value = false;
+        }
     } else {
         resetWorkspace();
     }
 });
 
+// Browser back/forward and external Inertia visits: load only when URL diverges
+// from what we already applied client-side.
 watch(
     () => props.generationUuid,
     async (uuid) => {
-        if (uuid) {
-            await loadGenerationSession(uuid);
-        } else {
-            resetWorkspace();
+        const targetUuid = normalizeSessionUuid(uuid);
+        if (targetUuid === normalizeSessionUuid(expectedSessionUuid.value)) {
+            return;
+        }
+
+        // Ignore stale Inertia responses while a client-side switch is in flight.
+        if (sessionLoading.value) {
+            return;
+        }
+
+        const token = ++sessionSwitchToken.value;
+        expectedSessionUuid.value = targetUuid;
+        sessionLoading.value = true;
+
+        try {
+            if (targetUuid) {
+                const ok = await loadGenerationSession(targetUuid, { token });
+                if (token !== sessionSwitchToken.value) {
+                    return;
+                }
+
+                if (!ok) {
+                    expectedSessionUuid.value = null;
+                    resetWorkspace();
+                    syncSessionUrl(null, { replace: true });
+                }
+            } else {
+                resetWorkspace();
+            }
+        } finally {
+            if (token === sessionSwitchToken.value) {
+                sessionLoading.value = false;
+            }
         }
     },
 );
@@ -453,6 +617,17 @@ watch(
                 class="!mb-3 shrink-0"
             >
                 <template #actions>
+                    <Button
+                        v-if="!isDraftMode"
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        class="h-8 gap-1.5 text-xs"
+                        @click="handleNewGeneration"
+                    >
+                        <Plus class="h-3.5 w-3.5" />
+                        Новая
+                    </Button>
                     <Button href="/panel/ai/video/history" variant="outline" size="sm" class="h-8 gap-1.5 text-xs">
                         <History class="h-3.5 w-3.5" />
                         История
@@ -476,11 +651,21 @@ watch(
                         :is-draft="isDraftMode"
                         @open="handleOpenGeneration"
                         @delete="handleDeleteGeneration"
+                        @create="handleNewGeneration"
                     />
 
-                    <div class="flex min-h-0 flex-1 gap-3 lg:gap-4">
+                    <div
+                        class="flex min-h-0 flex-1 gap-3 lg:gap-4 transition-opacity duration-150"
+                        :class="sessionLoading ? 'pointer-events-none opacity-60' : ''"
+                    >
                         <div class="flex min-h-0 min-w-0 flex-1">
-                            <AiVideoCanvas :task="activeCanvasTask" :loading="canvasLoading" />
+                            <AiVideoCanvas
+                                :task="activeCanvasTask"
+                                :loading="canvasLoading"
+                                :disabled="canvasUploadDisabled"
+                                @files-added="handleCanvasFilesAdded"
+                                @error="handleCanvasUploadError"
+                            />
                         </div>
 
                         <div
@@ -499,8 +684,8 @@ watch(
                     <AiVideoForm
                         ref="videoFormRef"
                         class="shrink-0"
-                        :loading="loading || seedingForm"
-                        :disabled="!hasVideoLimit"
+                        :loading="loading || seedingForm || sessionLoading"
+                        :disabled="!hasVideoLimit || sessionLoading"
                         @submit="handleVideoSubmit"
                         @error="showError"
                     />

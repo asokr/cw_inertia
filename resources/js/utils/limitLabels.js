@@ -31,7 +31,8 @@ export function formatLimitLabel(key, labelsMap = null) {
     }
 
     const fromMap = labelsMap?.[key] ?? externalLabels?.[key];
-    if (typeof fromMap === "string" && fromMap !== "") {
+    // Ignore empty / slug-as-name so soft fallbacks still work (common broken prod data).
+    if (typeof fromMap === "string" && fromMap !== "" && fromMap !== key) {
         return fromMap;
     }
 

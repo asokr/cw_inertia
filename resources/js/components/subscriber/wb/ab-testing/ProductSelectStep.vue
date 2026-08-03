@@ -20,10 +20,6 @@ const props = defineProps({
         type: Object,
         default: () => ({}),
     },
-    selectedProduct: {
-        type: Object,
-        default: null,
-    },
     showUrl: {
         type: String,
         required: true,
@@ -34,7 +30,7 @@ const props = defineProps({
     },
 });
 
-const emit = defineEmits(["update:selectedProduct"]);
+const emit = defineEmits(["select"]);
 
 const { showError } = useFlashToast();
 const searchInput = ref(props.filters.search ?? "");
@@ -89,7 +85,7 @@ function changePerPage(perPage) {
 }
 
 function onSelect(product) {
-    emit("update:selectedProduct", product);
+    emit("select", product);
 }
 </script>
 
@@ -98,7 +94,7 @@ function onSelect(product) {
         <div class="space-y-1">
             <h3 class="text-lg font-semibold">Выбор товара</h3>
             <p class="text-sm text-muted-foreground">
-                Выберите один товар кабинета для A/B-тестирования главной фотографии.
+                Нажмите на товар, чтобы открыть список его экспериментов.
             </p>
         </div>
 
@@ -121,7 +117,6 @@ function onSelect(product) {
 
         <ProductsTable
             :items="products"
-            :selected-nm-id="selectedProduct?.nm_id ?? null"
             @select="onSelect"
         />
 

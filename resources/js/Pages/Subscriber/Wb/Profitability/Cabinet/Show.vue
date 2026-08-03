@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { Head } from "@inertiajs/vue3";
 import LogisticsTable from "@/components/subscriber/wb/profitability/LogisticsTable.vue";
 import OtherOperationsTable from "@/components/subscriber/wb/profitability/OtherOperationsTable.vue";
@@ -40,18 +40,84 @@ const breadcrumbs = [
     { label: props.cabinet.name },
 ];
 
-const { showError } = useFlashToast();
+const { showError, showSuccess } = useFlashToast();
+
+const completionBanner = ref(null);
+let completionTimer = null;
+
+function clearCompletionTimer() {
+    if (completionTimer) {
+        window.clearTimeout(completionTimer);
+        completionTimer = null;
+    }
+}
+
+function showCompletionBanner(payload) {
+    clearCompletionTimer();
+    completionBanner.value = payload;
+    completionTimer = window.setTimeout(() => {
+        completionBanner.value = null;
+        completionTimer = null;
+    }, 8000);
+}
 
 const poll = useProfitabilityPoll({
     onFailed: (message) => {
         showError(message);
+        showCompletionBanner({
+            failed: true,
+            completed: false,
+            statusLabel: message,
+            error: message,
+            startedAt: props.jobStatus?.started_at ?? null,
+            stage: props.jobStatus?.stage || "queued",
+        });
+    },
+    onSuccess: (message, meta = {}) => {
+        if (meta.toast !== false) {
+            showSuccess(message);
+        }
+        showCompletionBanner({
+            failed: false,
+            completed: true,
+            statusLabel: message,
+            startedAt: props.jobStatus?.started_at ?? null,
+            stage: "done",
+        });
     },
 });
 
 const isProcessing = computed(() => props.jobStatus?.status === "processing");
+const showProgress = computed(() => isProcessing.value || Boolean(completionBanner.value));
 const hasReport = computed(() => Boolean(props.report && Object.keys(props.report).length > 0));
 const progressDetail = computed(() => buildProfitabilityProgressDetail(props.jobStatus));
-const progressPercent = computed(() => resolveProfitabilityProgressPercent(props.jobStatus));
+const progressPercent = computed(() => {
+    if (completionBanner.value?.completed) {
+        return 100;
+    }
+    return resolveProfitabilityProgressPercent(props.jobStatus);
+});
+
+const panelStatusLabel = computed(() => {
+    if (completionBanner.value) {
+        return completionBanner.value.statusLabel;
+    }
+    return props.jobStatus?.status_label;
+});
+
+const panelStage = computed(() => {
+    if (completionBanner.value) {
+        return completionBanner.value.stage;
+    }
+    return props.jobStatus?.stage || "queued";
+});
+
+const panelStartedAt = computed(() => {
+    if (completionBanner.value?.startedAt) {
+        return completionBanner.value.startedAt;
+    }
+    return props.jobStatus?.started_at;
+});
 
 const hasSales = computed(() => (props.groupMeta?.sales ?? 0) > 0);
 const hasReturns = computed(() => (props.groupMeta?.returns ?? 0) > 0);
@@ -59,8 +125,14 @@ const hasLogistics = computed(() => (props.groupMeta?.logistics ?? 0) > 0);
 const hasOther = computed(() => (props.groupMeta?.other ?? 0) > 0);
 
 function onPollingStart() {
+    clearCompletionTimer();
+    completionBanner.value = null;
     poll.start();
 }
+
+onUnmounted(() => {
+    clearCompletionTimer();
+});
 </script>
 
 <template>
@@ -80,15 +152,18 @@ function onPollingStart() {
             />
 
             <JobProgressPanel
-                v-if="isProcessing"
+                v-if="showProgress"
                 title="Формируем отчёт рентабельности"
                 :stages="PROFITABILITY_JOB_STAGES"
-                :current-stage="jobStatus.stage || 'queued'"
-                :status-label="jobStatus.status_label"
+                :current-stage="panelStage"
+                :status-label="panelStatusLabel"
                 :progress-percent="progressPercent"
                 :detail="progressDetail.detail"
                 :waiting-hint="progressDetail.waitingHint"
-                :started-at="jobStatus.started_at"
+                :started-at="panelStartedAt"
+                :failed="Boolean(completionBanner?.failed)"
+                :error="completionBanner?.error || jobStatus?.error"
+                :completed="Boolean(completionBanner?.completed)"
             />
 
             <template v-if="hasReport">

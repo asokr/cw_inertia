@@ -1,13 +1,14 @@
 <script setup>
-import { computed, ref } from "vue";
-import { Head } from "@inertiajs/vue3";
-import AbTestingWizardSteps from "@/components/subscriber/wb/ab-testing/AbTestingWizardSteps.vue";
+import { computed, ref, watch } from "vue";
+import { Head, router, usePage } from "@inertiajs/vue3";
+import ExperimentSelectStep from "@/components/subscriber/wb/ab-testing/ExperimentSelectStep.vue";
+import ExperimentWorkspace from "@/components/subscriber/wb/ab-testing/ExperimentWorkspace.vue";
 import ProductSelectStep from "@/components/subscriber/wb/ab-testing/ProductSelectStep.vue";
-import StepPlaceholder from "@/components/subscriber/wb/ab-testing/StepPlaceholder.vue";
 import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import Button from "@/components/ui/Button.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
+import { useAbExperimentPoll } from "@/composables/useAbExperimentPoll";
 
 const props = defineProps({
     cabinet: {
@@ -26,52 +27,177 @@ const props = defineProps({
         type: Object,
         default: () => ({}),
     },
+    selectedProduct: {
+        type: Object,
+        default: null,
+    },
+    selectedExperiment: {
+        type: Object,
+        default: null,
+    },
+    experiments: {
+        type: Array,
+        default: () => [],
+    },
+    createdExperiment: {
+        type: Object,
+        default: null,
+    },
 });
 
 useFlashToast();
 
+const page = usePage();
 const breadcrumbs = [
     { label: "Главная", href: "/panel" },
     { label: "A/B-тестирование" },
 ];
 
-const steps = [
-    { id: 1, title: "Выбор товара", description: "Номенклатура кабинета" },
-    { id: 2, title: "Фотографии", description: "Варианты для теста" },
-    { id: 3, title: "Настройки", description: "Параметры эксперимента" },
-    { id: 4, title: "Создание рекламы", description: "Кампания WB" },
-    { id: 5, title: "Тестирование", description: "Сбор статистики" },
-    { id: 6, title: "Результаты", description: "Победитель и аналитика" },
-];
-
-const currentStep = ref(1);
-const selectedProduct = ref(null);
-
 const baseUrl = "/panel/wb/ab-testing";
 
-const currentStepMeta = computed(
-    () => steps.find((step) => step.id === currentStep.value) ?? steps[0],
-);
+const selectedProductLocal = ref(props.selectedProduct ?? null);
+const selectedExperimentLocal = ref(props.selectedExperiment ?? null);
+const loadingExperiments = ref(false);
 
-const canContinue = computed(() => {
-    if (currentStep.value === 1) {
-        return Boolean(selectedProduct.value?.nm_id);
+const experimentsLocal = computed(() => props.experiments ?? []);
+
+/**
+ * products | experiments | workspace
+ */
+const view = computed(() => {
+    if (selectedExperimentLocal.value?.id) {
+        return "workspace";
     }
-
-    return false;
+    if (selectedProductLocal.value?.id) {
+        return "experiments";
+    }
+    return "products";
 });
 
-function goNext() {
-    if (currentStep.value === 1 && selectedProduct.value) {
-        currentStep.value = 2;
+useAbExperimentPoll({
+    shouldPoll: () => view.value === "workspace",
+});
+
+watch(
+    () => props.selectedProduct,
+    (value) => {
+        if (value) {
+            selectedProductLocal.value = value;
+        }
+    },
+);
+
+watch(
+    () => props.selectedExperiment,
+    (value) => {
+        selectedExperimentLocal.value = value ?? null;
+    },
+);
+
+function loadExperimentsForProduct(product) {
+    if (!product?.id) {
+        return;
+    }
+
+    loadingExperiments.value = true;
+    router.get(
+        baseUrl,
+        { product_id: product.id },
+        {
+            only: ["selectedProduct", "selectedExperiment", "experiments", "filters"],
+            preserveState: true,
+            preserveScroll: true,
+            onFinish: () => {
+                loadingExperiments.value = false;
+            },
+        },
+    );
+}
+
+function onProductSelect(product) {
+    if (!product?.id) {
+        return;
+    }
+
+    selectedProductLocal.value = product;
+    selectedExperimentLocal.value = null;
+    loadExperimentsForProduct(product);
+}
+
+function openExperiment(experiment) {
+    if (!experiment?.id) {
+        return;
+    }
+
+    selectedExperimentLocal.value = experiment;
+    router.get(
+        baseUrl,
+        {
+            product_id: selectedProductLocal.value?.id || experiment.ab_product_id,
+            experiment_id: experiment.id,
+        },
+        {
+            only: ["selectedProduct", "selectedExperiment", "experiments", "filters"],
+            preserveState: true,
+            preserveScroll: true,
+        },
+    );
+}
+
+function onExperimentCreated(experiment) {
+    openExperiment(experiment);
+}
+
+function onExperimentUpdated(updated) {
+    if (!updated?.id) {
+        return;
+    }
+    selectedExperimentLocal.value = {
+        ...(selectedExperimentLocal.value ?? {}),
+        ...updated,
+    };
+}
+
+function onCampaignDeleted(updated) {
+    onExperimentUpdated(updated);
+}
+
+function backToExperiments() {
+    selectedExperimentLocal.value = null;
+    const productId = selectedProductLocal.value?.id;
+    if (productId) {
+        router.get(
+            baseUrl,
+            { product_id: productId },
+            {
+                only: ["selectedProduct", "selectedExperiment", "experiments", "filters"],
+                preserveState: true,
+                preserveScroll: true,
+            },
+        );
     }
 }
 
-function goBack() {
-    if (currentStep.value > 1) {
-        currentStep.value -= 1;
-    }
+function backToProducts() {
+    selectedExperimentLocal.value = null;
+    selectedProductLocal.value = null;
+    router.get(baseUrl, {}, {
+        only: ["products", "productsMeta", "filters", "selectedProduct", "selectedExperiment", "experiments"],
+        preserveState: false,
+        preserveScroll: true,
+    });
 }
+
+watch(
+    () => page.props.flash?.created_experiment,
+    (created) => {
+        if (!created?.id) {
+            return;
+        }
+        openExperiment(created);
+    },
+    { immediate: true },
+);
 </script>
 
 <template>
@@ -83,65 +209,42 @@ function goBack() {
             :description="`Кабинет: ${cabinet.name}`"
         />
 
-        <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] xl:grid-cols-[minmax(0,1fr)_18.5rem]">
-            <div class="min-w-0 space-y-5">
-                <ProductSelectStep
-                    v-if="currentStep === 1"
-                    v-model:selected-product="selectedProduct"
-                    :products="products"
-                    :products-meta="productsMeta"
-                    :filters="filters"
-                    :show-url="baseUrl"
-                    :sync-url="`${baseUrl}/sync`"
-                />
+        <div class="min-w-0 space-y-5">
+            <ProductSelectStep
+                v-if="view === 'products'"
+                :products="products"
+                :products-meta="productsMeta"
+                :filters="filters"
+                :show-url="baseUrl"
+                :sync-url="`${baseUrl}/sync`"
+                @select="onProductSelect"
+            />
 
-                <StepPlaceholder
-                    v-else
-                    :title="currentStepMeta.title"
-                    :description="
-                        currentStep === 2
-                            ? 'На следующем этапе здесь появится загрузка фотографий для эксперимента. Сейчас шаг-заглушка.'
-                            : 'Этот шаг будет реализован позже.'
-                    "
+            <template v-else-if="view === 'experiments'">
+                <ExperimentSelectStep
+                    :product="selectedProduct || selectedProductLocal"
+                    :experiments="experimentsLocal"
+                    :create-url="`${baseUrl}/experiments`"
+                    :loading="loadingExperiments"
+                    @open="openExperiment"
+                    @created="onExperimentCreated"
                 />
-
-                <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4">
-                    <div class="text-sm text-muted-foreground">
-                        <template v-if="currentStep === 1 && selectedProduct">
-                            Выбран:
-                            <span class="font-medium text-foreground">
-                                {{ selectedProduct.title || selectedProduct.nm_id }}
-                            </span>
-                            <span class="text-muted-foreground">
-                                · {{ selectedProduct.nm_id }}
-                            </span>
-                        </template>
-                        <template v-else-if="currentStep === 1">
-                            Выберите товар, чтобы продолжить
-                        </template>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <Button
-                            v-if="currentStep > 1"
-                            variant="outline"
-                            @click="goBack"
-                        >
-                            Назад
-                        </Button>
-                        <Button
-                            v-if="currentStep < steps.length"
-                            :disabled="!canContinue"
-                            @click="goNext"
-                        >
-                            Продолжить
-                        </Button>
-                    </div>
+                <div class="flex border-t border-border/60 pt-4">
+                    <Button variant="outline" @click="backToProducts">
+                        К списку товаров
+                    </Button>
                 </div>
-            </div>
+            </template>
 
-            <div class="lg:sticky lg:top-4 lg:self-start">
-                <AbTestingWizardSteps :steps="steps" :current-step="currentStep" />
-            </div>
+            <ExperimentWorkspace
+                v-else-if="view === 'workspace'"
+                :product="selectedProduct || selectedProductLocal"
+                :experiment="selectedExperimentLocal"
+                :base-url="baseUrl"
+                @experiment-updated="onExperimentUpdated"
+                @campaign-deleted="onCampaignDeleted"
+                @back="backToExperiments"
+            />
         </div>
     </SubscriberLayout>
 </template>

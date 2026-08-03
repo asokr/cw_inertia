@@ -5,7 +5,14 @@ import { Pencil, Trash2 } from "lucide-vue-next";
 import EditableDataTable from "@/components/subscriber/tools/EditableDataTable.vue";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
-import { formatTermValue, modifierLabel, normalizeTerms, priceTypeLabel } from "@/utils/repricerTerms";
+import {
+    formatPeriodBoundary,
+    formatTermValue,
+    isDateTimePeriod,
+    modifierLabel,
+    normalizeTerms,
+    priceTypeLabel,
+} from "@/utils/repricerTerms";
 
 const props = defineProps({
     items: { type: Array, default: () => [] },
@@ -151,12 +158,23 @@ const columns = computed(() => [
             <div
                 v-for="(period, index) in normalizeTerms(periodsItem.terms)"
                 :key="index"
-                class="grid grid-cols-4 gap-2 border-b py-2"
+                class="grid gap-2 border-b py-2 sm:grid-cols-[2rem_1fr_1fr_auto]"
             >
-                <span>{{ index + 1 }}</span>
-                <span>{{ period.start }}</span>
-                <span>{{ period.end }}</span>
-                <span>{{ formatTermValue(periodsItem, period.value) }}</span>
+                <span class="text-muted-foreground">{{ index + 1 }}</span>
+                <span>
+                    <span class="text-xs text-muted-foreground">с </span>
+                    {{ formatPeriodBoundary(period.start) }}
+                    <span
+                        v-if="isDateTimePeriod(period)"
+                        class="ml-1 text-xs text-muted-foreground"
+                    >(разовый)</span>
+                    <span v-else class="ml-1 text-xs text-muted-foreground">(ежедневно)</span>
+                </span>
+                <span>
+                    <span class="text-xs text-muted-foreground">по </span>
+                    {{ formatPeriodBoundary(period.end) }}
+                </span>
+                <span class="font-medium">{{ formatTermValue(periodsItem, period.value) }}</span>
             </div>
         </div>
     </Dialog>

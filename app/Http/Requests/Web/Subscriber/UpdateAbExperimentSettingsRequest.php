@@ -1,0 +1,61 @@
+<?php
+
+namespace App\Http\Requests\Web\Subscriber;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class UpdateAbExperimentSettingsRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'impressions_per_photo' => ['required', 'integer', 'min:1000', 'max:50000000'],
+            'impressions_per_round' => ['required', 'integer', 'min:100', 'max:50000000'],
+            'round_minutes' => ['required', 'integer', 'min:5', 'max:1440'],
+            'cpm' => ['required', 'integer', 'min:50', 'max:50000'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'impressions_per_photo.required' => 'Укажите число показов на одно фото.',
+            'impressions_per_photo.min' => 'Минимум 1 000 показов на одно фото.',
+            'impressions_per_photo.max' => 'Максимум 50 000 000 показов на одно фото.',
+            'impressions_per_round.required' => 'Укажите показы за круг.',
+            'impressions_per_round.min' => 'Минимум 100 показов за круг.',
+            'round_minutes.required' => 'Укажите длительность круга.',
+            'round_minutes.min' => 'Минимум 5 минут.',
+            'round_minutes.max' => 'Максимум 1440 минут (сутки).',
+            'cpm.required' => 'Укажите CPM.',
+            'cpm.min' => 'CPM не меньше 50 ₽.',
+            'cpm.max' => 'CPM не больше 50 000 ₽.',
+        ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator): void {
+            $target = (int) $this->input('impressions_per_photo', 0);
+            $perRound = (int) $this->input('impressions_per_round', 0);
+
+            if ($target > 0 && $perRound > $target) {
+                $validator->errors()->add(
+                    'impressions_per_round',
+                    'Показов за круг не может быть больше, чем всего показов на одно фото.',
+                );
+            }
+        });
+    }
+}

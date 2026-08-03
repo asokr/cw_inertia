@@ -1,22 +1,22 @@
 <script setup>
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
+import { Send } from "lucide-vue-next";
 import Alert from "@/components/ui/Alert.vue";
 import Button from "@/components/ui/Button.vue";
+import Card from "@/components/ui/Card.vue";
 import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
-import Select from "@/components/ui/Select.vue";
 import { usePromoCalculatorApi } from "@/composables/usePromoCalculatorApi";
 
 const props = defineProps({
     selected: { type: Array, default: () => [] },
-    repricerCabinets: { type: Array, default: () => [] },
+    cabinet: { type: Object, required: true },
     canUseRepricer: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["success", "error"]);
 
 const { sendToRepricer } = usePromoCalculatorApi();
-const repricerCabinetId = ref(null);
 const submitting = ref(false);
 
 const dates = reactive({
@@ -24,14 +24,11 @@ const dates = reactive({
     end: "",
 });
 
+const selectedCount = computed(() => props.selected.length);
+
 async function submit() {
     if (!dates.start || !dates.end) {
         emit("error", "Заполните обе даты акции");
-        return;
-    }
-
-    if (!repricerCabinetId.value) {
-        emit("error", "Выберите кабинет репрайсера");
         return;
     }
 
@@ -49,7 +46,6 @@ async function submit() {
                 plan_price: item.plan_price,
             })),
             dates: { ...dates },
-            cabinetId: repricerCabinetId.value,
         });
         emit("success", "Номенклатуры переданы в репрайсер");
     } catch (err) {
@@ -61,46 +57,47 @@ async function submit() {
 </script>
 
 <template>
-    <div class="max-w-3xl space-y-4 rounded-lg border p-4">
-        <h3 class="text-lg font-semibold">Отправить номенклатуру в репрайсер</h3>
+    <Card class="overflow-hidden">
+        <div class="border-b border-border/60 px-5 py-4">
+            <h3 class="text-base font-semibold">Отправить в репрайсер</h3>
+            <p class="mt-1 text-sm text-muted-foreground">
+                Создаст (или обновит) стратегию по времени для выбранных номенклатур
+                в кабинете
+                <span class="font-medium text-foreground">«{{ cabinet.name }}»</span>.
+                Период акции сохранится с датой и временем (разовый интервал, не каждый день).
+            </p>
+        </div>
 
-        <Alert v-if="!canUseRepricer">
-            Для отправки в репрайсер нужен доступ к инструменту «Репрайсер Wildberries».
-        </Alert>
+        <div class="space-y-4 p-5">
+            <Alert v-if="!canUseRepricer">
+                Для отправки нужен доступ к инструменту
+                <a href="/panel/wb/repricer" class="font-medium underline underline-offset-2">Репрайсер</a>.
+            </Alert>
 
-        <Alert v-else-if="!repricerCabinets.length">
-            Добавьте кабинет в <a href="/panel/wb/repricer" class="underline">Репрайсер</a>.
-        </Alert>
-
-        <template v-else>
-            <div class="max-w-md space-y-1">
-                <Label for="repricer-cabinet">Кабинет репрайсера</Label>
-                <Select
-                    id="repricer-cabinet"
-                    :model-value="repricerCabinetId"
-                    @update:model-value="repricerCabinetId = Number($event) || null"
-                >
-                    <option :value="null">Выберите</option>
-                    <option v-for="cabinet in repricerCabinets" :key="cabinet.id" :value="cabinet.id">
-                        {{ cabinet.name }}
-                    </option>
-                </Select>
-            </div>
-
-            <div class="grid gap-3 sm:grid-cols-2">
-                <div class="space-y-1">
-                    <Label for="promo-start">Дата и время (МСК) с</Label>
-                    <Input id="promo-start" v-model="dates.start" type="datetime-local" required />
+            <template v-else>
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <div class="space-y-1.5">
+                        <Label for="promo-start">Начало акции (МСК)</Label>
+                        <Input id="promo-start" v-model="dates.start" type="datetime-local" required />
+                    </div>
+                    <div class="space-y-1.5">
+                        <Label for="promo-end">Окончание акции (МСК)</Label>
+                        <Input id="promo-end" v-model="dates.end" type="datetime-local" required />
+                    </div>
                 </div>
-                <div class="space-y-1">
-                    <Label for="promo-end">Дата и время (МСК) по</Label>
-                    <Input id="promo-end" v-model="dates.end" type="datetime-local" required />
-                </div>
-            </div>
 
-            <Button :disabled="submitting || !selected.length" @click="submit">
-                {{ submitting ? "Отправка…" : "Отправить" }}
-            </Button>
-        </template>
-    </div>
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <p class="text-sm text-muted-foreground">
+                        Выбрано:
+                        <span class="font-medium text-foreground">{{ selectedCount }}</span>
+                        номенклатур
+                    </p>
+                    <Button :disabled="submitting || !selected.length" @click="submit">
+                        <Send class="mr-2 h-4 w-4" />
+                        {{ submitting ? "Отправка…" : "Отправить в репрайсер" }}
+                    </Button>
+                </div>
+            </template>
+        </div>
+    </Card>
 </template>

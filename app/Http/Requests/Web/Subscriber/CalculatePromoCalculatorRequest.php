@@ -18,7 +18,6 @@ class CalculatePromoCalculatorRequest extends FormRequest
     {
         return [
             'file' => ['required', 'string', 'max:255'],
-            'cabinet_id' => ['required', 'integer', 'exists:wb_cabinets,id'],
         ];
     }
 
@@ -29,7 +28,6 @@ class CalculatePromoCalculatorRequest extends FormRequest
     {
         return [
             'file.required' => 'Нет отчёта по акциям. Загрузите его.',
-            'cabinet_id.required' => 'Вы не выбрали кабинет из инструмента Ценообразования',
         ];
     }
 }

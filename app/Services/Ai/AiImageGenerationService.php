@@ -4,7 +4,9 @@ namespace App\Services\Ai;
 
 use App\Models\AiImageGeneration;
 use App\Models\AiImageGenerationTask;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class AiImageGenerationService
@@ -85,11 +87,60 @@ class AiImageGenerationService
                     ]);
                 }
 
-                return $existing->fresh();
+                // fresh() may return null if the row was deleted between select and refresh.
+                return $existing->fresh() ?? $existing;
             }
         }
 
         return $this->create($subscriberId, $userId, $this->titleFromPrompt($prompt));
+    }
+
+    /**
+     * Re-check that the generation row still exists before writing a task.
+     *
+     * Long AI requests can outlive the session: the user may delete the generation
+     * while Gemini/Grok are still running. Without this guard createTask hits FK 1452.
+     */
+    public function ensureGenerationForWrite(
+        AiImageGeneration $generation,
+        int $subscriberId,
+        int $userId,
+        ?string $prompt = null,
+    ): AiImageGeneration {
+        $existing = AiImageGeneration::query()
+            ->whereKey($generation->id)
+            ->where('subscriber_id', $subscriberId)
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        // Same UUID may still be claimed by a concurrent recreate; fall back to a new one.
+        $preferredUuid = filled($generation->uuid) ? (string) $generation->uuid : null;
+        $uuidAvailable = $preferredUuid
+            && ! AiImageGeneration::query()->where('uuid', $preferredUuid)->exists();
+
+        Log::warning('AI image generation missing before task create; recreating session', [
+            'missing_generation_id' => $generation->id,
+            'generation_uuid' => $preferredUuid,
+            'subscriber_id' => $subscriberId,
+            'user_id' => $userId,
+            'reuse_uuid' => $uuidAvailable,
+        ]);
+
+        $title = $this->normalizeTitle(
+            $prompt !== null && trim($prompt) !== ''
+                ? $this->titleFromPrompt($prompt)
+                : ($generation->title ?? null)
+        );
+
+        return AiImageGeneration::query()->create(array_filter([
+            'uuid' => $uuidAvailable ? $preferredUuid : null,
+            'subscriber_id' => $subscriberId,
+            'user_id' => $userId,
+            'title' => $title,
+        ], static fn ($value) => $value !== null));
     }
 
     public function deleteByUuid(string $generationUuid, int $subscriberId): bool
@@ -149,7 +200,9 @@ class AiImageGenerationService
         ?string $model = null,
         ?string $errorMessage = null,
     ): AiImageGenerationTask {
-        $task = AiImageGenerationTask::query()->create([
+        $generation = $this->ensureGenerationForWrite($generation, $subscriberId, $userId, $prompt);
+
+        $attributes = [
             'image_generation_id' => $generation->id,
             'subscriber_id' => $subscriberId,
             'user_id' => $userId,
@@ -163,11 +216,55 @@ class AiImageGenerationService
             'result_images' => $resultImages,
             'model' => $model,
             'error_message' => $errorMessage,
-        ]);
+        ];
+
+        try {
+            $task = AiImageGenerationTask::query()->create($attributes);
+        } catch (QueryException $exception) {
+            // Narrow race: row deleted between ensure and insert.
+            if (! $this->isGenerationForeignKeyViolation($exception)) {
+                throw $exception;
+            }
+
+            Log::warning('AI image task insert hit missing generation FK; retrying once', [
+                'missing_generation_id' => $generation->id,
+                'generation_uuid' => $generation->uuid,
+                'subscriber_id' => $subscriberId,
+                'user_id' => $userId,
+            ]);
+
+            $stale = new AiImageGeneration();
+            $stale->forceFill([
+                'id' => 0,
+                'uuid' => $generation->uuid,
+                'subscriber_id' => $subscriberId,
+                'user_id' => $userId,
+                'title' => $generation->title,
+            ]);
+            // Force recreate: id 0 never exists.
+            $stale->syncOriginal();
+
+            $generation = $this->ensureGenerationForWrite($stale, $subscriberId, $userId, $prompt);
+            $attributes['image_generation_id'] = $generation->id;
+            $task = AiImageGenerationTask::query()->create($attributes);
+        }
 
         $this->touchGeneration($generation);
+        $task->setRelation('generation', $generation);
 
         return $task;
+    }
+
+    private function isGenerationForeignKeyViolation(QueryException $exception): bool
+    {
+        if ((string) $exception->getCode() !== '23000') {
+            return false;
+        }
+
+        $message = $exception->getMessage();
+
+        return str_contains($message, 'image_generation_id')
+            || str_contains($message, 'ai_image_generation_tasks_image_generation_id_foreign');
     }
 
     /**

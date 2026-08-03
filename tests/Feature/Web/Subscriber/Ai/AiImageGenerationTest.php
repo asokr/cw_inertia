@@ -8,12 +8,17 @@ use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
 use App\Services\Ai\AiImageGenerationService;
+use App\Services\Ai\AiImageService;
 use App\Services\Ai\AiMediaStorageService;
+use App\Services\Grok\GrokImageApiClient;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Mockery;
+use ReflectionMethod;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Web\Auth\WebAuthTestCase;
@@ -332,6 +337,125 @@ class AiImageGenerationTest extends WebAuthTestCase
         $this->assertFalse($service->isStoredMediaReference('data:image/png;base64,iVBORw0KGgo='));
     }
 
+    public function test_grok_fallback_resolves_panel_media_paths_to_data_uris(): void
+    {
+        Storage::fake('private');
+
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+        $this->assertNotFalse($png);
+
+        $existingPath = 'ai/source-images/user-1/2026/history-ref.png';
+        Storage::disk('private')->put($existingPath, $png);
+
+        $panelUrl = '/panel/ai/media/source-images/user-1/2026/history-ref.png';
+        $capturedImages = null;
+
+        $grok = Mockery::mock(GrokImageApiClient::class);
+        $grok->shouldReceive('generateOrEditImage')
+            ->once()
+            ->withArgs(function (string $prompt, array $images, array $options) use (&$capturedImages): bool {
+                $capturedImages = $images;
+
+                return $prompt === 'make it brighter' && $options === [];
+            })
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'messages' => [],
+                'data' => [
+                    'data' => [[
+                        'b64_json' => base64_encode($png),
+                    ]],
+                ],
+            ]);
+        $grok->shouldReceive('extractImages')
+            ->once()
+            ->andReturn([[
+                'mime_type' => 'image/png',
+                'base64' => base64_encode($png),
+                'data_uri' => 'data:image/png;base64,' . base64_encode($png),
+            ]]);
+
+        $this->app->instance(GrokImageApiClient::class, $grok);
+
+        $service = app(AiImageService::class);
+        $request = Request::create('/panel/ai/image/start', 'POST', [
+            'task_type' => 'generate_image',
+            'image_prompt' => 'make it brighter',
+            'images' => [$panelUrl],
+        ]);
+
+        $method = new ReflectionMethod(AiImageService::class, 'generateImagesByGrokFallback');
+        $method->setAccessible(true);
+        $result = $method->invoke(
+            $service,
+            $request,
+            'generate_image',
+            'make it brighter',
+            null,
+            1,
+        );
+
+        $this->assertIsArray($capturedImages);
+        $this->assertCount(1, $capturedImages);
+        $this->assertStringStartsWith('data:image/png;base64,', (string) $capturedImages[0]);
+        $this->assertSame(
+            'data:image/png;base64,' . base64_encode($png),
+            (string) $capturedImages[0],
+        );
+        $this->assertCount(1, $result);
+    }
+
+    public function test_create_task_recreates_generation_when_session_was_deleted_mid_request(): void
+    {
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $subscriberId = (int) $user->subscriber->id;
+        $service = app(AiImageGenerationService::class);
+
+        $generation = AiImageGeneration::query()->create([
+            'subscriber_id' => $subscriberId,
+            'user_id' => $user->id,
+            'title' => 'Удалённая сессия',
+        ]);
+        $originalId = (int) $generation->id;
+        $originalUuid = $generation->uuid;
+
+        // Simulate: user deleted the session while the AI request was still running.
+        // In-memory model still holds the old id (same as production after resolveForStart).
+        $generation->delete();
+        $this->assertDatabaseMissing('ai_image_generations', ['id' => $originalId]);
+
+        $task = $service->createTask(
+            generation: $generation,
+            subscriberId: $subscriberId,
+            userId: (int) $user->id,
+            taskType: 'generate_image',
+            prompt: 'сделай фотографию более реалистичной',
+            imageVariants: 1,
+            resolution: 'default',
+            aspectRatio: null,
+            sourceImages: null,
+            status: AiImageGenerationTask::STATUS_DONE,
+            resultImages: [[
+                'path' => 'ai/source-images/user-' . $user->id . '/2026/result.jpg',
+            ]],
+            model: 'grok-imagine-image-quality',
+        );
+
+        $this->assertNotNull($task->id);
+        $this->assertNotSame($originalId, (int) $task->image_generation_id);
+        $this->assertDatabaseHas('ai_image_generation_tasks', [
+            'id' => $task->id,
+            'image_generation_id' => $task->image_generation_id,
+            'status' => AiImageGenerationTask::STATUS_DONE,
+        ]);
+
+        $recreated = AiImageGeneration::query()->find($task->image_generation_id);
+        $this->assertNotNull($recreated);
+        $this->assertSame($originalUuid, $recreated->uuid);
+        $this->assertSame($subscriberId, (int) $recreated->subscriber_id);
+    }
+
     public function test_has_stored_source_images_returns_true_only_when_generation_has_sources(): void
     {
         $user = $this->createSubscriberUser(withAiPermission: true);
@@ -385,6 +509,12 @@ class AiImageGenerationTest extends WebAuthTestCase
         ]);
 
         $this->assertTrue($service->hasStoredSourceImages($withSourceGeneration->fresh()));
+    }
+
+    protected function tearDown(): void
+    {
+        Mockery::close();
+        parent::tearDown();
     }
 
     private function createSubscriberUser(bool $withAiPermission = false): User

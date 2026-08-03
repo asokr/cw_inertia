@@ -10,11 +10,21 @@ class WbPriceCalculationService
 {
     use GuzzleTrait;
 
+    /** Content API cards/list personal: interval 600 ms. */
+    private const CARDS_LIST_INTERVAL_MS = 600;
+
+    /** Statistics supplier/sales personal: 1 req/min. */
+    private const SALES_PAGE_INTERVAL_SECONDS = 60;
+
+    private const NETWORK_RETRY_ATTEMPTS = 2;
+
+    private const NETWORK_RETRY_SLEEP_SECONDS = 4;
+
     public function getAllCards(string $apiKey, array $params, array $cards = [])
     {
         $url = 'https://content-api.wildberries.ru/content/v2/get/cards/list?locale=ru';
 
-        $result = $this->postRequest($url, $apiKey, $params);
+        $result = $this->postRequestWithNetworkRetry($url, $apiKey, $params, 'getAllCards');
 
         if (! $result) {
             return [
@@ -42,6 +52,9 @@ class WbPriceCalculationService
             $params['settings']['cursor']['updatedAt'] = $data['cursor']['updatedAt'] ?? null;
             $params['settings']['cursor']['nmID'] = $data['cursor']['nmID'] ?? null;
 
+            // Personal limit: interval 600 ms between cards/list pages.
+            usleep(self::CARDS_LIST_INTERVAL_MS * 1000);
+
             return $this->getAllCards($apiKey, $params, $cards);
         }
 
@@ -58,14 +71,21 @@ class WbPriceCalculationService
 
         $allSales = [];
         $flag = 0;
+        $isFirstPage = true;
 
         while (true) {
+            if (! $isFirstPage) {
+                // Personal limit for supplier/sales: 1 request per minute.
+                sleep(self::SALES_PAGE_INTERVAL_SECONDS);
+            }
+            $isFirstPage = false;
+
             $params = [
                 'dateFrom' => $dateFromStr,
                 'flag' => $flag,
             ];
 
-            $result = $this->getRequest($url, $apiKey, $params);
+            $result = $this->getRequestWithNetworkRetry($url, $apiKey, $params, 'getSales');
 
             if (($result['code'] ?? null) !== 200) {
                 if (empty($allSales)) {
@@ -92,7 +112,6 @@ class WbPriceCalculationService
             }
 
             $dateFromStr = $lastItem['lastChangeDate'];
-            sleep(1);
         }
 
         // Фильтруем данные, оставляя только те, которые попадают в нужный месяц и проданы со склада WB
@@ -129,7 +148,7 @@ class WbPriceCalculationService
             'date' => Carbon::now()->toDateString(),
         ];
 
-        return $this->getRequest($url, $apiKey, $params);
+        return $this->getRequestWithNetworkRetry($url, $apiKey, $params, 'getWhTariffs');
     }
 
     public function getWBTariffs(string $apiKey)
@@ -140,7 +159,7 @@ class WbPriceCalculationService
             'locale' => 'ru',
         ];
 
-        return $this->getRequest($url, $apiKey, $params);
+        return $this->getRequestWithNetworkRetry($url, $apiKey, $params, 'getWBTariffs');
     }
 
     public function getReportDetailByPeriod(string $apiKey, Carbon $dateFrom, Carbon $dateTo, int $limit = 100000, int $rrdid = 0)
@@ -160,7 +179,7 @@ class WbPriceCalculationService
             ],
         ];
 
-        return $this->postRequest($url, $apiKey, $payload);
+        return $this->postRequestWithNetworkRetry($url, $apiKey, $payload, 'getReportDetailByPeriod');
     }
 
     public function getSalesFunnelProducts(string $apiKey, Carbon $startDate, Carbon $endDate, array $filters = [])
@@ -195,7 +214,7 @@ class WbPriceCalculationService
             }
         }
 
-        return $this->postRequest($url, $apiKey, $payload);
+        return $this->postRequestWithNetworkRetry($url, $apiKey, $payload, 'getSalesFunnelProducts');
     }
 
     public function parseApiResponse($resp, string $function = ''): array
@@ -216,7 +235,7 @@ class WbPriceCalculationService
             $data = 'Ошибка доступа к API. Функция: ' . $function;
         } else {
             $payload = isset($resp['data']) && is_array($resp['data']) ? $resp['data'] : $resp;
-            $code = $payload['code'] ?? 503;
+            $code = (int) ($payload['code'] ?? 503);
             $rawResponse = $payload['response'] ?? '';
 
             switch ($code) {
@@ -242,10 +261,23 @@ class WbPriceCalculationService
                     $success = false;
                     $data = 'Превышен лимит запросов. Функция: ' . $function;
                     break;
+                case 504:
+                case 0:
+                    $success = false;
+                    $data = $this->humanizeNetworkError($rawResponse, $function);
+                    if ($code === 0 && $this->isTimeoutRaw($rawResponse)) {
+                        $code = 504;
+                    }
+                    break;
                 default:
                     $success = false;
-                    $decoded = $decode($rawResponse);
-                    $data = $decoded === [] ? 'Неизвестная ошибка API' : $decoded;
+                    if ($this->isTimeoutRaw($rawResponse)) {
+                        $code = 504;
+                        $data = $this->humanizeNetworkError($rawResponse, $function);
+                    } else {
+                        $decoded = $decode($rawResponse);
+                        $data = $decoded === [] ? 'Неизвестная ошибка API' : $decoded;
+                    }
                     break;
             }
         }
@@ -256,5 +288,91 @@ class WbPriceCalculationService
         }
 
         return ['success' => $success, 'code' => $code ?? 503, 'data' => $data];
+    }
+
+    private function getRequestWithNetworkRetry(string $url, string $apiKey, array $params, string $function): array
+    {
+        $attempt = 0;
+        $result = [];
+
+        while ($attempt < self::NETWORK_RETRY_ATTEMPTS) {
+            $attempt++;
+            $result = $this->getRequest($url, $apiKey, $params, $function);
+
+            if (! $this->isRetriableNetworkResult($result) || $attempt >= self::NETWORK_RETRY_ATTEMPTS) {
+                return $result;
+            }
+
+            sleep(self::NETWORK_RETRY_SLEEP_SECONDS);
+        }
+
+        return $result;
+    }
+
+    private function postRequestWithNetworkRetry(string $url, string $apiKey, array $payload, string $function): array
+    {
+        $attempt = 0;
+        $result = [];
+
+        while ($attempt < self::NETWORK_RETRY_ATTEMPTS) {
+            $attempt++;
+            $result = $this->postRequest($url, $apiKey, $payload, $function);
+
+            if (! $this->isRetriableNetworkResult($result) || $attempt >= self::NETWORK_RETRY_ATTEMPTS) {
+                return $result;
+            }
+
+            sleep(self::NETWORK_RETRY_SLEEP_SECONDS);
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     */
+    private function isRetriableNetworkResult(array $result): bool
+    {
+        $code = (int) ($result['code'] ?? 0);
+        $response = (string) ($result['response'] ?? '');
+
+        if (in_array($code, [401, 403, 400, 422, 429], true)) {
+            return false;
+        }
+
+        if ($code === 504 || $code === 0) {
+            return true;
+        }
+
+        return $this->isTimeoutRaw($response);
+    }
+
+    private function isTimeoutRaw(mixed $raw): bool
+    {
+        if (! is_string($raw) || $raw === '') {
+            return false;
+        }
+
+        $normalized = mb_strtolower($raw);
+
+        return str_contains($normalized, 'timeout')
+            || str_contains($normalized, 'timed out')
+            || str_contains($normalized, 'curl error 28')
+            || str_contains($normalized, 'operation timed out');
+    }
+
+    private function humanizeNetworkError(mixed $raw, string $function = ''): string
+    {
+        $suffix = $function !== '' ? " ({$function})" : '';
+
+        if ($this->isTimeoutRaw($raw)) {
+            return 'Сервер Wildberries не ответил вовремя. Данные импорта сохранены; повторите пересчёт чуть позже.'.$suffix;
+        }
+
+        if (is_string($raw) && trim($raw) !== '') {
+            return 'Ошибка сети при обращении к API Wildberries.'.$suffix;
+        }
+
+        return 'Ошибка доступа к API.'.$suffix;
     }
 }

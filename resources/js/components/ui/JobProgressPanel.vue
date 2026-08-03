@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
-import { Check, Circle, Loader2 } from "lucide-vue-next";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { CheckCircle2, Loader2, XCircle } from "lucide-vue-next";
 import Card from "@/components/ui/Card.vue";
 import { cn } from "@/lib/utils";
 
@@ -18,13 +18,15 @@ const props = defineProps({
     startedAt: { type: String, default: null },
     failed: { type: Boolean, default: false },
     error: { type: String, default: null },
+    /** When true, show compact "done" state instead of hiding the bar. */
+    completed: { type: Boolean, default: false },
 });
 
 const elapsedLabel = ref("");
 let elapsedTimer = null;
 
 const stageIndex = computed(() => {
-    if (!props.currentStage) {
+    if (!props.currentStage || !props.stages.length) {
         return 0;
     }
 
@@ -32,15 +34,29 @@ const stageIndex = computed(() => {
     return index >= 0 ? index : 0;
 });
 
+const stepNumber = computed(() => {
+    if (!props.stages.length) {
+        return 1;
+    }
+
+    return Math.min(stageIndex.value + 1, props.stages.length);
+});
+
+const stepsTotal = computed(() => Math.max(props.stages.length, 1));
+
 const currentStageMeta = computed(() => props.stages[stageIndex.value] ?? null);
 
 const resolvedProgressPercent = computed(() => {
+    if (props.completed && !props.failed) {
+        return 100;
+    }
+
     if (typeof props.progressPercent === "number") {
         return Math.min(100, Math.max(0, props.progressPercent));
     }
 
     if (!props.stages.length) {
-        return 0;
+        return props.failed ? 0 : 8;
     }
 
     const completedStages = props.failed ? stageIndex.value : stageIndex.value + 0.35;
@@ -49,22 +65,22 @@ const resolvedProgressPercent = computed(() => {
 
 const headline = computed(() => {
     if (props.failed) {
-        return "Не удалось завершить задачу";
+        return props.error || "Не удалось завершить задачу";
     }
 
-    return props.statusLabel || props.title;
+    if (props.completed) {
+        return props.statusLabel || "Готово";
+    }
+
+    return props.statusLabel || currentStageMeta.value?.label || props.title;
 });
 
-const subtitle = computed(() => {
-    if (props.failed) {
+const stepLabel = computed(() => {
+    if (props.failed || props.completed || !props.stages.length) {
         return null;
     }
 
-    if (props.statusLabel && currentStageMeta.value?.description) {
-        return currentStageMeta.value.description;
-    }
-
-    return currentStageMeta.value?.description ?? null;
+    return `Шаг ${stepNumber.value} из ${stepsTotal.value}`;
 });
 
 function formatElapsed(startedAt) {
@@ -92,29 +108,10 @@ function refreshElapsed() {
     elapsedLabel.value = formatElapsed(props.startedAt);
 }
 
-function stageState(index) {
-    if (props.failed) {
-        if (index < stageIndex.value) {
-            return "done";
-        }
-
-        if (index === stageIndex.value) {
-            return "failed";
-        }
-
-        return "pending";
-    }
-
-    if (index < stageIndex.value) {
-        return "done";
-    }
-
-    if (index === stageIndex.value) {
-        return "active";
-    }
-
-    return "pending";
-}
+watch(
+    () => props.startedAt,
+    () => refreshElapsed(),
+);
 
 onMounted(() => {
     refreshElapsed();
@@ -131,104 +128,71 @@ onUnmounted(() => {
 <template>
     <Card
         :class="cn(
-            'overflow-hidden border-l-4 p-5 shadow-md',
-            failed ? 'border-l-destructive bg-destructive/5' : 'border-l-primary bg-primary/5',
+            'border px-4 py-3 shadow-sm',
+            failed && 'border-destructive/40 bg-destructive/5',
+            completed && !failed && 'border-emerald-500/30 bg-emerald-500/5',
+            !failed && !completed && 'border-primary/20 bg-primary/5',
         )"
         role="status"
         aria-live="polite"
     >
-        <div class="flex flex-wrap items-start justify-between gap-3">
-            <div class="space-y-1">
-                <h3 class="text-lg font-semibold tracking-tight text-foreground">
-                    {{ headline }}
-                </h3>
-                <p v-if="!failed && subtitle" class="text-sm text-muted-foreground">
-                    {{ subtitle }}
-                </p>
-                <p v-if="failed && error" class="text-sm text-destructive">
-                    {{ error }}
-                </p>
-            </div>
-
-            <div class="flex items-center gap-2">
-                <div
-                    v-if="!failed"
-                    class="rounded-full border bg-background/80 px-3 py-1 text-xs font-semibold tabular-nums text-foreground"
-                >
-                    {{ resolvedProgressPercent }}%
-                </div>
-                <div
-                    v-if="!failed && elapsedLabel"
-                    class="rounded-full border bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground"
-                >
-                    Прошло: {{ elapsedLabel }}
-                </div>
-            </div>
-        </div>
-
-        <div v-if="!failed" class="mt-4 space-y-2">
-            <div class="h-2 overflow-hidden rounded-full bg-muted">
-                <div
-                    class="h-full rounded-full bg-primary transition-all duration-700 ease-out"
-                    :class="{ 'animate-pulse': waitingHint }"
-                    :style="{ width: `${resolvedProgressPercent}%` }"
+        <div class="flex min-w-0 items-center gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center">
+                <XCircle v-if="failed" class="h-5 w-5 text-destructive" aria-hidden="true" />
+                <CheckCircle2
+                    v-else-if="completed"
+                    class="h-5 w-5 text-emerald-600"
+                    aria-hidden="true"
                 />
+                <Loader2 v-else class="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
             </div>
-            <p class="text-xs text-muted-foreground">
-                Сервис работает — страницу можно не закрывать, статус обновляется автоматически.
-            </p>
-        </div>
 
-        <ol class="mt-5 space-y-3">
-            <li
-                v-for="(stage, index) in stages"
-                :key="stage.key"
-                class="flex items-start gap-3"
-            >
-                <div class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
-                    <Check
-                        v-if="stageState(index) === 'done'"
-                        class="h-4 w-4 text-emerald-600"
-                        aria-hidden="true"
-                    />
-                    <Loader2
-                        v-else-if="stageState(index) === 'active'"
-                        class="h-4 w-4 animate-spin text-primary"
-                        aria-hidden="true"
-                    />
-                    <Circle
-                        v-else
+            <div class="min-w-0 flex-1 space-y-1.5">
+                <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <span
+                        v-if="stepLabel"
+                        class="shrink-0 text-xs font-medium tabular-nums text-muted-foreground"
+                    >
+                        {{ stepLabel }}
+                    </span>
+                    <span
                         :class="cn(
-                            'h-3 w-3',
-                            stageState(index) === 'failed' ? 'text-destructive' : 'text-muted-foreground/50',
-                        )"
-                        aria-hidden="true"
-                    />
-                </div>
-
-                <div class="min-w-0 flex-1">
-                    <p
-                        :class="cn(
-                            'text-sm font-medium',
-                            stageState(index) === 'active' && 'text-foreground',
-                            stageState(index) === 'done' && 'text-muted-foreground',
-                            stageState(index) === 'pending' && 'text-muted-foreground/70',
-                            stageState(index) === 'failed' && 'text-destructive',
+                            'min-w-0 truncate text-sm font-medium',
+                            failed ? 'text-destructive' : 'text-foreground',
                         )"
                     >
-                        {{ stage.label }}
-                    </p>
+                        {{ headline }}
+                    </span>
                 </div>
-            </li>
-        </ol>
 
-        <div v-if="!failed && (detail || waitingHint)" class="mt-4 space-y-2 rounded-lg border bg-background/80 p-3 text-sm">
-            <p v-if="detail" class="font-medium text-foreground">
-                {{ detail }}
-            </p>
-            <p v-if="waitingHint" class="text-muted-foreground">
-                {{ waitingHint }}
-            </p>
+                <div
+                    v-if="!failed"
+                    class="h-1.5 overflow-hidden rounded-full bg-muted"
+                >
+                    <div
+                        class="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+                        :class="{ 'animate-pulse': waitingHint && !completed }"
+                        :style="{ width: `${resolvedProgressPercent}%` }"
+                    />
+                </div>
+
+                <p
+                    v-if="!failed && !completed"
+                    class="text-xs text-muted-foreground"
+                >
+                    Страницу можно закрыть — расчёт продолжится. Вернётесь позже — увидите результат.
+                </p>
+                <p v-else-if="detail && !failed" class="text-xs text-muted-foreground">
+                    {{ detail }}
+                </p>
+            </div>
+
+            <div
+                v-if="!failed && !completed && elapsedLabel"
+                class="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:block"
+            >
+                {{ elapsedLabel }}
+            </div>
         </div>
     </Card>
 </template>

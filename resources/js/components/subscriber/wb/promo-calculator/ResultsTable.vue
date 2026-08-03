@@ -1,6 +1,9 @@
 <script setup>
 import { computed, h, ref, watch } from "vue";
 import EditableDataTable from "@/components/subscriber/tools/EditableDataTable.vue";
+import ExportButton from "@/components/subscriber/wb/promo-calculator/ExportButton.vue";
+import Badge from "@/components/ui/Badge.vue";
+import Card from "@/components/ui/Card.vue";
 import Checkbox from "@/components/ui/Checkbox.vue";
 import Input from "@/components/ui/Input.vue";
 import {
@@ -9,7 +12,6 @@ import {
     formatRub,
     rowProfitClass,
 } from "@/utils/promoCalculatorFormatters";
-import ExportButton from "@/components/subscriber/wb/promo-calculator/ExportButton.vue";
 
 const props = defineProps({
     items: { type: Array, default: () => [] },
@@ -29,6 +31,28 @@ const filteredItems = computed(() => {
         const nmid = String(item.nm_id ?? "");
         return vendor.includes(query) || nmid.includes(query);
     });
+});
+
+const stats = computed(() => {
+    const total = props.items.length;
+    let profitable = 0;
+    let unprofitable = 0;
+    let zero = 0;
+
+    for (const item of props.items) {
+        const profit = Number(item.profit);
+        if (profit > 0) profitable += 1;
+        else if (profit < 0) unprofitable += 1;
+        else zero += 1;
+    }
+
+    return {
+        total,
+        profitable,
+        unprofitable,
+        zero,
+        selected: selectedIds.value.size,
+    };
 });
 
 watch(
@@ -72,15 +96,17 @@ const allVisibleSelected = computed(() => {
 const columns = computed(() => [
     {
         id: "select",
-        header: () => h(Checkbox, {
-            modelValue: allVisibleSelected.value,
-            "onUpdate:modelValue": toggleAll,
-        }),
+        header: () =>
+            h(Checkbox, {
+                modelValue: allVisibleSelected.value,
+                "onUpdate:modelValue": toggleAll,
+            }),
         enableSorting: false,
-        cell: ({ row }) => h(Checkbox, {
-            modelValue: selectedIds.value.has(row.original.nm_id),
-            "onUpdate:modelValue": (checked) => toggleRow(row.original.nm_id, checked),
-        }),
+        cell: ({ row }) =>
+            h(Checkbox, {
+                modelValue: selectedIds.value.has(row.original.nm_id),
+                "onUpdate:modelValue": (checked) => toggleRow(row.original.nm_id, checked),
+            }),
     },
     {
         accessorKey: "vendor_art",
@@ -119,7 +145,11 @@ const columns = computed(() => [
             const item = row.original;
             if (item.change_discount) {
                 return h("span", {}, [
-                    h("span", { class: "text-xs line-through text-muted-foreground" }, `${item.wb_discount} %`),
+                    h(
+                        "span",
+                        { class: "text-xs line-through text-muted-foreground" },
+                        `${item.wb_discount} %`,
+                    ),
                     h("span", { class: "ml-2 font-medium" }, `${item.change_discount} %`),
                 ]);
             }
@@ -148,19 +178,39 @@ const columns = computed(() => [
 </script>
 
 <template>
-    <div v-if="items.length" class="space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <h3 class="text-lg font-semibold">Рассчёт</h3>
-            <ExportButton :data="items" @error="emit('error', $event)" />
+    <Card v-if="items.length" class="overflow-hidden">
+        <div class="space-y-4 border-b border-border/60 px-5 py-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        Шаг 3
+                    </p>
+                    <h3 class="mt-1 text-base font-semibold">Результаты расчёта</h3>
+                    <p class="mt-1 text-sm text-muted-foreground">
+                        По умолчанию выбраны позиции с положительной рентабельностью.
+                    </p>
+                </div>
+                <ExportButton :data="items" @error="emit('error', $event)" />
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+                <Badge variant="secondary">Всего: {{ stats.total }}</Badge>
+                <Badge variant="success">Рентабельных: {{ stats.profitable }}</Badge>
+                <Badge variant="destructive">Убыточных: {{ stats.unprofitable }}</Badge>
+                <Badge v-if="stats.zero" variant="outline">Нулевых: {{ stats.zero }}</Badge>
+                <Badge variant="outline">Выбрано: {{ stats.selected }}</Badge>
+            </div>
+
+            <Input v-model="search" placeholder="Найти по артикулу или NMID" class="max-w-sm" />
         </div>
 
-        <Input v-model="search" placeholder="Найти по артикулу или NMID" class="max-w-sm" />
-
-        <EditableDataTable
-            :columns="columns"
-            :data="filteredItems"
-            max-height="32rem"
-            :get-row-class="(item) => rowProfitClass(item.profit)"
-        />
-    </div>
+        <div class="p-2 sm:p-4">
+            <EditableDataTable
+                :columns="columns"
+                :data="filteredItems"
+                max-height="32rem"
+                :get-row-class="(item) => rowProfitClass(item.profit)"
+            />
+        </div>
+    </Card>
 </template>

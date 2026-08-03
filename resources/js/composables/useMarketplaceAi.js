@@ -367,6 +367,8 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             rememberActiveGeneration(resolvedKey);
 
             if (generationsMode === "video") {
+                // Drop polls from the previous session before resuming the new one.
+                videoPoll.stop();
                 videoPoll.resumePending(tasks);
             }
 
@@ -739,6 +741,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
         openGeneration,
         createGeneration,
         deleteGeneration,
+        rememberActiveGeneration,
         restoreActiveGeneration,
         runTextTask,
         runImageTask,

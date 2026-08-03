@@ -242,26 +242,55 @@ class WbRepricerBot extends Command
 
         // Приводим terms к массиву периодов
         if (isset($terms['start'], $terms['end'])) {
-            $periods = [$terms]; // старый формат
+            $periods = [$terms]; // старый формат (один объект)
         } elseif (is_array($terms)) {
             $periods = $terms;
         } else {
             return true;
         }
 
-        $now        = now();
+        // Сравниваем в МСК: datetime-периоды из акций и UI приходят как московское время
+        $now = Carbon::now('Europe/Moscow');
         $nowMinutes = $now->hour * 60 + $now->minute;
 
         $foundActivePeriod = null;
 
         foreach ($periods as $p) {
-            if (!is_array($p) || !isset($p['start'], $p['end'])) {
+            if (! is_array($p) || ! isset($p['start'], $p['end'])) {
                 continue;
             }
-            $startStr = $p['start'];
-            $endStr   = $p['end'];
 
-            if (!preg_match('/^\d{2}:\d{2}$/', $startStr) || !preg_match('/^\d{2}:\d{2}$/', $endStr)) {
+            $startStr = trim((string) $p['start']);
+            $endStr = trim((string) $p['end']);
+
+            if ($startStr === '' || $endStr === '') {
+                continue;
+            }
+
+            // 1) Разовый период с датой: "Y-m-d H:i[:s]" / ISO
+            if ($this->isAbsoluteDateTime($startStr) && $this->isAbsoluteDateTime($endStr)) {
+                try {
+                    $startAt = Carbon::parse($startStr, 'Europe/Moscow');
+                    $endAt = Carbon::parse($endStr, 'Europe/Moscow');
+                } catch (\Throwable) {
+                    continue;
+                }
+
+                if ($endAt->lessThanOrEqualTo($startAt)) {
+                    continue;
+                }
+
+                // [start, end) — активен с момента старта до момента окончания
+                if ($now->greaterThanOrEqualTo($startAt) && $now->lessThan($endAt)) {
+                    $foundActivePeriod = $p;
+                    break;
+                }
+
+                continue;
+            }
+
+            // 2) Ежедневное окно только по времени: "H:i"
+            if (! preg_match('/^\d{2}:\d{2}$/', $startStr) || ! preg_match('/^\d{2}:\d{2}$/', $endStr)) {
                 continue;
             }
 
@@ -305,6 +334,17 @@ class WbRepricerBot extends Command
         return true;
     }
 
+    /**
+     * Полная дата+время (разовый период), а не ежедневное "H:i".
+     */
+    private function isAbsoluteDateTime(string $value): bool
+    {
+        // "2026-08-01 10:00:00", "2026-08-01 10:00", "2026-08-01T10:00"
+        return (bool) preg_match(
+            '/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/',
+            $value
+        );
+    }
 
     private function setPrice($apikey, $data, $item)
     {

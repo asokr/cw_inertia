@@ -10,6 +10,7 @@ use App\Models\Subscribers\Wb\Feedbacks\FeedbacksTemplates;
 use App\Models\Subscribers\Wb\Feedbacks\Review;
 use App\Models\Subscribers\Wb\Feedbacks\WbFeedbacksSettings;
 use App\Models\Subscribers\Wb\Profitability\Item as ProfitabilityItem;
+use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
 use App\Models\Subscribers\Wb\Profitability\Report as ProfitabilityReport;
 use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
 use App\Models\Subscribers\Wb\WbCabinet;
@@ -22,6 +23,12 @@ use Illuminate\Validation\ValidationException;
 
 class WbCabinetMigrationService
 {
+    /**
+     * Temporary cabinet_id base while reassigning profitability reports.
+     * Keeps unique(cabinet_id) satisfied during two-phase rewrite.
+     */
+    private const PROFITABILITY_REPORT_TEMP_CABINET_BASE = 1_000_000_000;
+
     public function __construct(
         private readonly WbCabinetServiceRegistry $registry,
         private readonly WbCabinetService $cabinetService,
@@ -83,6 +90,10 @@ class WbCabinetMigrationService
             foreach ($normalizedDeletions as $deletion) {
                 $this->deleteOne($user, $deletion['service'], $deletion['old_cabinet_id']);
             }
+
+            // Profitability reports have unique(cabinet_id). Rewrite all mappings in two
+            // phases before per-service migrateOne so intermediate collisions cannot 500.
+            $this->rewriteProfitabilityReportsForAssignments($user, $normalizedAssignments);
 
             foreach ($normalizedAssignments as $wbCabinetId => $serviceMap) {
                 /** @var array<string, int> $serviceMap */
@@ -255,6 +266,10 @@ class WbCabinetMigrationService
         }
 
         foreach ($service['child_rewrites'] as $rewrite) {
+            // Handled in rewriteProfitabilityReportsForAssignments() (unique cabinet_id).
+            if ($rewrite['model'] === ProfitabilityReport::class) {
+                continue;
+            }
             $this->rewriteChildren($rewrite['model'], $rewrite['column'], $oldId, $newCabinetId);
         }
 
@@ -299,9 +314,13 @@ class WbCabinetMigrationService
             ]);
         }
 
-        $this->deleteServiceData($serviceKey, $oldId);
+        $this->deleteServiceData($serviceKey, $oldId, $user);
 
         foreach ($service['child_rewrites'] as $rewrite) {
+            if ($rewrite['model'] === ProfitabilityReport::class) {
+                $this->deleteProfitabilityReportsForLegacyCabinet($user, $oldId);
+                continue;
+            }
             $this->deleteChildren($rewrite['model'], $rewrite['column'], $oldId);
         }
 
@@ -311,19 +330,12 @@ class WbCabinetMigrationService
     /**
      * Extra cascade for nested relations not listed as direct cabinet_id children.
      */
-    private function deleteServiceData(string $serviceKey, int $oldId): void
+    private function deleteServiceData(string $serviceKey, int $oldId, User $user): void
     {
         if ($serviceKey === 'feedbacks') {
             $reviewIds = Review::query()->where('cabinet_id', $oldId)->pluck('id');
             if ($reviewIds->isNotEmpty() && Schema::hasTable((new BotResponse)->getTable())) {
                 BotResponse::query()->whereIn('review_id', $reviewIds)->delete();
-            }
-        }
-
-        if ($serviceKey === 'profitability') {
-            $reportIds = ProfitabilityReport::query()->where('cabinet_id', $oldId)->pluck('id');
-            if ($reportIds->isNotEmpty() && Schema::hasTable((new ProfitabilityItem)->getTable())) {
-                ProfitabilityItem::query()->whereIn('report_id', $reportIds)->delete();
             }
         }
 
@@ -333,6 +345,28 @@ class WbCabinetMigrationService
                 AiCabinetAnalyzerAiAnalysis::query()->whereIn('report_id', $reportIds)->delete();
             }
         }
+    }
+
+    /**
+     * Delete profitability reports for a legacy cabinet, without touching a foreign
+     * user's report that already occupies the same numeric cabinet_id on wb_cabinets.
+     */
+    private function deleteProfitabilityReportsForLegacyCabinet(User $user, int $oldId): void
+    {
+        if (! Schema::hasTable((new ProfitabilityReport)->getTable())) {
+            return;
+        }
+
+        if ($this->profitabilityReportsAtIdBelongToForeignMigratedCabinet($oldId, $user)) {
+            return;
+        }
+
+        $reportIds = ProfitabilityReport::query()
+            ->where('cabinet_id', $oldId)
+            ->pluck('id')
+            ->all();
+
+        $this->deleteProfitabilityReportsWithItems($reportIds);
     }
 
     /**
@@ -385,6 +419,150 @@ class WbCabinetMigrationService
                 }
                 $modelClass::query()->whereIn('id', $ids)->update([$column => $newId]);
             });
+    }
+
+    /**
+     * Two-phase rewrite for wb_profitability_reports (unique on cabinet_id).
+     *
+     * Phase 1 parks source reports on temporary ids so same-user multi-cabinet
+     * mappings cannot collide mid-pass. Phase 2 frees the target slot (delete
+     * blocker + items) then assigns final wb_cabinets.id.
+     *
+     * @param  array<int, array<string, int>>  $normalizedAssignments
+     */
+    private function rewriteProfitabilityReportsForAssignments(User $user, array $normalizedAssignments): void
+    {
+        if (! Schema::hasTable((new ProfitabilityReport)->getTable())) {
+            return;
+        }
+
+        /** @var array<int, int> $oldToNew old profitability cabinet id => wb_cabinet id */
+        $oldToNew = [];
+        foreach ($normalizedAssignments as $wbCabinetId => $serviceMap) {
+            if (! isset($serviceMap['profitability'])) {
+                continue;
+            }
+            $oldToNew[(int) $serviceMap['profitability']] = (int) $wbCabinetId;
+        }
+
+        if ($oldToNew === []) {
+            return;
+        }
+
+        /** @var array<int, int> $reportIdToNew report id => final wb_cabinet id */
+        $reportIdToNew = [];
+
+        foreach ($oldToNew as $oldId => $newId) {
+            if ($this->profitabilityReportsAtIdBelongToForeignMigratedCabinet($oldId, $user)) {
+                continue;
+            }
+
+            $sourceIds = ProfitabilityReport::query()
+                ->where('cabinet_id', $oldId)
+                ->orderBy('id')
+                ->pluck('id')
+                ->all();
+
+            foreach ($sourceIds as $reportId) {
+                $reportIdToNew[(int) $reportId] = $newId;
+            }
+        }
+
+        if ($reportIdToNew === []) {
+            return;
+        }
+
+        // Phase 1: park on unique temporary cabinet_ids.
+        foreach ($reportIdToNew as $reportId => $newId) {
+            ProfitabilityReport::query()
+                ->where('id', $reportId)
+                ->update([
+                    'cabinet_id' => self::PROFITABILITY_REPORT_TEMP_CABINET_BASE + $reportId,
+                ]);
+        }
+
+        // Phase 2: free final slots, then assign (one report per cabinet_id).
+        $byTarget = [];
+        foreach ($reportIdToNew as $reportId => $newId) {
+            $byTarget[$newId][] = $reportId;
+        }
+
+        foreach ($byTarget as $newId => $reportIds) {
+            $keepId = $this->pickProfitabilityReportToKeep($reportIds);
+
+            $blockerIds = ProfitabilityReport::query()
+                ->where('cabinet_id', $newId)
+                ->whereNotIn('id', $reportIds)
+                ->pluck('id')
+                ->all();
+
+            $discardIds = array_values(array_filter(
+                $reportIds,
+                static fn (int $id): bool => $id !== $keepId
+            ));
+
+            $this->deleteProfitabilityReportsWithItems(array_merge($blockerIds, $discardIds));
+
+            ProfitabilityReport::query()
+                ->where('id', $keepId)
+                ->update(['cabinet_id' => $newId]);
+        }
+    }
+
+    /**
+     * True when cabinet_id=$cabinetId is already used by another user's migrated
+     * profitability data on their wb_cabinet — do not rewrite those rows.
+     */
+    private function profitabilityReportsAtIdBelongToForeignMigratedCabinet(int $cabinetId, User $user): bool
+    {
+        $wb = WbCabinet::query()->find($cabinetId);
+        if (! $wb || (int) $wb->user_id === (int) $user->id) {
+            return false;
+        }
+
+        if (! Schema::hasTable((new ProfitabilityCabinet)->getTable())) {
+            return false;
+        }
+
+        return ProfitabilityCabinet::query()
+            ->where('wb_cabinet_id', $cabinetId)
+            ->where('is_migrated', true)
+            ->exists();
+    }
+
+    /**
+     * @param  list<int>  $reportIds
+     */
+    private function pickProfitabilityReportToKeep(array $reportIds): int
+    {
+        if (count($reportIds) === 1) {
+            return $reportIds[0];
+        }
+
+        $keepId = ProfitabilityReport::query()
+            ->whereIn('id', $reportIds)
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->value('id');
+
+        return (int) ($keepId ?? $reportIds[0]);
+    }
+
+    /**
+     * @param  list<int>  $reportIds
+     */
+    private function deleteProfitabilityReportsWithItems(array $reportIds): void
+    {
+        $reportIds = array_values(array_unique(array_filter(array_map('intval', $reportIds))));
+        if ($reportIds === []) {
+            return;
+        }
+
+        if (Schema::hasTable((new ProfitabilityItem)->getTable())) {
+            ProfitabilityItem::query()->whereIn('report_id', $reportIds)->delete();
+        }
+
+        ProfitabilityReport::query()->whereIn('id', $reportIds)->delete();
     }
 
     /**

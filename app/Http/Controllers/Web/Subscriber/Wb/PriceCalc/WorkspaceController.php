@@ -8,7 +8,6 @@ use App\Http\Requests\Web\Subscriber\ImportWbPriceCalcExcelRequest;
 use App\Http\Requests\Web\Subscriber\ImportWbPriceCalcVolumeRequest;
 use App\Http\Requests\Web\Subscriber\SaveWbPriceCalcSettingsRequest;
 use App\Models\Subscribers\Wb\WbCabinet;
-use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
 use App\Services\Subscriber\Wb\WbPriceCalculationV3Service;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -58,6 +57,8 @@ class WorkspaceController extends SubscriberToolController
             'cards' => $cardsData['data'] ?? [],
             'cardsMeta' => $this->buildCardsMeta($cardsData, $request),
             'cardsError' => ($cardsPayload['success'] ?? false) ? null : $this->apiMessage($cardsPayload, 'Не удалось загрузить номенклатуру'),
+            'operationLock' => $this->v3Service->getOperationLockState((int) $cabinet->id),
+            'jobStatus' => $this->v3Service->getJobStatus((int) $cabinet->id),
             'filters' => [
                 'page' => (int) $request->input('page', 1),
                 'per_page' => (int) $request->input('per_page', 250),
@@ -86,22 +87,13 @@ class WorkspaceController extends SubscriberToolController
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
-            return back()->with('error', $this->apiMessage($payload, 'Не удалось загрузить номенклатуру'));
+            return $this->backWithPriceCalcResult($payload, false, 'Не удалось запустить обновление');
         }
 
-        $total = PriceCalculationV3Data::query()
-            ->where('cabinet_id', $cabinet->id)
-            ->count();
-
-        $message = $this->apiMessage($payload, 'Номенклатура загружена');
-
-        if ($total > 0) {
-            $message .= " В таблице {$total} ".($total === 1 ? 'позиция' : ($total < 5 ? 'позиции' : 'позиций')).'.';
-        } else {
-            $message .= ' Товары не найдены — проверьте API-ключ кабинета.';
-        }
-
-        return back()->with('success', $message);
+        return $this->backAfterQueuedOperation(
+            (int) $cabinet->id,
+            $this->apiMessage($payload, 'Обновление списка товаров запущено. Это может занять несколько минут.')
+        );
     }
 
     public function saveSettings(SaveWbPriceCalcSettingsRequest $request): RedirectResponse|Response
@@ -184,10 +176,74 @@ class WorkspaceController extends SubscriberToolController
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
-            return back()->with('error', $this->apiMessage($payload, 'Импорт Excel не выполнен'));
+            return $this->backWithPriceCalcResult($payload, false, 'Не удалось запустить импорт');
         }
 
-        return back()->with('success', $this->apiMessage($payload, 'Данные импортированы и рассчитаны'));
+        return $this->backAfterQueuedOperation(
+            (int) $cabinet->id,
+            $this->apiMessage(
+                $payload,
+                'Импорт и пересчёт цен запущены. Это может занять несколько минут — дождитесь уведомления.'
+            )
+        );
+    }
+
+    /**
+     * After dispatch: if the queue is sync (or job already finished), surface final toast.
+     */
+    private function backAfterQueuedOperation(int $cabinetId, string $queuedMessage): RedirectResponse
+    {
+        $status = $this->v3Service->getJobStatus($cabinetId);
+
+        if (($status['status'] ?? null) === 'failed') {
+            $redirect = back()->with('error', (string) ($status['error'] ?? 'Не удалось выполнить операцию'));
+            $retryAfter = (int) ($this->v3Service->getOperationLockState($cabinetId)['retry_after'] ?? 0);
+            if ($retryAfter > 0) {
+                $redirect->with('price_calc_retry_after', $retryAfter);
+            }
+
+            return $redirect;
+        }
+
+        if (($status['status'] ?? null) === 'done' && ! empty($status['success_message'])) {
+            $redirect = back()->with('success', (string) $status['success_message']);
+            $retryAfter = (int) ($this->v3Service->getOperationLockState($cabinetId)['retry_after'] ?? 0);
+            if ($retryAfter > 0) {
+                $redirect->with('price_calc_retry_after', $retryAfter);
+            }
+
+            return $redirect;
+        }
+
+        return back()->with('success', $queuedMessage);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function backWithPriceCalcResult(array $payload, bool $success, string $fallback): RedirectResponse
+    {
+        $message = $this->apiMessage($payload, $fallback);
+        $retryAfter = (int) ($payload['retry_after'] ?? 0);
+
+        if ($retryAfter <= 0 && ! $success) {
+            $state = $this->v3Service->getOperationLockState(
+                (int) ($payload['cabinet_id'] ?? 0)
+            );
+            if (($state['retry_after'] ?? 0) > 0) {
+                $retryAfter = (int) $state['retry_after'];
+            }
+        }
+
+        $redirect = $success
+            ? back()->with('success', $message)
+            : back()->with('error', $message);
+
+        if ($retryAfter > 0) {
+            $redirect->with('price_calc_retry_after', $retryAfter);
+        }
+
+        return $redirect;
     }
 
     public function exportExcel(Request $request): RedirectResponse|StreamedResponse|Response

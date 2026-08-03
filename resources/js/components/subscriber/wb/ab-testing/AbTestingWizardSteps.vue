@@ -11,6 +11,11 @@ const props = defineProps({
         type: Number,
         required: true,
     },
+    /** When true, step 3 (campaign) is treated as done — skip in UX after bind. */
+    hasCampaignBound: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const items = computed(() =>
@@ -22,7 +27,24 @@ const items = computed(() =>
             state = "current";
         }
 
-        return { ...step, state };
+        // Bound campaign: step 3 is done even if user navigated back to 1–2 (skip re-show as upcoming).
+        if (
+            step.id === 3 &&
+            props.hasCampaignBound &&
+            props.currentStep !== 3 &&
+            state !== "completed"
+        ) {
+            state = "completed";
+        }
+
+        return {
+            ...step,
+            state,
+            description:
+                step.id === 3 && props.hasCampaignBound
+                    ? "Привязана"
+                    : step.description,
+        };
     }),
 );
 </script>

@@ -153,7 +153,7 @@ class AiImageService
                 provider: $provider,
             );
 
-            $this->aiImageGenerationService->createTask(
+            $failedTask = $this->aiImageGenerationService->createTask(
                 generation: $generation,
                 subscriberId: $subscriberId,
                 userId: $userId,
@@ -167,6 +167,7 @@ class AiImageService
                 model: $this->resolveModelFromResponse($response),
                 errorMessage: $message,
             );
+            $generation = $failedTask->getRelation('generation') ?? $generation;
 
             return response()->json([
                 'success' => false,
@@ -186,7 +187,7 @@ class AiImageService
         $storedImages = $this->prepareResponseImagesForLog($imagesForResponse, $userId);
 
         if ($storedImages === []) {
-            $this->aiImageGenerationService->createTask(
+            $failedTask = $this->aiImageGenerationService->createTask(
                 generation: $generation,
                 subscriberId: $subscriberId,
                 userId: $userId,
@@ -199,6 +200,7 @@ class AiImageService
                 status: AiImageGenerationTask::STATUS_FAILED,
                 errorMessage: 'Не удалось сохранить изображения в хранилище',
             );
+            $generation = $failedTask->getRelation('generation') ?? $generation;
 
             return response()->json([
                 'success' => false,
@@ -251,6 +253,8 @@ class AiImageService
             resultImages: $storedImages,
             model: $this->resolveModelFromResponse($response),
         );
+        // Session may have been recreated if the original generation was deleted mid-request.
+        $generation = $task->getRelation('generation') ?? $generation;
 
         $mappedTask = $this->aiImageGenerationService->mapTaskForFrontend($task);
 
@@ -539,26 +543,74 @@ class AiImageService
     }
 
     /**
+     * Collect raw image inputs from the request (edit primary + images[]).
+     *
      * @return array<int, string>
      */
-    private function resolveInputImagesForGemini(Request $request): array
+    private function collectRawInputImages(Request $request, string $taskType): array
     {
         $images = [];
 
-        foreach ($this->resolveInputImages($request) as $imageInput) {
+        if ($taskType === AiTaskType::EDIT_IMAGE->value) {
+            $primaryImage = trim((string) $request->input('image', ''));
+            if ($primaryImage !== '') {
+                $images[] = $primaryImage;
+            }
+        }
+
+        return array_values(array_unique(array_merge($images, $this->resolveInputImages($request))));
+    }
+
+    /**
+     * Normalize request images to data URIs for Gemini / Grok.
+     * Supports data URIs, remote http(s), and panel media paths (/panel/ai/media/...).
+     *
+     * @return array<int, string>
+     */
+    private function resolveInputImagesAsDataUris(Request $request, string $taskType): array
+    {
+        $rawImages = $this->collectRawInputImages($request, $taskType);
+        $images = [];
+
+        foreach ($rawImages as $imageInput) {
             try {
-                $images[] = $this->normalizeImageInputForGemini($imageInput);
+                $images[] = $this->normalizeImageInputToDataUri($imageInput);
             } catch (Throwable $exception) {
                 Log::warning('AI image input normalization failed', [
                     'error' => $exception->getMessage(),
+                    'input_kind' => $this->describeImageInputKind($imageInput),
                 ]);
             }
         }
 
-        return array_values(array_unique($images));
+        $resolved = array_values(array_unique($images));
+
+        if ($rawImages !== [] && $resolved === []) {
+            Log::error('AI image inputs were provided but none could be normalized', [
+                'task_type' => $taskType,
+                'raw_count' => count($rawImages),
+                'input_kinds' => array_map(
+                    fn (string $input): string => $this->describeImageInputKind($input),
+                    $rawImages,
+                ),
+            ]);
+        }
+
+        return $resolved;
     }
 
-    private function normalizeImageInputForGemini(string $imageInput): string
+    /**
+     * @return array<int, string>
+     */
+    private function resolveInputImagesForGemini(Request $request): array
+    {
+        return $this->resolveInputImagesAsDataUris(
+            $request,
+            (string) $request->input('task_type', AiTaskType::GENERATE_IMAGE->value),
+        );
+    }
+
+    private function normalizeImageInputToDataUri(string $imageInput): string
     {
         $trimmed = trim($imageInput);
         if ($trimmed === '') {
@@ -570,6 +622,34 @@ class AiImageService
         return 'data:' . $mimeType . ';base64,' . $base64;
     }
 
+    private function normalizeImageInputForGemini(string $imageInput): string
+    {
+        return $this->normalizeImageInputToDataUri($imageInput);
+    }
+
+    private function describeImageInputKind(string $imageInput): string
+    {
+        $trimmed = trim($imageInput);
+
+        if ($trimmed === '') {
+            return 'empty';
+        }
+
+        if (str_starts_with($trimmed, 'data:')) {
+            return 'data_uri';
+        }
+
+        if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
+            return 'http_url';
+        }
+
+        if (str_starts_with($trimmed, '/panel/ai/media/') || str_starts_with($trimmed, '/api/subscriber/ai/media/')) {
+            return 'panel_media';
+        }
+
+        return 'other';
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -579,16 +659,9 @@ class AiImageService
             return [];
         }
 
-        $inputImages = [];
-
-        if ($taskType === AiTaskType::EDIT_IMAGE->value) {
-            $primaryImage = trim((string) $request->input('image', ''));
-            if ($primaryImage !== '') {
-                $inputImages[] = $primaryImage;
-            }
-        }
-
-        $inputImages = array_values(array_unique(array_merge($inputImages, $this->resolveInputImages($request))));
+        // Must resolve panel media paths to data URIs — Grok client only accepts
+        // data:/http(s):/raw base64 and silently drops /panel/ai/media/... references.
+        $inputImages = $this->resolveInputImagesAsDataUris($request, $taskType);
 
         $result = [];
 
@@ -606,6 +679,13 @@ class AiImageService
             );
 
             if (! ($fallbackResponse['success'] ?? false)) {
+                Log::warning('Grok image fallback request failed', [
+                    'task_type' => $taskType,
+                    'status' => $fallbackResponse['status'] ?? null,
+                    'messages' => $fallbackResponse['messages'] ?? [],
+                    'has_input_images' => $inputImages !== [],
+                    'input_images_count' => count($inputImages),
+                ]);
                 continue;
             }
 

@@ -201,6 +201,42 @@ function onSceneFilesAdded(results) {
     }
 }
 
+/**
+ * Add reference image(s) from canvas drop-zone.
+ * Auto-switches task type: 1 file → image-to-video, multiple → scene.
+ */
+function addImages(results) {
+    if (!Array.isArray(results) || results.length === 0) {
+        return;
+    }
+
+    if (results.length > 1) {
+        const existing = form.task_type === "generate_video_from_scene"
+            ? [...form.images]
+            : [];
+        setTaskType("generate_video_from_scene");
+        form.images = [];
+        for (const res of [...existing, ...results]) {
+            if (form.images.length < 7) {
+                form.images.push(res);
+            }
+        }
+        return;
+    }
+
+    // Single file
+    if (form.task_type === "generate_video_from_scene") {
+        if (form.images.length < 7) {
+            form.images.push(results[0]);
+        }
+        return;
+    }
+
+    setTaskType("generate_video_from_image");
+    form.image = results[0];
+    form.images = [];
+}
+
 function updateImage(idx, imgBase64) {
     if (form.task_type === "generate_video_from_image") {
         form.image = imgBase64 || "";
@@ -282,7 +318,7 @@ function applySeed(seed = {}) {
     applySnapshot(seed);
 }
 
-defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm });
+defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm, addImages });
 </script>
 
 <template>

@@ -47,7 +47,7 @@ class SubscriberLimitLabels
         }
 
         $fromCatalog = self::catalogNames()[$key] ?? null;
-        if (is_string($fromCatalog) && $fromCatalog !== '') {
+        if ($fromCatalog !== null) {
             return $fromCatalog;
         }
 
@@ -66,6 +66,9 @@ class SubscriberLimitLabels
     }
 
     /**
+     * Usable display names from extra_limits (slug → name).
+     * Skips empty names and name===slug so soft fallbacks still apply on broken prod data.
+     *
      * @return array<string, string>
      */
     private static function catalogNames(): array
@@ -79,10 +82,16 @@ class SubscriberLimitLabels
                 return self::$catalogNames = [];
             }
 
-            self::$catalogNames = ExtraLimits::query()
-                ->whereNotNull('slug')
-                ->pluck('name', 'slug')
-                ->all();
+            $map = [];
+            foreach (ExtraLimits::query()->whereNotNull('slug')->get(['slug', 'name']) as $row) {
+                $slug = (string) $row->slug;
+                $name = is_string($row->name) ? trim($row->name) : '';
+                if ($slug === '' || $name === '' || $name === $slug) {
+                    continue;
+                }
+                $map[$slug] = $name;
+            }
+            self::$catalogNames = $map;
         } catch (\Throwable) {
             self::$catalogNames = [];
         }

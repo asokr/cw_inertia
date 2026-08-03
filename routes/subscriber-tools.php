@@ -221,6 +221,66 @@ Route::middleware(['permission:subscriber wb ab testing'])
     ->group(function () {
         Route::get('/', [WbAbTestingWorkspaceController::class, 'show'])->name('index');
         Route::post('/sync', [WbAbTestingWorkspaceController::class, 'sync'])->name('sync');
+        Route::post('/experiments', [WbAbTestingWorkspaceController::class, 'storeExperiment'])->name('experiments.store');
+        Route::patch('/experiments/{experiment}', [WbAbTestingWorkspaceController::class, 'updateExperiment'])
+            ->whereNumber('experiment')
+            ->name('experiments.update');
+        Route::patch('/experiments/{experiment}/settings', [WbAbTestingWorkspaceController::class, 'updateSettings'])
+            ->whereNumber('experiment')
+            ->name('experiments.settings');
+        Route::post('/experiments/{experiment}/start', [WbAbTestingWorkspaceController::class, 'startExperiment'])
+            ->whereNumber('experiment')
+            ->name('experiments.start');
+        Route::post('/experiments/{experiment}/stop', [WbAbTestingWorkspaceController::class, 'stopExperiment'])
+            ->whereNumber('experiment')
+            ->name('experiments.stop');
+        Route::post('/experiments/{experiment}/campaign', [WbAbTestingWorkspaceController::class, 'bindCampaign'])
+            ->whereNumber('experiment')
+            ->name('experiments.campaign.bind');
+        Route::get('/campaigns', [WbAbTestingWorkspaceController::class, 'listCampaigns'])->name('campaigns.index');
+        Route::post('/campaigns', [WbAbTestingWorkspaceController::class, 'storeCampaign'])->name('campaigns.store');
+        Route::post('/campaigns/{advertId}/prepare', [WbAbTestingWorkspaceController::class, 'prepareCampaign'])
+            ->whereNumber('advertId')
+            ->name('campaigns.prepare');
+        Route::post('/campaigns/{advertId}/nms', [WbAbTestingWorkspaceController::class, 'addCampaignProduct'])
+            ->whereNumber('advertId')
+            ->name('campaigns.nms.add');
+        Route::delete('/campaigns/{advertId}/nms', [WbAbTestingWorkspaceController::class, 'removeCampaignProduct'])
+            ->whereNumber('advertId')
+            ->name('campaigns.nms.remove');
+        Route::post('/campaigns/{advertId}/pause', [WbAbTestingWorkspaceController::class, 'pauseCampaign'])
+            ->whereNumber('advertId')
+            ->name('campaigns.pause');
+        Route::get('/campaigns/{advertId}/budget', [WbAbTestingWorkspaceController::class, 'getCampaignBudget'])
+            ->whereNumber('advertId')
+            ->name('campaigns.budget');
+        Route::post('/campaigns/{advertId}/deposit', [WbAbTestingWorkspaceController::class, 'depositCampaignBudget'])
+            ->whereNumber('advertId')
+            ->name('campaigns.deposit');
+        Route::delete('/campaigns/{advertId}', [WbAbTestingWorkspaceController::class, 'deleteCampaign'])
+            ->whereNumber('advertId')
+            ->name('campaigns.destroy');
+
+        Route::get('/media/{photo}', [WbAbTestingWorkspaceController::class, 'showMedia'])
+            ->whereNumber('photo')
+            ->name('media.show');
+        Route::get('/experiments/{experiment}/photos', [WbAbTestingWorkspaceController::class, 'listPhotos'])
+            ->whereNumber('experiment')
+            ->name('photos.index');
+        Route::post('/experiments/{experiment}/photos', [WbAbTestingWorkspaceController::class, 'storePhotos'])
+            ->whereNumber('experiment')
+            ->name('photos.store');
+        Route::post('/experiments/{experiment}/photos/{photo}', [WbAbTestingWorkspaceController::class, 'replacePhoto'])
+            ->whereNumber('experiment')
+            ->whereNumber('photo')
+            ->name('photos.replace');
+        Route::delete('/experiments/{experiment}/photos/{photo}', [WbAbTestingWorkspaceController::class, 'destroyPhoto'])
+            ->whereNumber('experiment')
+            ->whereNumber('photo')
+            ->name('photos.destroy');
+        Route::patch('/experiments/{experiment}/photos/reorder', [WbAbTestingWorkspaceController::class, 'reorderPhotos'])
+            ->whereNumber('experiment')
+            ->name('photos.reorder');
     });
 
 Route::prefix('ai')

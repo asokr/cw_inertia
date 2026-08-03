@@ -56,10 +56,13 @@ function scheduleAutoDismiss() {
         window.clearTimeout(dismissTimer);
     }
 
+    // Success messages (e.g. «цены пересчитаны») need more time to read.
+    const delayMs = variant.value === "success" ? 8000 : 4000;
+
     dismissTimer = window.setTimeout(() => {
         visible.value = false;
         dismissTimer = null;
-    }, 4000);
+    }, delayMs);
 }
 
 function consumeSessionFlash(flash = {}) {

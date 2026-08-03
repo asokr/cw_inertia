@@ -121,7 +121,7 @@ class ProfitabilityJobStatusPresenter
         }
 
         if ($status === 'done') {
-            return 'Отчёт готов';
+            return 'Расчёт завершён. Отчёт готов.';
         }
 
         return match ($stage) {
@@ -133,7 +133,7 @@ class ProfitabilityJobStatusPresenter
             self::STAGE_ANALYZING => 'Разбираем операции',
             self::STAGE_CALCULATING => 'Считаем прибыль по товарам',
             self::STAGE_SAVING => 'Сохраняем отчёт',
-            self::STAGE_DONE => 'Отчёт готов',
+            self::STAGE_DONE => 'Расчёт завершён. Отчёт готов.',
             default => $status === 'processing' ? 'Готовим отчёт' : null,
         };
     }

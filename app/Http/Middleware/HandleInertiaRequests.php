@@ -64,6 +64,8 @@ class HandleInertiaRequests extends Middleware
                 'error_details' => fn () => $request->session()->get('error_details'),
                 'messages' => fn () => $request->session()->get('messages', []),
                 'verification_email' => fn () => $request->session()->get('verification_email'),
+                'created_experiment' => fn () => $request->session()->get('createdExperiment'),
+                'price_calc_retry_after' => fn () => $request->session()->get('price_calc_retry_after'),
             ],
             'aiCostsToday' => function () use ($request, $user) {
                 if (! $user || ! $request->is('cw-page', 'cw-page/*')) {

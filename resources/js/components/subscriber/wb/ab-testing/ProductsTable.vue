@@ -10,10 +10,6 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
-    selectedNmId: {
-        type: [Number, String, null],
-        default: null,
-    },
 });
 
 const emit = defineEmits(["select"]);
@@ -53,21 +49,21 @@ function productTitleCell(row) {
     const photo = row.photo_url;
     const title = row.title || "Без названия";
 
-    return h("div", { class: "flex min-w-[14rem] max-w-sm items-center gap-2.5" }, [
+    return h("div", { class: "flex min-w-[15rem] max-w-md items-center gap-3 py-0.5" }, [
         photo
             ? h("img", {
                 src: photo,
                 alt: "",
                 loading: "lazy",
                 referrerpolicy: "no-referrer",
-                class: "h-10 w-10 shrink-0 rounded-md border border-border/60 object-cover bg-muted",
+                class: "h-[4.5rem] w-14 shrink-0 rounded-lg border border-border/60 bg-muted object-contain",
             })
             : h(
                 "div",
                 {
-                    class: "flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-dashed border-border bg-muted/50 text-muted-foreground",
+                    class: "flex h-[4.5rem] w-14 shrink-0 items-center justify-center rounded-lg border border-dashed border-border bg-muted/50 text-muted-foreground",
                 },
-                [h(ImageOff, { class: "h-4 w-4" })],
+                [h(ImageOff, { class: "h-5 w-5" })],
             ),
         h(
             "span",
@@ -87,27 +83,6 @@ function statusCell(row) {
 }
 
 const columns = computed(() => [
-    {
-        id: "select",
-        header: "",
-        enableSorting: false,
-        cell: ({ row }) => {
-            const nmId = row.original.nm_id;
-            const checked = Number(props.selectedNmId) === Number(nmId);
-
-            return h("input", {
-                type: "radio",
-                name: "ab-product",
-                checked,
-                class: "h-4 w-4 accent-primary",
-                onClick: (event) => {
-                    event.stopPropagation();
-                    emit("select", row.original);
-                },
-                onChange: () => emit("select", row.original),
-            });
-        },
-    },
     {
         id: "title",
         accessorKey: "title",
@@ -164,12 +139,8 @@ const columns = computed(() => [
     },
 ]);
 
-function getRowClass(item) {
-    if (Number(props.selectedNmId) === Number(item.nm_id)) {
-        return "bg-primary/5 cursor-pointer";
-    }
-
-    return "cursor-pointer";
+function getRowClass() {
+    return "cursor-pointer hover:bg-muted/50";
 }
 
 function onRowClick(item) {
@@ -198,3 +169,18 @@ function onRowClick(item) {
         />
     </div>
 </template>
+
+<style scoped>
+.ab-products-table :deep(thead th) {
+    height: 2.75rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+.ab-products-table :deep(tbody td) {
+    height: auto;
+    min-height: 5rem;
+    padding: 0.75rem 1rem;
+    vertical-align: middle;
+}
+</style>

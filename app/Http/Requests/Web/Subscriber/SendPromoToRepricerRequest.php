@@ -17,7 +17,6 @@ class SendPromoToRepricerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'cabinet_id' => ['required', 'integer', 'exists:wb_cabinets,id'],
             'data' => ['required', 'array', 'min:1'],
             'data.*.nm_id' => ['required', 'integer', 'min:1'],
             'data.*.plan_price' => ['required', 'numeric', 'min:0'],
@@ -34,6 +33,7 @@ class SendPromoToRepricerRequest extends FormRequest
     {
         return [
             'required' => 'Не хватает данных для передачи в репрайсер',
+            'dates.end.after' => 'Дата окончания акции должна быть позже даты начала',
         ];
     }
 }

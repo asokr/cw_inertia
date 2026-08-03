@@ -44,7 +44,6 @@ function selectCabinet(id) {
         "/panel/wb/cabinets/select",
         { cabinet_id: id },
         {
-            preserveScroll: true,
             onFinish: () => {
                 open.value = false;
             },
