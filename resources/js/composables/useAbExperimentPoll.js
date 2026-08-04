@@ -1,6 +1,7 @@
 import { usePage } from "@inertiajs/vue3";
-import { watch } from "vue";
+import { ref, watch } from "vue";
 import { useToolPoll } from "@/composables/useToolPoll";
+import { useFlashToast } from "@/composables/useFlashToast";
 
 /**
  * Poll selectedExperiment while A/B experiment is running.
@@ -12,6 +13,8 @@ import { useToolPoll } from "@/composables/useToolPoll";
 export function useAbExperimentPoll(options = {}) {
     const { shouldPoll = () => true } = options;
     const page = usePage();
+    const { showError } = useFlashToast();
+    const lastKnownStatus = ref(page.props.selectedExperiment?.status ?? null);
 
     const poll = useToolPoll(5000, {
         requestOptions: {
@@ -38,7 +41,20 @@ export function useAbExperimentPoll(options = {}) {
             return;
         }
 
-        const status = page.props.selectedExperiment?.status;
+        const experiment = page.props.selectedExperiment;
+        const status = experiment?.status;
+        if (
+            lastKnownStatus.value === "running" &&
+            status === "error"
+        ) {
+            showError(
+                experiment?.error_message ||
+                    experiment?.last_api_error ||
+                    "Эксперимент остановлен из‑за ошибки API",
+            );
+        }
+        lastKnownStatus.value = status ?? null;
+
         if (isRunningStatus(status)) {
             if (!poll.isPolling.value) {
                 poll.start();
@@ -53,6 +69,7 @@ export function useAbExperimentPoll(options = {}) {
         () => [
             page.props.selectedExperiment?.id,
             page.props.selectedExperiment?.status,
+            page.props.selectedExperiment?.error_message,
             shouldPoll(),
         ],
         () => syncFromProps(),

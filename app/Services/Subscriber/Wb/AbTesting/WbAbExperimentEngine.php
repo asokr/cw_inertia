@@ -12,8 +12,10 @@ use App\Models\Subscribers\Wb\AbTesting\AbProduct;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Services\Wb\WbAdvertApiClient;
 use App\Services\Wb\WbContentMediaClient;
+use App\Support\Wb\WbAdvertFullstatsGuard;
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -36,6 +38,7 @@ class WbAbExperimentEngine
         private readonly WbAdvertApiClient $advertApi,
         private readonly WbContentMediaClient $mediaApi,
         private readonly WbAbExperimentJournal $journal,
+        private readonly WbAdvertFullstatsGuard $fullstatsGuard,
     ) {
     }
 
@@ -50,7 +53,7 @@ class WbAbExperimentEngine
 
         $status = $this->resolveStatus($experiment);
         if ($status === null || ! $status->isStartable()) {
-            $errors[] = 'Запустить можно эксперимент в статусе «Черновик» или «Остановлен».';
+            $errors[] = 'Запустить можно эксперимент в статусе «Черновик», «Остановлен» или «Ошибка».';
         }
 
         if (empty($cabinet->apikey)) {
@@ -258,7 +261,7 @@ class WbAbExperimentEngine
                 $lockedStatus = $this->resolveStatus($locked);
                 if ($lockedStatus === null || ! $lockedStatus->isStartable()) {
                     throw ValidationException::withMessages([
-                        'experiment' => 'Запустить можно только «Черновик» или «Остановлен».',
+                        'experiment' => 'Запустить можно только «Черновик», «Остановлен» или «Ошибка».',
                     ]);
                 }
 
@@ -288,7 +291,7 @@ class WbAbExperimentEngine
                     'orders_start' => $snapshot['orders'],
                 ]);
 
-                $isRestart = $lockedStatus === WbAbTestStatus::Stopped;
+                $isRestart = in_array($lockedStatus, [WbAbTestStatus::Stopped, WbAbTestStatus::Error], true);
 
                 $locked->status = WbAbTestStatus::Running;
                 $locked->started_at = now();
@@ -321,7 +324,7 @@ class WbAbExperimentEngine
                 $experiment,
                 WbAbExperimentJournal::TYPE_EXPERIMENT_STARTED,
                 $isRestart
-                    ? 'Эксперимент перезапущен после остановки. Работа снова выполняется автоматически.'
+                    ? 'Эксперимент перезапущен. Счётчик ошибок сброшен, работа снова выполняется автоматически.'
                     : 'Эксперимент запущен. Дальнейшая работа выполняется автоматически.',
                 ['advert_id' => $advertId, 'restart' => $isRestart],
             );
@@ -460,6 +463,14 @@ class WbAbExperimentEngine
                 $experiment->started_at ?? now(),
             );
         } catch (Throwable $e) {
+            if ($this->isRateLimitThrowable($e)) {
+                return $this->handleRateLimitFailure(
+                    $experiment,
+                    $e->getMessage(),
+                    $this->retryAfterFromThrowable($e),
+                );
+            }
+
             return $this->handleTransientFailure($experiment, $e->getMessage(), $apiKey, $advertId);
         }
 
@@ -515,6 +526,7 @@ class WbAbExperimentEngine
                         $snapshot,
                         $apiKey,
                         $advertId,
+                        $nmId,
                     );
                 }
 
@@ -586,6 +598,7 @@ class WbAbExperimentEngine
                                 $snapshot,
                                 $apiKey,
                                 $advertId,
+                                $nmId,
                             );
                         }
                     }
@@ -631,18 +644,6 @@ class WbAbExperimentEngine
         string $apiKey,
         int $nmId,
     ): array {
-        $this->applyCycleEnd($cycle, $snapshot, $endReason);
-        $this->journal->log(
-            $experiment,
-            WbAbExperimentJournal::TYPE_CYCLE_CLOSED,
-            'Цикл №'.$cycle->sequence.' закрыт ('.$endReason.').',
-            [
-                'cycle_id' => $cycle->id,
-                'end_reason' => $endReason,
-                'delta_views' => $cycle->deltaViews(),
-            ],
-        );
-
         $photos = $experiment->photos->sortBy([
             ['sort_order', 'asc'],
             ['id', 'asc'],
@@ -662,14 +663,30 @@ class WbAbExperimentEngine
         /** @var AbExperimentPhoto $nextPhoto */
         $nextPhoto = $photos[$nextIndex];
 
+        // Upload next photo BEFORE closing the current cycle so a failed upload
+        // never leaves the experiment without an open cycle.
         $upload = $this->uploadPhotoAsMain($apiKey, $nmId, $nextPhoto);
         if (! ($upload['success'] ?? false)) {
-            // Re-open cycle? Cycle already closed — keep closed and report failure.
+            // Keep mid-flight provisional ends for UI; cycle stays open.
+            $this->applyProvisionalCycleEnds($cycle, $snapshot);
+
             return [
                 'success' => false,
                 'message' => $upload['message'] ?? 'Не удалось загрузить следующую фотографию в WB',
             ];
         }
+
+        $this->applyCycleEnd($cycle, $snapshot, $endReason);
+        $this->journal->log(
+            $experiment,
+            WbAbExperimentJournal::TYPE_CYCLE_CLOSED,
+            'Цикл №'.$cycle->sequence.' закрыт ('.$endReason.').',
+            [
+                'cycle_id' => $cycle->id,
+                'end_reason' => $endReason,
+                'delta_views' => $cycle->deltaViews(),
+            ],
+        );
 
         $nextSequence = (int) AbExperimentCycle::query()
             ->where('ab_experiment_id', $experiment->id)
@@ -719,11 +736,53 @@ class WbAbExperimentEngine
         array $snapshot,
         string $apiKey,
         int $advertId,
+        int $nmId,
     ): array {
         $this->closeOpenCycle($experiment, $snapshot, AbExperimentCycle::END_COMPLETED);
         $this->safePauseAdvert($apiKey, $advertId);
 
         $winnerId = $this->resolveWinnerPhotoId($experiment);
+        $winnerApplied = false;
+        $winnerApplyMessage = null;
+
+        if ($winnerId && $nmId > 0 && $apiKey !== '') {
+            $experiment->loadMissing('photos');
+            $winnerPhoto = $experiment->photos->first(
+                fn (AbExperimentPhoto $p) => (int) $p->id === (int) $winnerId,
+            );
+
+            if ($winnerPhoto) {
+                $upload = $this->uploadPhotoAsMain($apiKey, $nmId, $winnerPhoto);
+                if ($upload['success'] ?? false) {
+                    $winnerApplied = true;
+                    $this->journal->log(
+                        $experiment,
+                        WbAbExperimentJournal::TYPE_PHOTO_SET,
+                        'Главное фото карточки WB заменено на победителя (лучший CTR).',
+                        [
+                            'photo_id' => $winnerId,
+                            'sort_order' => (int) $winnerPhoto->sort_order,
+                            'nm_id' => $nmId,
+                        ],
+                    );
+                } else {
+                    $winnerApplyMessage = (string) ($upload['message']
+                        ?? 'Не удалось установить фото победителя в карточке WB');
+                    $this->journal->log(
+                        $experiment,
+                        WbAbExperimentJournal::TYPE_API_RETRY,
+                        'Не удалось установить победителя главным фото: '.$winnerApplyMessage,
+                        ['photo_id' => $winnerId, 'nm_id' => $nmId],
+                    );
+                    Log::warning('[WbAbExperimentEngine] winner photo upload failed', [
+                        'experiment_id' => $experiment->id,
+                        'winner_photo_id' => $winnerId,
+                        'nm_id' => $nmId,
+                        'message' => $winnerApplyMessage,
+                    ]);
+                }
+            }
+        }
 
         $experiment->status = WbAbTestStatus::Completed;
         $experiment->finished_at = now();
@@ -731,7 +790,10 @@ class WbAbExperimentEngine
         $experiment->winner_photo_id = $winnerId;
         $experiment->consecutive_failures = 0;
         $experiment->last_processed_at = now();
-        $experiment->error_message = null;
+        // Soft note if winner file failed — experiment still completed with stats.
+        $experiment->error_message = $winnerApplyMessage
+            ? mb_substr('Победитель определён, но не установлен в карточке WB: '.$winnerApplyMessage, 0, 2000)
+            : null;
         $experiment->save();
 
         $this->journal->log(
@@ -745,8 +807,14 @@ class WbAbExperimentEngine
             $this->journal->log(
                 $experiment,
                 WbAbExperimentJournal::TYPE_WINNER_SELECTED,
-                'Определён победитель по CTR.',
-                ['winner_photo_id' => $winnerId],
+                $winnerApplied
+                    ? 'Победитель по CTR выбран и установлен главным фото в карточке WB.'
+                    : 'Победитель по CTR выбран'.($winnerApplyMessage ? ', но не установлен в карточке WB.' : '.'),
+                [
+                    'winner_photo_id' => $winnerId,
+                    'applied_as_main' => $winnerApplied,
+                    'apply_error' => $winnerApplyMessage,
+                ],
             );
         }
 
@@ -754,7 +822,10 @@ class WbAbExperimentEngine
             $experiment,
             WbAbExperimentJournal::TYPE_EXPERIMENT_COMPLETED,
             'Эксперимент завершён: каждая фотография набрала целевые показы.',
-            ['winner_photo_id' => $winnerId],
+            [
+                'winner_photo_id' => $winnerId,
+                'winner_applied_as_main' => $winnerApplied,
+            ],
         );
 
         return ['success' => true, 'action' => 'completed', 'messages' => []];
@@ -835,6 +906,7 @@ class WbAbExperimentEngine
         }
 
         $experiment->consecutive_failures = (int) $experiment->consecutive_failures + 1;
+        $experiment->last_processed_at = now();
         $experiment->save();
 
         $this->journal->log(
@@ -851,6 +923,68 @@ class WbAbExperimentEngine
         }
 
         return ['success' => false, 'action' => 'retry', 'messages' => [$message]];
+    }
+
+    /**
+     * Rate-limit (429 / throttle) must not push the experiment into error status.
+     *
+     * @return array{success: bool, action: string, messages: list<string>, retry_after: int}
+     */
+    private function handleRateLimitFailure(
+        AbExperiment $experiment,
+        string $message,
+        int $retryAfter,
+    ): array {
+        $experiment->refresh();
+        if ($this->resolveStatus($experiment) !== WbAbTestStatus::Running) {
+            return [
+                'success' => false,
+                'action' => 'skipped',
+                'messages' => [$message],
+                'retry_after' => $retryAfter,
+            ];
+        }
+
+        $retryAfter = max(WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429, $retryAfter);
+        $experiment->last_processed_at = now();
+        $experiment->save();
+
+        $this->journal->log(
+            $experiment,
+            WbAbExperimentJournal::TYPE_API_RATE_LIMITED,
+            'Лимит запросов WB fullstats: '.$message.' Повтор через '.$retryAfter.' с.',
+            ['retry_after' => $retryAfter, 'failures' => (int) $experiment->consecutive_failures],
+        );
+
+        return [
+            'success' => false,
+            'action' => 'rate_limited',
+            'messages' => [$message],
+            'retry_after' => $retryAfter,
+        ];
+    }
+
+    private function isRateLimitThrowable(Throwable $e): bool
+    {
+        if ((int) $e->getCode() === 429) {
+            return true;
+        }
+
+        $msg = mb_strtolower($e->getMessage());
+
+        return str_contains($msg, 'rate_limited')
+            || str_contains($msg, '429')
+            || str_contains($msg, 'лимит запросов')
+            || str_contains($msg, 'too many requests');
+    }
+
+    private function retryAfterFromThrowable(Throwable $e): int
+    {
+        if (preg_match('/retry_after=(\d+)/i', $e->getMessage(), $m)) {
+            return max(1, (int) $m[1]);
+        }
+
+        return WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429;
     }
 
     /**
@@ -939,11 +1073,8 @@ class WbAbExperimentEngine
     ): array {
         $totals = [];
 
-        $cycles = $experiment->relationLoaded('cycles')
-            ? $experiment->cycles
-            : AbExperimentCycle::query()
-                ->where('ab_experiment_id', $experiment->id)
-                ->get();
+        // Always load ALL cycles — never trust a truncated eager load (e.g. limit 100 for history).
+        $cycles = $this->loadAllCycles($experiment);
 
         foreach ($cycles as $cycle) {
             $photoId = (int) $cycle->ab_experiment_photo_id;
@@ -972,11 +1103,8 @@ class WbAbExperimentEngine
     public function photoAggregates(AbExperiment $experiment): array
     {
         $agg = [];
-        $cycles = $experiment->relationLoaded('cycles')
-            ? $experiment->cycles
-            : AbExperimentCycle::query()
-                ->where('ab_experiment_id', $experiment->id)
-                ->get();
+        // Always ALL cycles — workspace may eager-load cycles with limit(100) for history only.
+        $cycles = $this->loadAllCycles($experiment);
 
         foreach ($cycles as $cycle) {
             // Closed cycles always count; open cycles only with provisional/final ends.
@@ -999,6 +1127,25 @@ class WbAbExperimentEngine
         }
 
         return $agg;
+    }
+
+    /**
+     * Full cycle history for aggregates/progress (never use limited UI relations).
+     *
+     * @return Collection<int, AbExperimentCycle>
+     */
+    public function loadAllCycles(AbExperiment $experiment): Collection
+    {
+        return AbExperimentCycle::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->get();
+    }
+
+    public function totalRounds(AbExperiment $experiment): int
+    {
+        return (int) AbExperimentCycle::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->max('sequence');
     }
 
     public function resolveWinnerPhotoId(AbExperiment $experiment): ?int
@@ -1130,16 +1277,60 @@ class WbAbExperimentEngine
         int $nmId,
         Carbon|string|null $startedAt,
     ): array {
-        $begin = Carbon::parse($startedAt ?? now(), 'Europe/Moscow')->toDateString();
-        $end = Carbon::now('Europe/Moscow')->toDateString();
+        $wait = $this->fullstatsGuard->waitSeconds($apiKey);
+        if ($wait > 0) {
+            throw new \RuntimeException(
+                'rate_limited: fullstats throttle, retry_after='.$wait,
+                429,
+            );
+        }
+
+        // WB fullstats max period is 31 days.
+        $end = Carbon::now('Europe/Moscow')->startOfDay();
+        $begin = Carbon::parse($startedAt ?? now(), 'Europe/Moscow')->startOfDay();
+        if ($begin->diffInDays($end) > 30) {
+            $begin = $end->copy()->subDays(30);
+        }
+
+        $this->fullstatsGuard->markAttempt($apiKey);
 
         $result = $this->withRetries(
-            fn () => $this->advertApi->fullstats($apiKey, [$advertId], $begin, $end),
+            function () use ($apiKey, $advertId, $begin, $end) {
+                $response = $this->advertApi->fullstats(
+                    $apiKey,
+                    [$advertId],
+                    $begin->toDateString(),
+                    $end->toDateString(),
+                );
+                // On 429 do not burn retries with sub-second sleeps — respect interval.
+                if ((int) ($response['code'] ?? 0) === 429) {
+                    $retryAfter = (int) ($response['retry_after']
+                        ?? WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429);
+                    $this->fullstatsGuard->setCooldownAfter429($apiKey, max(1, $retryAfter));
+
+                    return $response;
+                }
+
+                return $response;
+            },
             'fullstats',
+            1, // single attempt: backoff is job-level via rate_limited reschedule
         );
 
         if (! ($result['success'] ?? false)) {
-            throw new \RuntimeException($result['message'] ?? 'Ошибка получения статистики кампании');
+            $code = (int) ($result['code'] ?? 0);
+            $message = (string) ($result['message'] ?? 'Ошибка получения статистики кампании');
+            if ($code === 429) {
+                $retryAfter = (int) ($result['retry_after']
+                    ?? WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429);
+                $this->fullstatsGuard->setCooldownAfter429($apiKey, max(1, $retryAfter));
+                throw new \RuntimeException(
+                    'rate_limited: '.$message.'; retry_after='.$retryAfter,
+                    429,
+                );
+            }
+
+            throw new \RuntimeException($message, $code > 0 ? $code : 0);
         }
 
         $stats = $this->advertApi->extractStatsForAdvert(
@@ -1246,12 +1437,18 @@ class WbAbExperimentEngine
             }
 
             $code = (int) ($last['code'] ?? 0);
-            $retryable = $code === 0 || $code === 429 || $code >= 500;
+            // 429: do not tight-loop (fullstats burst=1, interval 20s). Caller handles reschedule.
+            if ($code === 429) {
+                break;
+            }
+
+            $retryable = $code === 0 || $code >= 500;
             if (! $retryable || $i === $attempts) {
                 break;
             }
 
-            usleep(200_000 * $i);
+            // Backoff in seconds (not ms) for 5xx / network.
+            usleep(1_000_000 * $i);
         }
 
         return $last;

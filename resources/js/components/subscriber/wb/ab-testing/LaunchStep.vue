@@ -43,12 +43,33 @@ const busy = ref(false);
 
 const status = computed(() => props.experiment?.status ?? "draft");
 const isRunning = computed(() => status.value === "running");
-/** draft or stopped — can show start checklist */
+/** draft / stopped / error — can show start checklist and (re)start */
 const canShowStart = computed(
-    () => status.value === "draft" || status.value === "stopped",
+    () =>
+        status.value === "draft" ||
+        status.value === "stopped" ||
+        status.value === "error",
 );
-const isReadonlyTerminal = computed(
-    () => status.value === "completed" || status.value === "error",
+/** completed only — no restart from completed */
+const isReadonlyTerminal = computed(() => status.value === "completed");
+const isError = computed(() => status.value === "error");
+const isRestartable = computed(
+    () => status.value === "stopped" || status.value === "error",
+);
+const consecutiveFailures = computed(
+    () => Number(props.experiment?.consecutive_failures) || 0,
+);
+const maxConsecutiveFailures = computed(
+    () => Number(props.experiment?.max_consecutive_failures) || 5,
+);
+const lastApiError = computed(
+    () => props.experiment?.last_api_error || props.experiment?.error_message || null,
+);
+const actionHistoryMeta = computed(
+    () => props.experiment?.action_history_meta ?? null,
+);
+const events = computed(() =>
+    Array.isArray(props.experiment?.events) ? props.experiment.events : [],
 );
 
 const checks = computed(() => props.experiment?.start_checks ?? []);
@@ -178,9 +199,33 @@ async function stop() {
         <SelectedProductCard v-if="product" :product="product" />
 
         <Card v-if="canShowStart" class="space-y-4 p-4 sm:p-5">
+            <div
+                v-if="isError"
+                class="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-destructive"
+            >
+                <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
+                <div class="min-w-0 space-y-1">
+                    <p class="font-semibold">Эксперимент остановлен из‑за ошибки</p>
+                    <p class="text-xs leading-relaxed text-destructive/90">
+                        {{
+                            experiment.error_message ||
+                                lastApiError ||
+                                "Неизвестная ошибка. Можно исправить настройки и запустить снова."
+                        }}
+                    </p>
+                    <p
+                        v-if="experiment.finished_at"
+                        class="text-[11px] text-muted-foreground"
+                    >
+                        Время:
+                        {{ new Date(experiment.finished_at).toLocaleString("ru-RU") }}
+                    </p>
+                </div>
+            </div>
+
             <div>
                 <p class="text-sm font-semibold text-foreground">
-                    {{ status === "stopped" ? "Повторный запуск" : "Проверка готовности" }}
+                    {{ isRestartable ? "Повторный запуск" : "Проверка готовности" }}
                 </p>
                 <p class="mt-0.5 text-xs text-muted-foreground">
                     Все пункты должны быть выполнены перед запуском.
@@ -219,15 +264,15 @@ async function stop() {
             <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3">
                 <p class="text-xs text-muted-foreground">
                     {{
-                        status === "stopped"
-                            ? "Перезапуск: история циклов сохранится, откроется новый цикл."
+                        isRestartable
+                            ? "Перезапуск: история циклов сохранится, счётчик ошибок сбросится, откроется новый цикл."
                             : "Запуск: кампания WB → первая фотография → цикл → «В процессе»."
                     }}
                 </p>
                 <Button :disabled="!canStart" @click="start">
                     <Loader2 v-if="busy" class="mr-1.5 h-4 w-4 animate-spin" />
                     <Play v-else class="mr-1.5 h-4 w-4" />
-                    {{ status === "stopped" ? "Запустить снова" : "Запустить эксперимент" }}
+                    {{ isRestartable ? "Запустить снова" : "Запустить эксперимент" }}
                 </Button>
             </div>
         </Card>
@@ -237,8 +282,8 @@ async function stop() {
                 <div>
                     <p class="text-sm font-semibold text-foreground">Эксперимент выполняется</p>
                     <p class="mt-0.5 text-xs text-muted-foreground">
-                        Фоновый обработчик меняет фотографии по лимиту показов за круг
-                        или по времени круга. Завершение — когда каждое фото наберёт
+                        Смена фото — что наступит раньше: лимит «показов за круг» или
+                        «длительность круга». Завершение — когда каждое фото наберёт
                         «показов на одно фото».
                     </p>
                     <p
@@ -255,6 +300,30 @@ async function stop() {
                     Остановить
                 </Button>
             </div>
+
+            <div
+                v-if="consecutiveFailures > 0 || lastApiError"
+                class="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100"
+            >
+                <AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div class="min-w-0 space-y-0.5">
+                    <p class="font-medium">
+                        Проблемы API
+                        <span v-if="consecutiveFailures > 0" class="tabular-nums">
+                            ({{ consecutiveFailures }}/{{ maxConsecutiveFailures }})
+                        </span>
+                    </p>
+                    <p v-if="lastApiError" class="text-amber-800/90 dark:text-amber-200/90">
+                        {{ lastApiError }}
+                    </p>
+                    <p class="text-[11px] text-muted-foreground">
+                        При превышении лимита WB (429) эксперимент не останавливается —
+                        повтор будет позже. После {{ maxConsecutiveFailures }} прочих
+                        сбоев подряд статус станет «Ошибка».
+                    </p>
+                </div>
+            </div>
+
             <div class="space-y-2">
                 <div class="h-2 overflow-hidden rounded-full bg-muted">
                     <div
@@ -300,10 +369,7 @@ async function stop() {
             <p class="text-sm font-semibold text-foreground">
                 {{ experiment.status_label }}
             </p>
-            <p v-if="experiment.error_message" class="text-sm text-destructive">
-                {{ experiment.error_message }}
-            </p>
-            <p v-else class="text-xs text-muted-foreground">
+            <p class="text-xs text-muted-foreground">
                 Эксперимент завершён и доступен только для просмотра.
                 Для нового теста создайте новый эксперимент.
             </p>
@@ -311,13 +377,60 @@ async function stop() {
                 v-if="experiment.winner_photo_id"
                 class="text-xs text-muted-foreground"
             >
-                Победитель: фото #{{ experiment.winner_photo_id }}
+                Победитель по CTR установлен главным фото в карточке WB
+                (фото #{{ experiment.winner_photo_id }}).
+            </p>
+            <p
+                v-if="experiment.error_message"
+                class="text-xs text-amber-800 dark:text-amber-200"
+            >
+                {{ experiment.error_message }}
             </p>
         </Card>
 
+        <Card
+            v-if="events.length && (isRunning || isError || isReadonlyTerminal || status === 'stopped')"
+            class="space-y-2 p-4 sm:p-5"
+        >
+            <p class="text-sm font-semibold text-foreground">Журнал событий</p>
+            <ul class="max-h-48 space-y-1.5 overflow-auto text-xs">
+                <li
+                    v-for="ev in events"
+                    :key="ev.id"
+                    class="border-b border-border/40 pb-1.5 last:border-0"
+                >
+                    <p class="text-[11px] text-muted-foreground tabular-nums">
+                        {{
+                            ev.created_at
+                                ? new Date(ev.created_at).toLocaleString("ru-RU")
+                                : "—"
+                        }}
+                        <span class="ml-1 opacity-70">{{ ev.type }}</span>
+                    </p>
+                    <p
+                        class="text-foreground"
+                        :class="{
+                            'text-destructive':
+                                String(ev.type || '').includes('error') ||
+                                String(ev.type || '').includes('rate_limited'),
+                        }"
+                    >
+                        {{ ev.message }}
+                    </p>
+                </li>
+            </ul>
+        </Card>
+
         <ExperimentActionHistory
-            v-if="actionHistory.length || isRunning || isReadonlyTerminal || status === 'stopped'"
+            v-if="
+                actionHistory.length ||
+                isRunning ||
+                isReadonlyTerminal ||
+                status === 'stopped' ||
+                isError
+            "
             :rows="actionHistory"
+            :meta="actionHistoryMeta"
         />
     </div>
 </template>

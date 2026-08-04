@@ -76,7 +76,8 @@ class ProcessAbExperimentJob implements ShouldQueue, ShouldBeUniqueUntilProcessi
 
         $result = $engine->process($experiment);
 
-        if (! ($result['success'] ?? false) && ($result['action'] ?? '') === 'error') {
+        $action = (string) ($result['action'] ?? '');
+        if (! ($result['success'] ?? false) && $action === 'error') {
             Log::warning('[ProcessAbExperimentJob] experiment error', [
                 'experiment_id' => $this->experimentId,
                 'messages' => $result['messages'] ?? [],
@@ -86,7 +87,14 @@ class ProcessAbExperimentJob implements ShouldQueue, ShouldBeUniqueUntilProcessi
         // Chain next tick only while still running (not completed / stopped / error).
         $fresh = AbExperiment::query()->find($this->experimentId);
         if ($fresh && $this->resolveStatus($fresh) === WbAbTestStatus::Running) {
-            self::dispatchFor($this->experimentId, self::RESCHEDULE_SECONDS);
+            $delay = self::RESCHEDULE_SECONDS;
+            if ($action === 'rate_limited') {
+                $delay = max(
+                    self::RESCHEDULE_SECONDS,
+                    (int) ($result['retry_after'] ?? self::RESCHEDULE_SECONDS),
+                );
+            }
+            self::dispatchFor($this->experimentId, $delay);
         }
     }
 

@@ -47,7 +47,7 @@ enum WbAbTestStatus: string
     public function isEditable(): bool
     {
         return match ($this) {
-            self::Draft, self::Stopped => true,
+            self::Draft, self::Stopped, self::Error => true,
             default => false,
         };
     }
@@ -56,7 +56,7 @@ enum WbAbTestStatus: string
     public function isStartable(): bool
     {
         return match ($this) {
-            self::Draft, self::Stopped => true,
+            self::Draft, self::Stopped, self::Error => true,
             default => false,
         };
     }

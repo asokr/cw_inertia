@@ -40,8 +40,12 @@ function formatProgress(value) {
 
 function statusCell(row) {
     const status = resolveAbTestStatus(row.status);
+    const title =
+        row.status === "error" && row.error_message
+            ? String(row.error_message)
+            : status.label;
 
-    return h(Badge, { variant: status.variant }, () => status.label);
+    return h(Badge, { variant: status.variant, title }, () => status.label);
 }
 
 function progressCell(row) {

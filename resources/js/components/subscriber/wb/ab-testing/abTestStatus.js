@@ -15,6 +15,10 @@ export const AB_TEST_STATUSES = {
         label: "Завершён",
         variant: "success",
     },
+    stopped: {
+        label: "Остановлен",
+        variant: "warning",
+    },
     error: {
         label: "Ошибка",
         variant: "destructive",

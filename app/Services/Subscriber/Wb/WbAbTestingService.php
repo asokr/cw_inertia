@@ -13,6 +13,7 @@ use App\Models\Subscribers\Wb\AbTesting\AbExperimentPhoto;
 use App\Models\Subscribers\Wb\AbTesting\AbProduct;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Services\Subscriber\Wb\AbTesting\WbAbExperimentEngine;
+use App\Services\Subscriber\Wb\AbTesting\WbAbExperimentJournal;
 use App\Services\Wb\WbAdvertApiClient;
 use App\Services\Wb\WbPriceCalculationService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -775,6 +776,8 @@ SQL;
             'started_at' => optional($experiment->started_at)?->toIso8601String(),
             'finished_at' => optional($experiment->finished_at)?->toIso8601String(),
             'error_message' => $experiment->error_message,
+            'consecutive_failures' => (int) ($experiment->consecutive_failures ?? 0),
+            'max_consecutive_failures' => WbAbExperimentEngine::MAX_CONSECUTIVE_FAILURES,
             'current_photo_id' => $openCycle ? (int) $openCycle->ab_experiment_photo_id : null,
             'current_cycle_id' => $openCycle ? (int) $openCycle->id : null,
             'winner_photo_id' => $experiment->winner_photo_id ? (int) $experiment->winner_photo_id : null,
@@ -813,13 +816,46 @@ SQL;
                 ->map(fn (AbExperimentEvent $event) => $this->mapEvent($event))
                 ->values()
                 ->all();
+            $payload['last_api_error'] = $this->resolveLastApiErrorMessage($payload['events']);
+        } else {
+            $payload['events'] = [];
+            $payload['last_api_error'] = null;
         }
 
+        // Workspace detail: limited cycles for history table; aggregates use ALL cycles in engine.
         if ($experiment->relationLoaded('cycles')) {
+            $totalRounds = $this->experimentEngine->totalRounds($experiment);
+            $payload['total_rounds'] = $totalRounds;
             $payload['action_history'] = $this->mapActionHistory($experiment);
+            $payload['action_history_meta'] = [
+                'total_rounds' => $totalRounds,
+                'shown' => count($payload['action_history']),
+                'limit' => 100,
+            ];
         }
 
         return $payload;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $events
+     */
+    private function resolveLastApiErrorMessage(array $events): ?string
+    {
+        foreach ($events as $event) {
+            $type = (string) ($event['type'] ?? '');
+            if (in_array($type, [
+                WbAbExperimentJournal::TYPE_EXPERIMENT_ERROR,
+                WbAbExperimentJournal::TYPE_API_RATE_LIMITED,
+                WbAbExperimentJournal::TYPE_API_RETRY,
+            ], true)) {
+                $message = trim((string) ($event['message'] ?? ''));
+
+                return $message !== '' ? $message : null;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -914,12 +950,15 @@ SQL;
      */
     public function mapActionHistory(AbExperiment $experiment): array
     {
-        $cycles = $experiment->relationLoaded('cycles')
-            ? $experiment->cycles
-            : $experiment->cycles()->with('photo')->orderByDesc('sequence')->limit(100)->get();
-
-        // Newest first (sequence desc).
-        $sorted = $cycles->sortByDesc(fn (AbExperimentCycle $c) => [(int) $c->sequence, (int) $c->id])->values();
+        // Always query last 100 by sequence desc. Do not reuse eager-loaded cycles:
+        // relation default order is sequence ASC, so limit(100) would take the oldest.
+        $cycles = $experiment->cycles()
+            ->with('photo')
+            ->reorder()
+            ->orderByDesc('sequence')
+            ->orderByDesc('id')
+            ->limit(100)
+            ->get();
 
         $photoVariant = [];
         if ($experiment->relationLoaded('photos')) {
@@ -928,8 +967,7 @@ SQL;
             }
         }
 
-        return $sorted
-            ->take(100)
+        return $cycles
             ->map(function (AbExperimentCycle $cycle) use ($photoVariant) {
                 $photo = $cycle->relationLoaded('photo') ? $cycle->photo : $cycle->photo;
                 $photoId = (int) $cycle->ab_experiment_photo_id;
@@ -1123,7 +1161,12 @@ SQL;
             'photos',
             'product',
             'events' => fn ($q) => $q->orderByDesc('id')->limit(30),
-            'cycles' => fn ($q) => $q->with('photo')->orderByDesc('sequence')->limit(100),
+            // reorder() clears relation default orderBy(sequence ASC) so limit takes newest.
+            'cycles' => fn ($q) => $q->with('photo')
+                ->reorder()
+                ->orderByDesc('sequence')
+                ->orderByDesc('id')
+                ->limit(100),
         ];
     }
 
@@ -2529,7 +2572,7 @@ SQL;
     {
         $this->assertEditableExperiment(
             $experiment,
-            'Изменять рекламную кампанию можно у черновика или остановленного эксперимента.',
+            'Изменять рекламную кампанию можно у черновика, остановленного или ошибочного эксперимента.',
         );
     }
 
@@ -2537,7 +2580,7 @@ SQL;
     {
         $this->assertEditableExperiment(
             $experiment,
-            'Изменять фотографии можно у черновика или остановленного эксперимента.',
+            'Изменять фотографии можно у черновика, остановленного или ошибочного эксперимента.',
         );
     }
 
@@ -2545,7 +2588,7 @@ SQL;
     {
         $this->assertEditableExperiment(
             $experiment,
-            'Изменять настройки можно у черновика или остановленного эксперимента.',
+            'Изменять настройки можно у черновика, остановленного или ошибочного эксперимента.',
         );
     }
 

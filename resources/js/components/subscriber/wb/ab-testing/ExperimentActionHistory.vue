@@ -8,9 +8,27 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    /** { total_rounds, shown, limit } from backend */
+    meta: {
+        type: Object,
+        default: null,
+    },
 });
 
 const items = computed(() => (Array.isArray(props.rows) ? props.rows : []));
+
+const subtitle = computed(() => {
+    const total = Number(props.meta?.total_rounds);
+    const shown = Number(props.meta?.shown ?? items.value.length);
+    const limit = Number(props.meta?.limit ?? 100);
+    if (!Number.isFinite(total) || total <= 0) {
+        return null;
+    }
+    if (total > shown || total > limit) {
+        return `Показаны последние ${shown} из ${total} кругов`;
+    }
+    return `Всего кругов: ${total}`;
+});
 
 function formatInstalledAt(iso) {
     if (!iso) {
@@ -71,8 +89,13 @@ function formatDuration(row) {
 
 <template>
     <Card class="overflow-hidden p-0">
-        <div class="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-3 sm:px-5">
-            <p class="text-sm font-semibold text-foreground">История действий</p>
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3 sm:px-5">
+            <div class="space-y-0.5">
+                <p class="text-sm font-semibold text-foreground">История действий</p>
+                <p v-if="subtitle" class="text-[11px] text-muted-foreground">
+                    {{ subtitle }}
+                </p>
+            </div>
         </div>
 
         <div v-if="!items.length" class="px-4 py-8 text-center text-sm text-muted-foreground sm:px-5">

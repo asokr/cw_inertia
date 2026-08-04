@@ -255,6 +255,7 @@ class WbAdvertApiClient
                 'data' => $result['data'] ?? null,
                 'rows' => [],
                 'message' => $result['message'] ?? 'Не удалось получить статистику кампании',
+                'retry_after' => isset($result['retry_after']) ? (int) $result['retry_after'] : null,
             ];
         }
 
@@ -281,6 +282,7 @@ class WbAdvertApiClient
             'code' => (int) ($result['code'] ?? 200),
             'data' => $payload,
             'rows' => $normalized,
+            'retry_after' => isset($result['retry_after']) ? (int) $result['retry_after'] : null,
         ];
     }
 
@@ -625,15 +627,16 @@ class WbAdvertApiClient
 
     /**
      * @param  array<string, mixed>  $raw  GuzzleTrait result
-     * @return array{success: bool, code: int, data: mixed, message?: string}
+     * @return array{success: bool, code: int, data: mixed, message?: string, retry_after?: int|null}
      */
     private function normalizeResponse(array $raw, string $method, string $path): array
     {
         $code = (int) ($raw['code'] ?? 0);
         $body = $raw['response'] ?? null;
+        $retryAfter = $this->extractRetryAfterSeconds($raw['headers'] ?? null);
 
         if ($code === 204 || ($code >= 200 && $code < 300 && ($body === '' || $body === null))) {
-            return ['success' => true, 'code' => $code, 'data' => null];
+            return ['success' => true, 'code' => $code, 'data' => null, 'retry_after' => $retryAfter];
         }
 
         $decoded = null;
@@ -642,11 +645,11 @@ class WbAdvertApiClient
             if (json_last_error() !== JSON_ERROR_NONE) {
                 // Plain text error body from some WB endpoints.
                 if ($code >= 200 && $code < 300 && is_numeric(trim($body))) {
-                    return ['success' => true, 'code' => $code, 'data' => (int) trim($body)];
+                    return ['success' => true, 'code' => $code, 'data' => (int) trim($body), 'retry_after' => $retryAfter];
                 }
 
                 if ($code >= 200 && $code < 300) {
-                    return ['success' => true, 'code' => $code, 'data' => $body];
+                    return ['success' => true, 'code' => $code, 'data' => $body, 'retry_after' => $retryAfter];
                 }
 
                 return [
@@ -654,12 +657,13 @@ class WbAdvertApiClient
                     'code' => $code,
                     'data' => $body,
                     'message' => $this->humanErrorMessage($code, $body),
+                    'retry_after' => $retryAfter,
                 ];
             }
         }
 
         if ($code >= 200 && $code < 300) {
-            return ['success' => true, 'code' => $code, 'data' => $decoded];
+            return ['success' => true, 'code' => $code, 'data' => $decoded, 'retry_after' => $retryAfter];
         }
 
         $message = $this->extractErrorMessage($decoded, $body, $code);
@@ -669,6 +673,7 @@ class WbAdvertApiClient
             'path' => $path,
             'code' => $code,
             'message' => $message,
+            'retry_after' => $retryAfter,
         ]);
 
         return [
@@ -676,7 +681,33 @@ class WbAdvertApiClient
             'code' => $code,
             'data' => $decoded ?? $body,
             'message' => $message,
+            'retry_after' => $retryAfter,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $headers
+     */
+    private function extractRetryAfterSeconds(?array $headers): ?int
+    {
+        if ($headers === null || $headers === []) {
+            return null;
+        }
+
+        foreach (['X-Ratelimit-Retry', 'x-ratelimit-retry', 'Retry-After', 'retry-after'] as $name) {
+            if (! array_key_exists($name, $headers)) {
+                continue;
+            }
+            $value = $headers[$name];
+            if (is_array($value)) {
+                $value = $value[0] ?? null;
+            }
+            if (is_numeric($value)) {
+                return max(0, (int) $value);
+            }
+        }
+
+        return null;
     }
 
     private function extractErrorMessage(mixed $decoded, mixed $rawBody, int $code): string

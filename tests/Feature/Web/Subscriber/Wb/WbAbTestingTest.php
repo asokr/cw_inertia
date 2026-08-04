@@ -2628,6 +2628,128 @@ class WbAbTestingTest extends WebAuthTestCase
         ]);
     }
 
+    public function test_engine_complete_applies_winner_as_main_photo(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Winner Apply');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 921001,
+            'vendor_code' => 'WIN',
+            'title' => 'Winner product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Winner exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 99,
+            'wb_advert_id' => 811001,
+            'started_at' => now()->subHours(5),
+            'impressions_per_photo' => 100,
+            'impressions_per_round' => 1000,
+            'round_minutes' => 600,
+            'cpm' => 350,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/w1.jpg', 'winner-bytes');
+        Storage::disk('private')->put('wb/ab-testing/w2.jpg', 'loser-bytes');
+        $photo1 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/w1.jpg',
+            'original_name' => 'w1.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 12,
+        ]);
+        $photo2 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/w2.jpg',
+            'original_name' => 'w2.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 11,
+        ]);
+
+        // photo1 closed: 100 views, 20 clicks → CTR 20%
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo1->id,
+            'sequence' => 1,
+            'started_at' => now()->subHours(3),
+            'ended_at' => now()->subHours(2),
+            'end_reason' => 'impressions_limit',
+            'views_start' => 0,
+            'views_end' => 100,
+            'clicks_start' => 0,
+            'clicks_end' => 20,
+            'spend_start' => 0,
+            'spend_end' => 1,
+            'orders_start' => 0,
+            'orders_end' => 0,
+        ]);
+        // photo2 open: will reach 100 views via snapshot; lower CTR
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo2->id,
+            'sequence' => 2,
+            'started_at' => now()->subHour(),
+            'views_start' => 100,
+            'clicks_start' => 20,
+            'spend_start' => 1,
+            'orders_start' => 0,
+        ]);
+
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('fullstats')->andReturn([
+            'success' => true,
+            'code' => 200,
+            // Cumulative: +100 views / +5 clicks on photo2 cycle → CTR 5%
+            'rows' => [['advertId' => 811001, 'views' => 200, 'clicks' => 25, 'sum' => 3, 'orders' => 0]],
+        ]);
+        $advertApi->shouldReceive('extractStatsForAdvert')->andReturn([
+            'views' => 200, 'clicks' => 25, 'spend' => 3.0, 'orders' => 0, 'ctr' => 12.5,
+        ]);
+        $advertApi->shouldReceive('pauseAdvert')->once()->andReturn(['success' => true, 'code' => 200]);
+
+        $mediaApi = Mockery::mock(\App\Services\Wb\WbContentMediaClient::class);
+        $mediaApi->shouldReceive('uploadMediaFile')
+            ->once()
+            ->withArgs(function ($key, $nm, $photoNumber, $binary, $filename) use ($product) {
+                return $nm === (int) $product->nm_id
+                    && $photoNumber === 1
+                    && $binary === 'winner-bytes'
+                    && $filename === 'w1.jpg';
+            })
+            ->andReturn(['success' => true, 'code' => 200]);
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+        $this->app->instance(\App\Services\Wb\WbContentMediaClient::class, $mediaApi);
+
+        $engine = app(\App\Services\Subscriber\Wb\AbTesting\WbAbExperimentEngine::class);
+        $result = $engine->process($experiment->fresh(['photos', 'product', 'cabinet']));
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('completed', $result['action']);
+
+        $fresh = $experiment->fresh();
+        $this->assertSame(WbAbTestStatus::Completed, $fresh->status);
+        $this->assertSame((int) $photo1->id, (int) $fresh->winner_photo_id);
+        $this->assertNull($fresh->error_message);
+    }
+
     public function test_impressions_progress_bottleneck_formula(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
@@ -2914,6 +3036,121 @@ class WbAbTestingTest extends WebAuthTestCase
         $this->assertSame('В процессе', $mapped['action_history'][0]['duration_label']);
         $this->assertFalse($mapped['action_history'][1]['in_progress']);
         $this->assertSame(1, $mapped['action_history'][1]['variant']);
+        $this->assertSame(2, $mapped['total_rounds'] ?? null);
+        $this->assertSame(2, $mapped['action_history_meta']['total_rounds'] ?? null);
+    }
+
+    public function test_map_experiment_photo_stats_ignore_cycles_eager_limit(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Limit Cycles');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 950101,
+            'vendor_code' => 'LIM',
+            'title' => 'Limit product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Limit exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 10,
+            'wb_advert_id' => 840101,
+            'started_at' => now()->subDays(2),
+            'impressions_per_photo' => 100000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 5,
+            'cpm' => 350,
+        ]);
+
+        $photo1 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/lim1.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        $photo2 = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/lim2.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        // 105 closed cycles: first 5 only on photo1 (would be dropped by limit 100 desc),
+        // remaining 100 alternate — mapExperiment must still count early cycles.
+        for ($i = 1; $i <= 105; $i++) {
+            $photoId = $i <= 5 ? $photo1->id : (($i % 2 === 0) ? $photo1->id : $photo2->id);
+            \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+                'ab_experiment_id' => $experiment->id,
+                'cabinet_id' => $cabinet->id,
+                'ab_experiment_photo_id' => $photoId,
+                'sequence' => $i,
+                'started_at' => now()->subMinutes(105 - $i + 1),
+                'ended_at' => now()->subMinutes(105 - $i),
+                'end_reason' => 'time_limit',
+                'views_start' => ($i - 1) * 10,
+                'views_end' => $i * 10,
+                'clicks_start' => 0,
+                'clicks_end' => 0,
+                'spend_start' => 0,
+                'spend_end' => 0,
+                'orders_start' => 0,
+                'orders_end' => 0,
+            ]);
+        }
+
+        $service = app(\App\Services\Subscriber\Wb\WbAbTestingService::class);
+
+        // listPhotos path: no limited cycles relation
+        $listPhotos = $service->listPhotos($experiment->fresh(['photos']));
+        $listById = collect($listPhotos)->keyBy('id');
+
+        // index path: cycles eager-loaded with limit(100) like experimentDetailRelations
+        $experiment->load([
+            'photos',
+            // Intentionally wrong order without reorder would take oldest; detail relations use reorder.
+            'cycles' => fn ($q) => $q->with('photo')->orderByDesc('sequence')->limit(100),
+        ]);
+
+        $mapped = $service->mapExperiment($experiment);
+        $mapById = collect($mapped['photos'])->keyBy('id');
+
+        $this->assertSame(
+            $listById[$photo1->id]['stats']['views'],
+            $mapById[$photo1->id]['stats']['views'],
+            'Workspace stats must match listPhotos even when cycles are limited to 100',
+        );
+        $this->assertSame(
+            $listById[$photo2->id]['stats']['views'],
+            $mapById[$photo2->id]['stats']['views'],
+        );
+        // First 5 cycles (50 views) must be included for photo1, not dropped by limit.
+        $this->assertGreaterThan(500, $mapById[$photo1->id]['stats']['views']);
+        $this->assertSame(105, $mapped['total_rounds']);
+        $this->assertSame(100, $mapped['action_history_meta']['shown']);
+        $this->assertSame(105, $mapped['action_history_meta']['total_rounds']);
+
+        // History must be the newest 100 sequences (6..105), not the oldest (1..100).
+        $rounds = collect($mapped['action_history'])->pluck('round')->all();
+        $this->assertSame(105, $rounds[0] ?? null);
+        $this->assertSame(6, $rounds[array_key_last($rounds)] ?? null);
+        $this->assertNotContains(1, $rounds);
+        $this->assertNotContains(5, $rounds);
+    }
+
+    public function test_error_status_is_startable_and_editable(): void
+    {
+        $this->assertTrue(WbAbTestStatus::Error->isStartable());
+        $this->assertTrue(WbAbTestStatus::Error->isEditable());
     }
 
     public function test_completed_result_delta_is_relative_to_max_ctr_winner(): void

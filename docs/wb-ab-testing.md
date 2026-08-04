@@ -27,7 +27,7 @@
 ### Пока не реализовано / later
 
 - Применение CPM в advert API при старте
-- Восстановление исходного фото карточки после теста
+- Восстановление исходного (дотеста) фото карточки при stop/error (победитель уже ставится при `completed`)
 - Export CSV/XLSX истории действий
 
 ## Ключевые файлы
@@ -188,8 +188,9 @@ FK: `cabinet_id` → `wb_cabinets.id`
 |--------|-----------------------------------|-------|------|
 | draft | ✅ | ✅ | — |
 | **stopped** | ✅ | ✅ (перезапуск, sequence++) | — |
+| **error** | ✅ | ✅ (перезапуск, сброс consecutive_failures) | — |
 | running | ❌ | — | ✅ |
-| completed / error | ❌ | ❌ | — |
+| completed | ❌ | ❌ | — |
 
 ### Эксперименты товара
 
@@ -204,19 +205,22 @@ FK: `cabinet_id` → `wb_cabinets.id`
 **Фон (primary):** после `start` сразу `ProcessAbExperimentJob` → `process` → self-reschedule через 60 с, пока `running`.  
 **Fallback:** `subscriber:wb-ab-testing-tick` каждые **2** минуты (если цепочка job оборвалась).
 
-**Смена фото:** `delta_views ≥ impressions_per_round` **или** `elapsed ≥ round_minutes` (что раньше). Порядок по `sort_order`, кольцо.
+**Смена фото (что раньше):** `delta_views ≥ impressions_per_round` **или** `elapsed ≥ round_minutes`. Не «минимум времени» — время это **верхняя** граница круга; показы могут сменить фото раньше. Порядок по `sort_order`, кольцо.
 
 **Прогресс (running):** bottleneck `min_i(views_i / impressions_per_photo)` → 0–99%.  
 Старт: `progress=0`. Пока суммарно 0 показов — `progress_mode=pending` (рыба в UI). После первых views — `views`. Completed → 100.  
 Черновик: setup-ступени 30/50/70 (готовность wizard), не смешиваются с running.
 
-**Завершение:** каждая фотография набрала `impressions_per_photo` (сумма Δ views по циклам) → pause РК → winner (max CTR) → `completed` + `finished_at`.  
+**Завершение:** каждая фотография набрала `impressions_per_photo` (сумма Δ views по **всем** циклам) → pause РК → winner (max CTR) → **установка победителя главным фото** (`POST content/v3/media/file`, photo #1) → `completed` + `finished_at`. Если upload победителя упал — эксперимент всё равно `completed`, в journal/error_message — предупреждение.  
 **Стоп пользователем:** pause РК → `stopped` + `finished_at` (не error).  
-**Ошибки API:** `consecutive_failures`, после 5 → `error` + `finished_at` + pause.
+**Ошибки API:** `consecutive_failures`, после 5 non-rate-limit сбоев → `error` + `finished_at` + pause.  
+**429 fullstats:** soft — `api.rate_limited`, **не** terminal; job reschedule по `retry_after` (≥20 с). Лимит WB: 3 req/min, interval 20 s, burst 1.  
+**История UI:** last 100 cycles + `total_rounds`; агрегаты/progress **всегда** по всем cycles (не по limit 100).
 
-**Open cycle:** единственный cycle с `ended_at IS NULL` (текущее фото = `ab_experiment_photo_id` цикла).
+**Open cycle:** единственный cycle с `ended_at IS NULL` (текущее фото = `ab_experiment_photo_id` цикла).  
+**switchPhoto:** upload next photo **до** закрытия текущего цикла (иначе потеря open cycle).
 
-**Инфра:** нужны `php artisan schedule:run` (или cron) и `php artisan queue:work`.
+**Инфра:** нужны `php artisan schedule:run` (или cron) и `php artisan queue:work --queue=wb_ab_testing,default`.
 
 ### Шаг 3 — рекламная кампания
 

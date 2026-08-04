@@ -19,15 +19,22 @@ class WbAbTestingTickCommand extends Command
 
     public function handle(): int
     {
-        $ids = AbExperiment::query()
+        // Group by cabinet so multiple experiments on one token don't burst fullstats.
+        $rows = AbExperiment::query()
             ->where('status', WbAbTestStatus::Running->value)
+            ->orderBy('cabinet_id')
             ->orderBy('id')
-            ->pluck('id');
+            ->get(['id', 'cabinet_id']);
 
         $count = 0;
-        foreach ($ids as $id) {
+        $offsetByCabinet = [];
+        foreach ($rows as $row) {
+            $cabinetId = (int) $row->cabinet_id;
+            $offset = (int) ($offsetByCabinet[$cabinetId] ?? 0);
+            $offsetByCabinet[$cabinetId] = $offset + 20; // fullstats interval ~20s
+
             // UniqueUntilProcessing drops duplicates if a tick job is already queued/processing.
-            ProcessAbExperimentJob::dispatchFor((int) $id);
+            ProcessAbExperimentJob::dispatchFor((int) $row->id, $offset);
             $count++;
         }
 

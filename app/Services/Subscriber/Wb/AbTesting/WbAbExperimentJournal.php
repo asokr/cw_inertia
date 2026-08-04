@@ -31,6 +31,8 @@ class WbAbExperimentJournal
 
     public const TYPE_API_RETRY = 'api.retry';
 
+    public const TYPE_API_RATE_LIMITED = 'api.rate_limited';
+
     public const TYPE_WINNER_SELECTED = 'winner.selected';
 
     /**
