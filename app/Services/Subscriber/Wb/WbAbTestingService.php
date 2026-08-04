@@ -90,19 +90,43 @@ class WbAbTestingService
     {
         $perPage = max(1, min(100, $request->integer('per_page', 25)));
 
+        $productsTable = (new AbProduct)->getTable();
+        $experimentsTable = (new AbExperiment)->getTable();
+
         $query = AbProduct::query()
-            ->where('cabinet_id', $cabinetId)
+            ->where("{$productsTable}.cabinet_id", $cabinetId)
             ->with('latestExperiment');
 
         $search = trim((string) $request->input('search', ''));
         if ($search !== '') {
-            $query->where(function ($builder) use ($search) {
-                $builder->where('vendor_code', 'like', "%{$search}%")
-                    ->orWhere('nm_id', 'like', "%{$search}%");
+            $query->where(function ($builder) use ($search, $productsTable) {
+                $builder->where("{$productsTable}.vendor_code", 'like', "%{$search}%")
+                    ->orWhere("{$productsTable}.nm_id", 'like', "%{$search}%");
             });
         }
 
-        $query->orderBy('nm_id');
+        // Active work first (running → draft → stopped → error), then completed, then no experiment.
+        // Priority is based on the latest experiment (same source as test_status in the UI).
+        $statusPrioritySql = <<<SQL
+CASE (
+    SELECT e.status
+    FROM {$experimentsTable} AS e
+    WHERE e.ab_product_id = {$productsTable}.id
+    ORDER BY e.created_at DESC, e.id DESC
+    LIMIT 1
+)
+    WHEN 'running' THEN 0
+    WHEN 'draft' THEN 1
+    WHEN 'stopped' THEN 2
+    WHEN 'error' THEN 3
+    WHEN 'completed' THEN 4
+    ELSE 5
+END
+SQL;
+
+        $query
+            ->orderByRaw($statusPrioritySql)
+            ->orderBy("{$productsTable}.nm_id");
 
         /** @var LengthAwarePaginator $paginator */
         $paginator = $query->paginate($perPage)->withQueryString();
@@ -710,7 +734,9 @@ class WbAbTestingService
         }
 
         $settings = $this->resolveExperimentSettings($experiment);
-        $settingsReady = $this->areSettingsPersisted($experiment) && $this->areSettingsValid($settings);
+        $campaignPaymentType = $this->resolveCampaignPaymentType($experiment);
+        $settingsReady = $this->areSettingsPersisted($experiment)
+            && $this->areSettingsValid($settings, $campaignPaymentType);
         $canContinueWorkspace = $photosCount >= self::MIN_PHOTOS_TO_CONTINUE && $settingsReady;
         $canEdit = $status->isEditable();
         $canStart = $status->isStartable()
@@ -743,6 +769,7 @@ class WbAbTestingService
             'impressions_progress' => $progressMeta['impressions_progress'],
             'wb_advert_id' => $experiment->wb_advert_id ? (int) $experiment->wb_advert_id : null,
             'wb_advert_name' => $experiment->wb_advert_name,
+            'campaign_payment_type' => $campaignPaymentType,
             'campaign_bound_at' => optional($experiment->campaign_bound_at)?->toIso8601String(),
             'created_at' => optional($experiment->created_at)?->toIso8601String(),
             'started_at' => optional($experiment->started_at)?->toIso8601String(),
@@ -755,7 +782,7 @@ class WbAbTestingService
             'photos_count' => $photosCount,
             'can_continue_photos' => $photosCount >= self::MIN_PHOTOS_TO_CONTINUE,
             'settings' => $settings,
-            'settings_summary' => $this->formatSettingsSummary($settings),
+            'settings_summary' => $this->formatSettingsSummary($settings, $campaignPaymentType),
             'settings_ready' => $settingsReady,
             'can_continue_workspace' => $canContinueWorkspace,
             'can_edit' => $canEdit,
@@ -1179,7 +1206,8 @@ class WbAbTestingService
             'cpm' => (int) ($data['cpm'] ?? 0),
         ];
 
-        $errors = $this->validateSettingsPayload($settings);
+        $paymentType = $this->resolveCampaignPaymentType($experiment);
+        $errors = $this->validateSettingsPayload($settings, $paymentType);
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
@@ -1633,6 +1661,11 @@ class WbAbTestingService
         $paymentType = (string) ($input['payment_type'] ?? 'cpm');
         if (! in_array($paymentType, ['cpm', 'cpc'], true)) {
             $paymentType = 'cpm';
+        }
+
+        // WB requires bid_type=manual for CPC campaigns.
+        if ($paymentType === 'cpc') {
+            $bidType = 'manual';
         }
 
         $depositSum = isset($input['budget_deposit']) ? (int) $input['budget_deposit'] : 0;
@@ -2559,25 +2592,56 @@ class WbAbTestingService
     }
 
     /**
+     * Payment type of the bound WB campaign (registry). Defaults to cpm when unbound/unknown.
+     */
+    private function resolveCampaignPaymentType(AbExperiment $experiment): string
+    {
+        $advertId = (int) ($experiment->wb_advert_id ?? 0);
+        if ($advertId <= 0) {
+            return 'cpm';
+        }
+
+        $paymentType = AbCampaign::query()
+            ->where('cabinet_id', (int) $experiment->cabinet_id)
+            ->where('wb_advert_id', $advertId)
+            ->value('payment_type');
+
+        $paymentType = is_string($paymentType) ? strtolower(trim($paymentType)) : '';
+
+        return $paymentType === 'cpc' ? 'cpc' : 'cpm';
+    }
+
+    /**
+     * Bid field (stored as cpm): min depends on campaign payment type.
+     * CPM ≥ 50 ₽ / 1000 impressions; CPC ≥ 1 ₽ per click.
+     */
+    private function minBidForPaymentType(string $paymentType): int
+    {
+        return $paymentType === 'cpc' ? 1 : 50;
+    }
+
+    /**
      * @param  array{impressions_per_photo:int,impressions_per_round:int,round_minutes:int,cpm:int}  $settings
      */
-    private function areSettingsValid(array $settings): bool
+    private function areSettingsValid(array $settings, string $paymentType = 'cpm'): bool
     {
-        return $this->validateSettingsPayload($settings) === [];
+        return $this->validateSettingsPayload($settings, $paymentType) === [];
     }
 
     /**
      * @param  array{impressions_per_photo:int,impressions_per_round:int,round_minutes:int,cpm:int}  $settings
      * @return array<string, list<string>>
      */
-    private function validateSettingsPayload(array $settings): array
+    private function validateSettingsPayload(array $settings, string $paymentType = 'cpm'): array
     {
         $errors = [];
 
         $target = (int) ($settings['impressions_per_photo'] ?? 0);
         $perRound = (int) ($settings['impressions_per_round'] ?? 0);
         $minutes = (int) ($settings['round_minutes'] ?? 0);
-        $cpm = (int) ($settings['cpm'] ?? 0);
+        $bid = (int) ($settings['cpm'] ?? 0);
+        $paymentType = $paymentType === 'cpc' ? 'cpc' : 'cpm';
+        $minBid = $this->minBidForPaymentType($paymentType);
 
         if ($target < 1000 || $target > 50_000_000) {
             $errors['impressions_per_photo'] = ['Укажите от 1 000 до 50 000 000 показов на одно фото.'];
@@ -2593,8 +2657,12 @@ class WbAbTestingService
             $errors['round_minutes'] = ['Длительность круга: от 5 до 1440 минут.'];
         }
 
-        if ($cpm < 50 || $cpm > 50_000) {
-            $errors['cpm'] = ['CPM: от 50 до 50 000 ₽.'];
+        if ($bid < $minBid || $bid > 50_000) {
+            if ($paymentType === 'cpc') {
+                $errors['cpm'] = ['CPC (цена за клик): от 1 до 50 000 ₽.'];
+            } else {
+                $errors['cpm'] = ['CPM: от 50 до 50 000 ₽.'];
+            }
         }
 
         return $errors;
@@ -2603,15 +2671,17 @@ class WbAbTestingService
     /**
      * @param  array{impressions_per_photo:int,impressions_per_round:int,round_minutes:int,cpm:int}  $settings
      */
-    private function formatSettingsSummary(array $settings): string
+    private function formatSettingsSummary(array $settings, string $paymentType = 'cpm'): string
     {
         $fmt = static fn (int $value): string => number_format($value, 0, ',', ' ');
+        $bidLabel = $paymentType === 'cpc' ? 'CPC' : 'CPM';
 
         return sprintf(
-            '%s на фото • %s за круг • %s мин • CPM %s ₽',
+            '%s на фото • %s за круг • %s мин • %s %s ₽',
             $fmt((int) $settings['impressions_per_photo']),
             $fmt((int) $settings['impressions_per_round']),
             $fmt((int) $settings['round_minutes']),
+            $bidLabel,
             $fmt((int) $settings['cpm']),
         );
     }
@@ -2620,7 +2690,8 @@ class WbAbTestingService
     {
         $photosCount = (int) $experiment->photos()->count();
         $settings = $this->resolveExperimentSettings($experiment);
-        $ready = $this->areSettingsPersisted($experiment) && $this->areSettingsValid($settings);
+        $paymentType = $this->resolveCampaignPaymentType($experiment);
+        $ready = $this->areSettingsPersisted($experiment) && $this->areSettingsValid($settings, $paymentType);
         $progress = (int) $experiment->progress;
 
         if ($ready && $photosCount >= self::MIN_PHOTOS_TO_CONTINUE) {
@@ -2736,8 +2807,9 @@ class WbAbTestingService
 
         if ($count >= self::MIN_PHOTOS_TO_CONTINUE) {
             $target = self::PROGRESS_AFTER_PHOTOS;
+            $paymentType = $this->resolveCampaignPaymentType($experiment);
             if ($this->areSettingsPersisted($experiment)
-                && $this->areSettingsValid($this->resolveExperimentSettings($experiment))
+                && $this->areSettingsValid($this->resolveExperimentSettings($experiment), $paymentType)
             ) {
                 $target = self::PROGRESS_AFTER_SETTINGS;
             }

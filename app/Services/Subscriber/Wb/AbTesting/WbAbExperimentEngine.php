@@ -4,6 +4,7 @@ namespace App\Services\Subscriber\Wb\AbTesting;
 
 use App\Enums\WbAbTestStatus;
 use App\Jobs\Wb\AbTesting\ProcessAbExperimentJob;
+use App\Models\Subscribers\Wb\AbTesting\AbCampaign;
 use App\Models\Subscribers\Wb\AbTesting\AbExperiment;
 use App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle;
 use App\Models\Subscribers\Wb\AbTesting\AbExperimentPhoto;
@@ -1271,6 +1272,8 @@ class WbAbExperimentEngine
 
     private function areSettingsReady(AbExperiment $experiment): bool
     {
+        $minBid = $this->minBidForExperiment($experiment);
+
         return $experiment->impressions_per_photo !== null
             && $experiment->impressions_per_round !== null
             && $experiment->round_minutes !== null
@@ -1279,7 +1282,25 @@ class WbAbExperimentEngine
             && (int) $experiment->impressions_per_round >= 100
             && (int) $experiment->impressions_per_round <= (int) $experiment->impressions_per_photo
             && (int) $experiment->round_minutes >= 5
-            && (int) $experiment->cpm >= 50;
+            && (int) $experiment->cpm >= $minBid;
+    }
+
+    /**
+     * Bid (stored as cpm): CPM min 50 ₽, CPC min 1 ₽ — based on bound campaign payment type.
+     */
+    private function minBidForExperiment(AbExperiment $experiment): int
+    {
+        $advertId = (int) ($experiment->wb_advert_id ?? 0);
+        if ($advertId <= 0) {
+            return 50;
+        }
+
+        $paymentType = AbCampaign::query()
+            ->where('cabinet_id', (int) $experiment->cabinet_id)
+            ->where('wb_advert_id', $advertId)
+            ->value('payment_type');
+
+        return is_string($paymentType) && strtolower(trim($paymentType)) === 'cpc' ? 1 : 50;
     }
 
     private function resolveStatus(AbExperiment $experiment): WbAbTestStatus

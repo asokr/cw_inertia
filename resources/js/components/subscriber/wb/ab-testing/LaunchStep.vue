@@ -274,8 +274,7 @@ async function stop() {
                     </template>
                     <template v-else>
                         <span class="font-medium text-foreground">Прогресс:</span>
-                        <span class="tabular-nums"> {{ progressPercent }}%</span>
-                        <span class="text-muted-foreground"> · {{ progressLabel }}</span>
+                        <span class="tabular-nums"> {{ progressLabel }}</span>
                     </template>
                 </p>
                 <ul

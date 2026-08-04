@@ -710,13 +710,40 @@ class WbAdvertApiClient
             default => 'Ошибка API продвижения Wildberries.',
         };
 
-        if ($detail !== null && $detail !== '' && ! str_contains($base, $detail)) {
-            // Prefer concrete WB text when present (often already in Russian).
-            if ($code === 400 || mb_strlen($detail) < 300) {
-                return $detail;
+        if ($detail !== null && $detail !== '') {
+            $translated = $this->translateWbErrorDetail($detail);
+            if ($translated !== null) {
+                return $translated;
+            }
+
+            if (! str_contains($base, $detail)) {
+                // Prefer concrete WB text when present (often already in Russian).
+                if ($code === 400 || mb_strlen($detail) < 300) {
+                    return $detail;
+                }
             }
         }
 
         return $base;
+    }
+
+    /**
+     * Map known English WB Advert API error phrases to Russian UX copy.
+     */
+    private function translateWbErrorDetail(string $detail): ?string
+    {
+        $normalized = mb_strtolower(trim($detail));
+
+        // Strip common prefixes: "Invalid Params: …", "error: …"
+        $normalized = (string) preg_replace('/^(invalid\s+params?\s*:\s*|error\s*:\s*)/iu', '', $normalized);
+
+        if (str_contains($normalized, "bid_type must be 'manual' for cpc")
+            || str_contains($normalized, 'bid_type must be "manual" for cpc')
+            || (str_contains($normalized, 'bid_type') && str_contains($normalized, 'manual') && str_contains($normalized, 'cpc'))
+        ) {
+            return 'Для кампаний с оплатой CPC (за клики) доступна только ручная ставка. Выберите «Ручная ставка» или смените тип оплаты на CPM.';
+        }
+
+        return null;
     }
 }

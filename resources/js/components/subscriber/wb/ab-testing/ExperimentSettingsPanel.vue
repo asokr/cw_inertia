@@ -7,7 +7,7 @@ import Button from "@/components/ui/Button.vue";
 import {
     formatSettingsSummary,
     normalizeSettings,
-    SETTINGS_FIELDS,
+    settingsFields,
     validateSettingsClient,
 } from "./abTestingSettings.js";
 import { useFlashToast } from "@/composables/useFlashToast";
@@ -37,8 +37,17 @@ const form = ref(normalizeSettings(props.experiment?.settings));
 /** Last values confirmed on server (or defaults before first save). */
 const lastSaved = ref(normalizeSettings(props.experiment?.settings));
 const fieldErrors = ref({});
+
+/** Bound campaign payment type: cpm | cpc — drives bid field labels/limits. */
+const paymentType = computed(
+    () => props.experiment?.campaign_payment_type || "cpm",
+);
+
+const fields = computed(() => settingsFields(paymentType.value));
+
 const summary = ref(
-    props.experiment?.settings_summary || formatSettingsSummary(lastSaved.value),
+    props.experiment?.settings_summary ||
+        formatSettingsSummary(lastSaved.value, paymentType.value),
 );
 
 const isDraft = computed(() => (props.experiment?.status ?? "draft") === "draft");
@@ -87,9 +96,11 @@ function syncFromExperiment(experiment) {
         return;
     }
     const next = normalizeSettings(experiment.settings);
+    const pay = experiment.campaign_payment_type || "cpm";
     form.value = { ...next };
     lastSaved.value = { ...next };
-    summary.value = experiment.settings_summary || formatSettingsSummary(next);
+    summary.value =
+        experiment.settings_summary || formatSettingsSummary(next, pay);
     fieldErrors.value = {};
 }
 
@@ -113,13 +124,31 @@ watch(
     { deep: true },
 );
 
+// Re-label summary when bound campaign payment type changes (e.g. after bind).
+watch(paymentType, (type) => {
+    if (!isDirty.value) {
+        summary.value =
+            props.experiment?.settings_summary ||
+            formatSettingsSummary(lastSaved.value, type);
+    }
+    // Clear bid error if limits changed (CPC allows lower values).
+    if (fieldErrors.value.cpm) {
+        const recheck = validateSettingsClient(form.value, type);
+        if (!recheck.cpm) {
+            const next = { ...fieldErrors.value };
+            delete next.cpm;
+            fieldErrors.value = next;
+        }
+    }
+});
+
 async function saveSettings() {
     if (!settingsUrl.value || !editable.value || saving.value) {
         return false;
     }
 
     const payload = normalizeSettings(form.value);
-    const localErrors = validateSettingsClient(payload);
+    const localErrors = validateSettingsClient(payload, paymentType.value);
     if (Object.keys(localErrors).length) {
         fieldErrors.value = localErrors;
         open.value = true;
@@ -145,14 +174,17 @@ async function saveSettings() {
         }
 
         if (data.experiment) {
-            summary.value = data.experiment.settings_summary || formatSettingsSummary(payload);
+            const pay = data.experiment.campaign_payment_type || paymentType.value;
+            summary.value =
+                data.experiment.settings_summary ||
+                formatSettingsSummary(payload, pay);
             form.value = normalizeSettings(data.experiment.settings);
             lastSaved.value = normalizeSettings(data.experiment.settings);
             emit("experiment-updated", data.experiment);
         } else {
             lastSaved.value = { ...payload };
             form.value = { ...payload };
-            summary.value = formatSettingsSummary(payload);
+            summary.value = formatSettingsSummary(payload, paymentType.value);
         }
 
         showSuccess(data?.messages?.[0] || "Настройки сохранены");
@@ -249,8 +281,8 @@ defineExpose({ expand, saveSettings, isDirty });
 
                 <div class="grid gap-3 sm:grid-cols-2">
                     <ExperimentSettingField
-                        v-for="field in SETTINGS_FIELDS"
-                        :key="field.key"
+                        v-for="field in fields"
+                        :key="field.key + '-' + (field.title || '')"
                         :title="field.title"
                         :description="field.description"
                         :unit="field.unit"

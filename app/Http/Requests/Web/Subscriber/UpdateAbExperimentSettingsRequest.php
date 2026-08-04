@@ -20,7 +20,9 @@ class UpdateAbExperimentSettingsRequest extends FormRequest
             'impressions_per_photo' => ['required', 'integer', 'min:1000', 'max:50000000'],
             'impressions_per_round' => ['required', 'integer', 'min:100', 'max:50000000'],
             'round_minutes' => ['required', 'integer', 'min:5', 'max:1440'],
-            'cpm' => ['required', 'integer', 'min:50', 'max:50000'],
+            // Lower bound is 1 so CPC (price per click) can pass FormRequest;
+            // payment-type-specific min (CPM ≥ 50 / CPC ≥ 1) is enforced in the service.
+            'cpm' => ['required', 'integer', 'min:1', 'max:50000'],
         ];
     }
 
@@ -38,9 +40,9 @@ class UpdateAbExperimentSettingsRequest extends FormRequest
             'round_minutes.required' => 'Укажите длительность круга.',
             'round_minutes.min' => 'Минимум 5 минут.',
             'round_minutes.max' => 'Максимум 1440 минут (сутки).',
-            'cpm.required' => 'Укажите CPM.',
-            'cpm.min' => 'CPM не меньше 50 ₽.',
-            'cpm.max' => 'CPM не больше 50 000 ₽.',
+            'cpm.required' => 'Укажите ставку (CPM или CPC).',
+            'cpm.min' => 'Ставка не меньше 1 ₽.',
+            'cpm.max' => 'Ставка не больше 50 000 ₽.',
         ];
     }
 

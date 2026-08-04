@@ -119,6 +119,75 @@ class WbAbTestingTest extends WebAuthTestCase
                 ->where('products.0.vendor_code', 'SKU-BBB'));
     }
 
+    public function test_products_with_active_work_are_listed_first(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Sort Cabinet');
+
+        $idle = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 100001,
+            'vendor_code' => 'IDLE',
+            'title' => 'No experiment',
+        ]);
+        $completed = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 100002,
+            'vendor_code' => 'DONE',
+            'title' => 'Completed product',
+        ]);
+        $draft = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 100003,
+            'vendor_code' => 'DRAFT',
+            'title' => 'Draft product',
+        ]);
+        $running = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 100004,
+            'vendor_code' => 'RUN',
+            'title' => 'Running product',
+        ]);
+
+        AbExperiment::query()->create([
+            'ab_product_id' => $completed->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Done exp',
+            'status' => WbAbTestStatus::Completed,
+            'progress' => 100,
+        ]);
+        AbExperiment::query()->create([
+            'ab_product_id' => $draft->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Draft exp',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 30,
+        ]);
+        AbExperiment::query()->create([
+            'ab_product_id' => $running->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Running exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 80,
+        ]);
+
+        $this->actingAs($user)
+            ->get('/panel/wb/ab-testing')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Wb/AbTesting/Index')
+                ->has('products', 4)
+                // running → draft → completed → not_created (even if nm_id would sort idle first)
+                ->where('products.0.nm_id', $running->nm_id)
+                ->where('products.0.test_status', 'running')
+                ->where('products.1.nm_id', $draft->nm_id)
+                ->where('products.1.test_status', 'draft')
+                ->where('products.2.nm_id', $completed->nm_id)
+                ->where('products.2.test_status', 'completed')
+                ->where('products.3.nm_id', $idle->nm_id)
+                ->where('products.3.test_status', 'not_created'));
+    }
+
     public function test_sync_stores_products_with_photo_from_content_api(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
@@ -674,6 +743,67 @@ class WbAbTestingTest extends WebAuthTestCase
             'cabinet_id' => $cabinet->id,
             'wb_advert_id' => 555666,
             'name' => 'A/B тест — CREATE-SKU',
+            'created_by_experiment_id' => $experiment->id,
+        ]);
+    }
+
+    public function test_create_cpc_campaign_forces_manual_bid_type(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Create CPC Campaign Cabinet');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900012,
+            'vendor_code' => 'CPC-SKU',
+            'title' => 'CPC product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Create CPC draft',
+            'status' => WbAbTestStatus::Draft,
+            'progress' => 0,
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('createSeacatCampaign')
+            ->once()
+            ->withArgs(function (string $apiKey, array $payload) use ($product) {
+                return $apiKey === 'test-api-key'
+                    && ($payload['nms'][0] ?? null) === (int) $product->nm_id
+                    // Client may still send unified; service must coerce for CPC.
+                    && ($payload['bid_type'] ?? null) === 'manual'
+                    && ($payload['payment_type'] ?? null) === 'cpc'
+                    && ($payload['placement_types'] ?? null) === ['search'];
+            })
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'advert_id' => 555777,
+                'data' => 555777,
+            ]);
+        $client->shouldNotReceive('depositBudget');
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns', [
+                'experiment_id' => $experiment->id,
+                'name' => 'A/B тест — CPC-SKU',
+                'bid_type' => 'unified',
+                'payment_type' => 'cpc',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.wb_advert_id', 555777);
+
+        $this->assertDatabaseHas('wb_ab_campaigns', [
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 555777,
+            'bid_type' => 'manual',
+            'payment_type' => 'cpc',
             'created_by_experiment_id' => $experiment->id,
         ]);
     }
@@ -1479,6 +1609,51 @@ class WbAbTestingTest extends WebAuthTestCase
             ])
             ->assertStatus(422)
             ->assertJsonValidationErrors(['impressions_per_round']);
+    }
+
+    public function test_cpm_campaign_rejects_bid_below_50(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'CPM Bid Min Cabinet');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet, paymentType: 'cpm');
+
+        $this->actingAs($user)
+            ->patchJson("/panel/wb/ab-testing/experiments/{$experiment->id}/settings", [
+                'impressions_per_photo' => 100000,
+                'impressions_per_round' => 10000,
+                'round_minutes' => 60,
+                'cpm' => 10,
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.cpm.0', 'CPM: от 50 до 50 000 ₽.');
+    }
+
+    public function test_cpc_campaign_allows_bid_from_1_ruble(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'CPC Bid Min Cabinet');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet, paymentType: 'cpc');
+
+        $response = $this->actingAs($user)
+            ->patchJson("/panel/wb/ab-testing/experiments/{$experiment->id}/settings", [
+                'impressions_per_photo' => 100000,
+                'impressions_per_round' => 10000,
+                'round_minutes' => 60,
+                'cpm' => 1,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.campaign_payment_type', 'cpc')
+            ->assertJsonPath('experiment.settings.cpm', 1);
+
+        $summary = (string) $response->json('experiment.settings_summary');
+        $this->assertStringContainsString('CPC', $summary);
+        $this->assertStringContainsString('1 ₽', $summary);
+
+        $this->assertDatabaseHas('wb_ab_experiments', [
+            'id' => $experiment->id,
+            'cpm' => 1,
+        ]);
     }
 
     public function test_running_experiment_cannot_update_settings(): void
@@ -2943,8 +3118,10 @@ class WbAbTestingTest extends WebAuthTestCase
     /**
      * @return array{0: AbProduct, 1: AbExperiment}
      */
-    private function createDraftExperimentWithCampaign(WbCabinet $cabinet): array
-    {
+    private function createDraftExperimentWithCampaign(
+        WbCabinet $cabinet,
+        string $paymentType = 'cpm',
+    ): array {
         $product = AbProduct::query()->create([
             'cabinet_id' => $cabinet->id,
             'nm_id' => 900200 + random_int(1, 9999),
@@ -2952,15 +3129,26 @@ class WbAbTestingTest extends WebAuthTestCase
             'title' => 'Photo product',
         ]);
 
+        $advertId = 700001 + random_int(0, 99999);
+
         $experiment = AbExperiment::query()->create([
             'ab_product_id' => $product->id,
             'cabinet_id' => $cabinet->id,
             'name' => 'Photo draft',
             'status' => WbAbTestStatus::Draft,
             'progress' => 30,
-            'wb_advert_id' => 700001,
+            'wb_advert_id' => $advertId,
             'wb_advert_name' => 'Photo campaign',
             'campaign_bound_at' => now(),
+        ]);
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => $advertId,
+            'name' => 'Photo campaign',
+            'bid_type' => $paymentType === 'cpc' ? 'manual' : 'unified',
+            'payment_type' => $paymentType,
+            'created_by_experiment_id' => $experiment->id,
         ]);
 
         return [$product, $experiment];

@@ -38,6 +38,9 @@ const depositError = ref("");
 
 const showPlacements = computed(() => bidType.value === "manual");
 
+/** WB: CPC campaigns require bid_type = manual. */
+const isCpc = computed(() => paymentType.value === "cpc");
+
 watch(
     () => props.open,
     (isOpen) => {
@@ -53,6 +56,19 @@ watch(
         }
     },
 );
+
+// CPC is only allowed with manual bids — enforce on both sides of the pair.
+watch(paymentType, (type) => {
+    if (type === "cpc" && bidType.value !== "manual") {
+        bidType.value = "manual";
+    }
+});
+
+watch(bidType, (type) => {
+    if (type === "unified" && paymentType.value === "cpc") {
+        paymentType.value = "cpm";
+    }
+});
 
 function close() {
     if (props.submitting) {
@@ -139,9 +155,14 @@ function submit() {
                 <div class="space-y-1.5">
                     <Label for="ab-bid-type">Тип ставки</Label>
                     <Select id="ab-bid-type" v-model="bidType" :disabled="submitting">
-                        <option value="unified">Единая ставка</option>
+                        <option value="unified" :disabled="isCpc">
+                            Единая ставка
+                        </option>
                         <option value="manual">Ручная ставка</option>
                     </Select>
+                    <p v-if="isCpc" class="text-xs text-muted-foreground">
+                        Для CPC доступна только ручная ставка (требование WB).
+                    </p>
                 </div>
                 <div class="space-y-1.5">
                     <Label for="ab-payment-type">Тип оплаты</Label>
