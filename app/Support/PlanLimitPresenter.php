@@ -18,22 +18,30 @@ class PlanLimitPresenter
     ];
 
     /**
+     * Removed Ozon per-tool cabinet keys — dropped from display (use oz_cabinets only).
+     *
+     * @var list<string>
+     */
+    private const DROPPED_OZ_CABINET_KEYS = [
+        'oz_price_calc_clients',
+        'oz_feedbacks_clients',
+    ];
+
+    /**
      * Static labels for structural / cabinet keys (not sold as unit extra limits).
      *
      * @var array<string, string>
      */
     private const STRUCTURAL_LABELS = [
         'wb_cabinets' => 'Единый кабинет Wildberries',
+        'oz_cabinets' => 'Единый кабинет Ozon',
         'repricer_nmid' => 'Номенклатуры в репрайсере',
-        'oz_feedbacks_clients' => 'Кабинеты отзывов Ozon',
-        'oz_price_calc_clients' => 'Кабинеты ценообразования Ozon',
     ];
 
     /** Preferred display order for known keys. */
     private const KEY_ORDER = [
         'wb_cabinets',
-        'oz_feedbacks_clients',
-        'oz_price_calc_clients',
+        'oz_cabinets',
         'repricer_nmid',
         'feedbacks_gpt_query',
         'ai_text_query',
@@ -113,6 +121,11 @@ class PlanLimitPresenter
                 continue;
             }
 
+            // Drop removed Ozon per-tool keys (no runtime fallback).
+            if (in_array($key, self::DROPPED_OZ_CABINET_KEYS, true)) {
+                continue;
+            }
+
             $out[$key] = $value;
         }
 
@@ -120,7 +133,7 @@ class PlanLimitPresenter
             $out['wb_cabinets'] = max($legacyValues);
         }
 
-        // Drop legacy keys if unified is present (including when both existed).
+        // Drop legacy WB keys if unified is present (including when both existed).
         foreach (self::LEGACY_WB_CABINET_KEYS as $legacyKey) {
             unset($out[$legacyKey]);
         }
@@ -152,6 +165,10 @@ class PlanLimitPresenter
             return self::STRUCTURAL_LABELS['wb_cabinets'];
         }
 
+        if ($key === 'oz_cabinets') {
+            return self::STRUCTURAL_LABELS['oz_cabinets'];
+        }
+
         $fromCatalog = self::catalogNames()[$key] ?? null;
         if ($fromCatalog !== null) {
             return $fromCatalog;
@@ -164,6 +181,10 @@ class PlanLimitPresenter
     {
         if ($key === 'wb_cabinets') {
             return 'Кабинет на все услуги для маркетплейса Wildberries';
+        }
+
+        if ($key === 'oz_cabinets') {
+            return 'Кабинет на все услуги для маркетплейса Ozon';
         }
 
         return null;

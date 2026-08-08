@@ -6,6 +6,8 @@ use App\Http\Controllers\Web\Admin\Ai\MarketplaceLogController as AiMarketplaceL
 use App\Http\Controllers\Web\Admin\Ai\MediaController as AiMediaController;
 use App\Http\Controllers\Web\Admin\AiCabinet\CabinetController as AiCabinetCabinetController;
 use App\Http\Controllers\Web\Admin\AiCabinet\PromptController as AiCabinetPromptController;
+use App\Http\Controllers\Web\Admin\OzAiCabinet\CabinetController as OzAiCabinetCabinetController;
+use App\Http\Controllers\Web\Admin\OzAiCabinet\PromptController as OzAiCabinetPromptController;
 use App\Http\Controllers\Web\Admin\Blog\CategoryController as BlogCategoryController;
 use App\Http\Controllers\Web\Admin\Blog\MediaController as BlogMediaController;
 use App\Http\Controllers\Web\Admin\Blog\PostController as BlogPostController;
@@ -133,6 +135,14 @@ Route::middleware(['admin.access', 'verified'])
                     Route::post('prompts', [AiCabinetPromptController::class, 'store'])->name('prompts.store');
                     Route::put('prompts/{template}', [AiCabinetPromptController::class, 'update'])->name('prompts.update');
                     Route::delete('prompts/{template}', [AiCabinetPromptController::class, 'destroy'])->name('prompts.destroy');
+                });
+
+                Route::prefix('oz-ai-cabinet')->name('oz-ai-cabinet.')->group(function () {
+                    Route::get('cabinets', [OzAiCabinetCabinetController::class, 'index'])->name('cabinets.index');
+                    Route::get('prompts', [OzAiCabinetPromptController::class, 'index'])->name('prompts.index');
+                    Route::post('prompts', [OzAiCabinetPromptController::class, 'store'])->name('prompts.store');
+                    Route::put('prompts/{template}', [OzAiCabinetPromptController::class, 'update'])->name('prompts.update');
+                    Route::delete('prompts/{template}', [OzAiCabinetPromptController::class, 'destroy'])->name('prompts.destroy');
                 });
 
                 Route::prefix('ai')->name('ai.')->group(function () {

@@ -160,16 +160,16 @@ function submit() {
                     <p class="mt-1 text-xs text-muted-foreground">
                         Частые ключи:
                         <code>wb_cabinets</code>,
+                        <code>oz_cabinets</code>,
                         <code>repricer_nmid</code>,
                         <code>feedbacks_gpt_query</code>,
                         <code>ai_text_query</code>,
                         <code>ai_image_query</code>,
-                        <code>ai_video_query</code>,
-                        <code>oz_feedbacks_clients</code>,
-                        <code>oz_price_calc_clients</code>.
+                        <code>ai_video_query</code>.
                         Старые <code>feedbacks_clients</code> /
-                        <code>price_calc_clients</code> ещё работают как fallback, если
-                        <code>wb_cabinets</code> не задан.
+                        <code>price_calc_clients</code> ещё работают как fallback для WB, если
+                        <code>wb_cabinets</code> не задан. Для Ozon только
+                        <code>oz_cabinets</code>.
                     </p>
                 </div>
                 <div>

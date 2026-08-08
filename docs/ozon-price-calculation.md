@@ -3,64 +3,47 @@
 ## Права доступа
 
 - Permission: `subscriber oz price calc`
-- Middleware: `auth:api`, `verified`, `role:Подписчик`
+- Кабинет: **единый Ozon** (`oz_cabinets` / `selected_oz_cabinet_id`) — см. [oz-cabinets.md](oz-cabinets.md)
 
 ## Связанные документы
 
+- [oz-cabinets.md](oz-cabinets.md)
 - [ozon-price-calculation-frontend-columns.md](ozon-price-calculation-frontend-columns.md)
 
 ## 1. Общее описание
 
 Инструмент для расчета рентабельности, логистики и итоговых цен (юнит-экономика) для маркетплейса Ozon. Поддерживает две основные схемы продажи: **FBO** (со склада Ozon) и **FBS** (со склада продавца).
 
-Позволяет синхронизировать карточки товара напрямую из кабинета (по API), загружать/выгружать параметры через Excel-файлы и автоматически рассчитывать стоимость логистики и рекомендуемые цены (стоп-цена, минимальная цена, текущая цена).
-
-Приложение разделяет работу с таблицами FBO и FBS, однако использует схожие процессы фоновых задач и структуру.
+Flat workspace: `/panel/oz/price-calc` — кабинет берётся из шапки, не из URL.
 
 ---
 
 ## 2. Структура БД и Модели
 
-Все модели лежат в `app/Models/Subscribers/Oz/PriceCalc/`:
-
-1. **`OzPriceCalcCabinet`**
-    - Таблица: `oz_price_calc_cabinets`
-    - Хранит данные для доступа к Ozon API: `name`, `client_id`, `apikey` (хранится в зашифрованном виде через `EncryptCast`).
-    - Имеет связи `fboRecords()` и `fbsRecords()` ко всем загруженным карточкам в рамках кабинета.
-2. **`OzPriceCalcFbo`**
-    - Таблица: `oz_price_calc_fbo`
-    - Хранит данные карточек пользователя для схемы FBO: артикул (`ozon_article`), баркод, габариты (`weight_kg`, `length_cm`, `width_cm`, `height_cm`, `volume_liters`).
-    - **Поля ручного ввода (импорт/интерфейс):** себестоимость (`cost_price`), желаемая маржа (`margin_percent`), расходы на фулфилмент (`fulfillment_fee`), процент доп. расходов (`dop_rashod_percent`), процент невыкупа (`buyout_percent`), налог (`tax_percent`), комиссия (`commission_percent`), расходы на рекламу (`advertising_percent`), доля расходов на продвижение (`promotion_percent`), наценки логистики (`logistics_markup_percent`, `price_markup_for_logistics_percent`).
-    - **Расчетные поля:** логистика FBO (`logistics_fbo`, `logistics_fbo_over_190`, `acceptance_fbo`), а также итоговые цены (`stop_price`, `min_price`, `current_price`).
-3. **`OzPriceCalcFbs`**
-    - Таблица: `oz_price_calc_fbs`
-    - Аналогична FBO, но имеет только свои расчетные поля для FBS (`logistics_fbs`, `logistics_fbs_over_190`). Отсутствуют поля наценок логистики и стоимость приемки.
+1. **`OzCabinet`** (`app/Models/Subscribers/Oz/OzCabinet.php`)
+    - Таблица: `oz_cabinets`
+    - Доступ к Ozon API: `name`, `client_id`, `apikey` (`EncryptCast`), `last_sync_error`
+2. **`OzPriceCalcFbo`** / **`OzPriceCalcFbs`**
+    - Таблицы: `oz_price_calc_fbo`, `oz_price_calc_fbs`
+    - `cabinet_id` → `oz_cabinets.id`
 
 ---
 
-## 3. Контроллеры и Маршруты
+## 3. Web-маршруты
 
-Все роуты обернуты middleware `permission:subscriber oz price calc`. Контроллеры лежат в `app/Http/Controllers/Api/Subscriber/Ozon/PriceCalc/`.
+Prefix: `/panel/oz/price-calc` · middleware `permission:subscriber oz price calc`
 
-### 3.1. `CabinetsController`
+| Method | URL | Назначение |
+|--------|-----|------------|
+| GET | `/` | Workspace (FBO/FBS по `?mode=`) |
+| POST | `/sync`, `/calculate`, `/import`, `/export` | FBO actions |
+| GET | `/export-download` | FBO download |
+| POST | `/fbs/sync|calculate|import|export` | FBS actions |
+| GET | `/fbs/export-download` | FBS download |
 
-- `GET /subscriber/oz/price-calc/cabinets` — Список кабинетов пользователя.
-- `POST /subscriber/oz/price-calc/cabinets` — Создание кабинета.
-- `PUT/PATCH /subscriber/oz/price-calc/cabinets/{id}` — Обновление кабинета (доступы API).
-- `DELETE /subscriber/oz/price-calc/cabinets/{id}` — Удаление кабинета.
+Legacy `/cabinets/{id}/*` → redirect на flat URL.
 
-### 3.2. `FboController` (схема FBO)
-
-- `GET /subscriber/oz/price-calc/cabinets/{cabinetId}/fbo` — Вывод карточек FBO с пагинацией и поиском.
-- `GET /subscriber/oz/price-calc/cabinets/{cabinetId}/fbo/status` — Получение статуса фоновой выгрузки/расчета.
-- `POST /subscriber/oz/price-calc/cabinets/{cabinetId}/sync` — Запуск `SyncPriceCalcJob` по FBO.
-- `POST /subscriber/oz/price-calc/cabinets/{cabinetId}/calculate` — Запуск `CalculatePriceJob` по FBO.
-- Эндпоинты импорта/экспорта: `import`, `import-status`, `export`, `export-status`.
-
-### 3.3. `FbsController` (схема FBS)
-
-- Префикс `{cabinetId}/fbs/...`
-- Абсолютно идентичные FboController эндпоинты, только запускающие Jobs с параметром `type = 'fbs'`.
+Контроллер: `Web/Subscriber/Oz/PriceCalc/WorkspaceController` + trait `ResolvesSelectedOzCabinet`.
 
 ---
 

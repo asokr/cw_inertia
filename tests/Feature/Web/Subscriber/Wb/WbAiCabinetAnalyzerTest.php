@@ -2,11 +2,11 @@
 
 namespace Tests\Feature\Web\Subscriber\Wb;
 
+use App\Jobs\Wb\AiCabinetAnalyzer\ProcessAiCabinetAnalyzerAiAnalysisJob;
 use App\Jobs\Wb\AiCabinetAnalyzer\ProcessAiCabinetAnalyzerReport;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerAiAnalysis;
-use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerCabinet;
 use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerReport;
 use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerTemplate;
 use App\Models\Subscribers\Wb\WbCabinet;
@@ -38,7 +38,7 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
 
     public function test_guest_cannot_access_index(): void
     {
-        $this->get('/panel/wb/ai-cabinet-analyzer')->assertUnauthorized();
+        $this->get('/panel/wb/ai-cabinet-analyzer')->assertRedirect();
     }
 
     public function test_user_without_permission_cannot_access_index(): void
@@ -73,47 +73,10 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Subscriber/Wb/AiCabinetAnalyzer/Cabinet/Show')
                 ->where('cabinet.id', $cabinet->id)
-                ->where('cabinet.name', 'Test Cabinet'));
-    }
-
-    public function test_cabinet_show_renders_for_owner(): void
-    {
-        $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'Report Cabinet');
-
-        $this->actingAs($user)
-            ->get("/panel/wb/ai-cabinet-analyzer/cabinets/{$cabinet->id}")
-            ->assertOk()
-            ->assertInertia(fn ($page) => $page
-                ->component('Subscriber/Wb/AiCabinetAnalyzer/Cabinet/Show')
-                ->where('cabinet.id', $cabinet->id)
+                ->where('cabinet.name', 'Test Cabinet')
                 ->has('report')
                 ->has('templates')
                 ->has('analyses'));
-    }
-
-    public function test_cabinet_show_forbidden_for_foreign_cabinet(): void
-    {
-        $owner = $this->createSubscriberUser(withPermission: true);
-        $intruder = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($owner, 'Foreign');
-
-        $this->actingAs($intruder)
-            ->get("/panel/wb/ai-cabinet-analyzer/cabinets/{$cabinet->id}")
-            ->assertForbidden();
-    }
-
-    public function test_destroy_cabinet_redirects_with_success(): void
-    {
-        $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'Delete Me');
-
-        $this->actingAs($user)
-            ->delete("/panel/wb/ai-cabinet-analyzer/cabinets/{$cabinet->id}")
-            ->assertRedirect('/panel/wb/ai-cabinet-analyzer')
-            ->assertSessionHas('success');
-
-        $this->assertDatabaseMissing('wb_ai_cabinet_analyzer_cabinets', ['id' => $cabinet->id]);
     }
 
     public function test_start_report_dispatches_job_for_owner(): void
@@ -121,10 +84,11 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
         Queue::fake();
 
         $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'Queue Cabinet');
+        $this->createUnifiedCabinet($user, 'Queue Cabinet');
 
         $this->actingAs($user)
-            ->post("/panel/wb/ai-cabinet-analyzer/cabinets/{$cabinet->id}/reports", [
+            ->from('/panel/wb/ai-cabinet-analyzer')
+            ->post('/panel/wb/ai-cabinet-analyzer/reports', [
                 'begin_date' => '2026-01-01',
                 'end_date' => '2026-01-15',
             ])
@@ -134,24 +98,24 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
         Queue::assertPushed(ProcessAiCabinetAnalyzerReport::class);
     }
 
-    public function test_start_report_forbidden_for_foreign_cabinet(): void
+    public function test_start_report_without_selected_cabinet_shows_no_cabinet(): void
     {
-        $owner = $this->createSubscriberUser(withPermission: true);
-        $intruder = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($owner, 'Foreign Report');
+        $user = $this->createSubscriberUser(withPermission: true);
 
-        $this->actingAs($intruder)
-            ->post("/panel/wb/ai-cabinet-analyzer/cabinets/{$cabinet->id}/reports", [
+        $this->actingAs($user)
+            ->post('/panel/wb/ai-cabinet-analyzer/reports', [
                 'begin_date' => '2026-01-01',
                 'end_date' => '2026-01-15',
             ])
-            ->assertForbidden();
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Wb/Shared/NoCabinet'));
     }
 
     public function test_ai_analysis_show_json_for_owner(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'AI Cabinet');
+        $cabinet = $this->createUnifiedCabinet($user, 'AI Cabinet');
         $report = $this->createReport($cabinet);
         $template = $this->createTemplate();
         $analysis = $this->createAnalysis($report, $template);
@@ -167,7 +131,7 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
     {
         $owner = $this->createSubscriberUser(withPermission: true);
         $intruder = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($owner, 'Foreign AI');
+        $cabinet = $this->createUnifiedCabinet($owner, 'Foreign AI');
         $report = $this->createReport($cabinet);
         $template = $this->createTemplate();
         $analysis = $this->createAnalysis($report, $template);
@@ -175,6 +139,104 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
         $this->actingAs($intruder)
             ->get("/panel/wb/ai-cabinet-analyzer/ai-analyses/{$analysis->id}")
             ->assertForbidden();
+    }
+
+    public function test_start_ai_analysis_dispatches_job(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Start AI');
+        $report = $this->createReport($cabinet);
+        $template = $this->createTemplate();
+
+        $this->actingAs($user)
+            ->from('/panel/wb/ai-cabinet-analyzer')
+            ->post('/panel/wb/ai-cabinet-analyzer/ai-analyses/start', [
+                'report_id' => $report->id,
+                'template_id' => $template->id,
+            ])
+            ->assertRedirect('/panel/wb/ai-cabinet-analyzer')
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseCount('wb_ai_cabinet_analyzer_ai_analyses', 1);
+        $this->assertDatabaseHas('wb_ai_cabinet_analyzer_ai_analyses', [
+            'report_id' => $report->id,
+            'template_id' => $template->id,
+            'status' => AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING,
+        ]);
+        Queue::assertPushed(ProcessAiCabinetAnalyzerAiAnalysisJob::class);
+    }
+
+    public function test_cannot_start_same_analysis_while_processing_on_report(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Dup AI');
+        $report = $this->createReport($cabinet);
+        $template = $this->createTemplate();
+        $this->createAnalysis($report, $template, AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING);
+
+        $this->actingAs($user)
+            ->from('/panel/wb/ai-cabinet-analyzer')
+            ->post('/panel/wb/ai-cabinet-analyzer/ai-analyses/start', [
+                'report_id' => $report->id,
+                'template_id' => $template->id,
+            ])
+            ->assertRedirect('/panel/wb/ai-cabinet-analyzer')
+            ->assertSessionHas('error');
+
+        $this->assertDatabaseCount('wb_ai_cabinet_analyzer_ai_analyses', 1);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_can_start_different_analysis_while_another_is_processing(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Parallel AI');
+        $report = $this->createReport($cabinet);
+        $templateA = $this->createTemplate('Template A');
+        $templateB = $this->createTemplate('Template B');
+        $this->createAnalysis($report, $templateA, AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING);
+
+        $this->actingAs($user)
+            ->from('/panel/wb/ai-cabinet-analyzer')
+            ->post('/panel/wb/ai-cabinet-analyzer/ai-analyses/start', [
+                'report_id' => $report->id,
+                'template_id' => $templateB->id,
+            ])
+            ->assertRedirect('/panel/wb/ai-cabinet-analyzer')
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseCount('wb_ai_cabinet_analyzer_ai_analyses', 2);
+        $this->assertDatabaseHas('wb_ai_cabinet_analyzer_ai_analyses', [
+            'report_id' => $report->id,
+            'template_id' => $templateB->id,
+            'status' => AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING,
+        ]);
+        Queue::assertPushed(ProcessAiCabinetAnalyzerAiAnalysisJob::class);
+    }
+
+    public function test_cannot_regenerate_while_analysis_processing(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Regen AI');
+        $report = $this->createReport($cabinet);
+        $template = $this->createTemplate();
+        $analysis = $this->createAnalysis($report, $template, AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING);
+
+        $this->actingAs($user)
+            ->from('/panel/wb/ai-cabinet-analyzer')
+            ->post("/panel/wb/ai-cabinet-analyzer/ai-analyses/{$analysis->id}/regenerate")
+            ->assertRedirect('/panel/wb/ai-cabinet-analyzer')
+            ->assertSessionHas('error');
+
+        Queue::assertNothingPushed();
     }
 
     private function createSubscriberUser(bool $withPermission = false): User
@@ -206,15 +268,6 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
         return $user;
     }
 
-    private function createCabinet(User $user, string $name): AiCabinetAnalyzerCabinet
-    {
-        return AiCabinetAnalyzerCabinet::query()->create([
-            'user_id' => $user->id,
-            'name' => $name,
-            'apikey' => 'test-api-key',
-        ]);
-    }
-
     private function createUnifiedCabinet(User $user, string $name): WbCabinet
     {
         $cabinet = WbCabinet::query()->create([
@@ -229,7 +282,7 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
         return $cabinet;
     }
 
-    private function createReport(AiCabinetAnalyzerCabinet $cabinet): AiCabinetAnalyzerReport
+    private function createReport(WbCabinet $cabinet): AiCabinetAnalyzerReport
     {
         return AiCabinetAnalyzerReport::query()->create([
             'cabinet_id' => $cabinet->id,
@@ -246,10 +299,10 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
         ]);
     }
 
-    private function createTemplate(): AiCabinetAnalyzerTemplate
+    private function createTemplate(string $name = 'Test Template'): AiCabinetAnalyzerTemplate
     {
         return AiCabinetAnalyzerTemplate::query()->create([
-            'name' => 'Test Template',
+            'name' => $name,
             'description' => 'Test',
             'system_prompt' => 'Analyze',
             'sort_order' => 100,
@@ -261,12 +314,15 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
     private function createAnalysis(
         AiCabinetAnalyzerReport $report,
         AiCabinetAnalyzerTemplate $template,
+        string $status = AiCabinetAnalyzerAiAnalysis::STATUS_DONE,
     ): AiCabinetAnalyzerAiAnalysis {
         return AiCabinetAnalyzerAiAnalysis::query()->create([
             'report_id' => $report->id,
             'template_id' => $template->id,
-            'status' => AiCabinetAnalyzerAiAnalysis::STATUS_DONE,
-            'analysis_text' => json_encode(['summary' => 'ok'], JSON_UNESCAPED_UNICODE),
+            'status' => $status,
+            'analysis_text' => $status === AiCabinetAnalyzerAiAnalysis::STATUS_DONE
+                ? json_encode(['summary' => 'ok'], JSON_UNESCAPED_UNICODE)
+                : null,
         ]);
     }
 
@@ -321,7 +377,12 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
                 $table->unsignedInteger('sort_order')->default(100)->index();
                 $table->boolean('is_active')->default(true)->index();
                 $table->string('response_format', 32)->default('json');
+                $table->json('data_sources')->nullable();
                 $table->timestamps();
+            });
+        } elseif (! Schema::hasColumn('wb_ai_cabinet_analyzer_templates', 'data_sources')) {
+            Schema::table('wb_ai_cabinet_analyzer_templates', function (Blueprint $table) {
+                $table->json('data_sources')->nullable();
             });
         }
 

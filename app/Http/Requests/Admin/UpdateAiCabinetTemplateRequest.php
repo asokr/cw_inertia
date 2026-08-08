@@ -20,6 +20,17 @@ class UpdateAiCabinetTemplateRequest extends FormRequest
             'sort_order' => 'nullable|integer|min:0|max:10000',
             'is_active' => 'nullable|boolean',
             'response_format' => 'nullable|in:json,markdown',
+            'data_sources' => ['required', 'array', 'min:1'],
+            'data_sources.*' => ['string', 'in:ads,reviews,funnel'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'data_sources.required' => 'Выберите хотя бы один источник данных для анализа.',
+            'data_sources.min' => 'Выберите хотя бы один источник данных для анализа.',
+            'data_sources.*.in' => 'Недопустимый источник данных.',
         ];
     }
 }

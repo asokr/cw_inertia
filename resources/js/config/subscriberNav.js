@@ -76,15 +76,6 @@ const toolCatalog = [
         description: "Тест главной фотографии карточки товара",
     },
     {
-        key: "oz_feedbacks",
-        label: "Управление отзывами",
-        href: "/panel/oz/feedbacks",
-        permission: "subscriber oz feedbacks",
-        group: "Ozon",
-        icon: Warehouse,
-        description: "Автоответы и ИИ для отзывов Ozon",
-    },
-    {
         key: "oz_price_calc",
         label: "Ценообразование",
         href: "/panel/oz/price-calc",
@@ -93,6 +84,16 @@ const toolCatalog = [
         icon: Warehouse,
         description: "Расчёт цен для FBO и FBS на Ozon",
     },
+    {
+        key: "oz_ai_cabinet_analyzer",
+        label: "ИИ анализ кабинета",
+        href: "/panel/oz/ai-cabinet-analyzer",
+        permission: "subscriber oz ai cabinet analyzer",
+        group: "Ozon",
+        icon: Warehouse,
+        description: "ИИ-отчёты по каталогу и данным кабинета Ozon",
+    },
+
     {
         key: "ai_text",
         label: "Текст",
@@ -240,9 +241,10 @@ const availableRoutes = new Set([
     "/panel/user/profile",
     "/panel/user/history",
     "/panel/wb/feedbacks",
-    "/panel/oz/feedbacks",
+    // "/panel/oz/feedbacks", // temporarily disabled
     "/panel/wb/price-calc",
     "/panel/oz/price-calc",
+    "/panel/oz/ai-cabinet-analyzer",
     "/panel/wb/repricer",
     "/panel/wb/profitability",
     "/panel/wb/ai-cabinet-analyzer",

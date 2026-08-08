@@ -26,4 +26,10 @@ class OzFeedbacksApiRemovalTest extends WebAuthTestCase
         $this->getJson('/api/subscriber/oz/feedbacks/cabinets')
             ->assertNotFound();
     }
+
+    public function test_web_oz_feedbacks_routes_are_removed(): void
+    {
+        $this->get('/panel/oz/feedbacks')->assertNotFound();
+        $this->post('/panel/oz/feedbacks/cabinets')->assertNotFound();
+    }
 }

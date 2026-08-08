@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call(AiCabinetAnalyzerTemplatesSeeder::class);
+        $this->call(OzAiCabinetAnalyzerTemplatesSeeder::class);
 
         // Одноразовый перенос данных ценообразования WB из V2 в V3.
         // Запускать адресно: php artisan db:seed --class=Database\\Seeders\\WbPriceCalculationV2ToV3Seeder

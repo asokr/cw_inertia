@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue";
+import { computed, unref } from "vue";
 import { Head } from "@inertiajs/vue3";
 import AiAnalysisSection from "@/components/subscriber/wb/ai-cabinet-analyzer/AiAnalysisSection.vue";
 import NomenclaturesTable from "@/components/subscriber/wb/ai-cabinet-analyzer/NomenclaturesTable.vue";
@@ -36,6 +36,10 @@ const poll = useAiCabinetReportPoll({
     },
 });
 
+// Nested refs from plain objects are not auto-unwrapped in templates
+const isReportPolling = computed(() => Boolean(unref(poll.isPolling)));
+const isReportLongRunning = computed(() => Boolean(unref(poll.timedOut)));
+
 const showUrl = computed(() => `/panel/wb/ai-cabinet-analyzer`);
 const startUrl = computed(() => `${showUrl.value}/reports`);
 const isReportDone = computed(() => props.report?.status === "done");
@@ -53,15 +57,17 @@ watchPropToast(() => warnings.value, "default");
     <Head :title="`ИИ анализ кабинета — ${cabinet.name}`" />
 
     <SubscriberLayout :title="cabinet.name" :breadcrumbs="breadcrumbs">
-        <ToolPageHeader title="ИИ анализ кабинета Wildberries" :description="cabinet.name" />
+        <ToolPageHeader
+            title="Анализ кабинета Wildberries"
+            :description="cabinet.name"
+        />
 
-        <div class="space-y-6">
+        <div class="space-y-8 md:space-y-10">
             <ReportRunPanel
-                :cabinet-id="cabinet.id"
                 :report="report"
                 :default-period="defaultPeriod"
-                :is-polling="poll.isPolling"
-                :timed-out="poll.timedOut"
+                :is-polling="isReportPolling"
+                :timed-out="isReportLongRunning"
                 :start-url="startUrl"
                 :refresh-url="showUrl"
                 @polling-start="onPollingStart"

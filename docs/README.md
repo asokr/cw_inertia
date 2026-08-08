@@ -94,24 +94,27 @@ JSON-эндпоинты для polling (генерации ИИ, статусы 
 | Prop | Описание |
 |------|----------|
 | `wb_cabinets` | Список общих кабинетов WB |
-| `selected_wb_cabinet` | Активный кабинет |
+| `selected_wb_cabinet` | Активный кабинет WB |
 | `wb_api_key_warning` | Текст о полном персональном ключе |
 | `wb_migration_required` | Нужна миграция legacy-кабинетов |
+| `oz_cabinets` | Список общих кабинетов Ozon |
+| `selected_oz_cabinet` | Активный кабинет Ozon |
 
-Переключатель кабинетов: `resources/js/components/subscriber/wb/WbCabinetSwitcher.vue`.
+Переключатель кабинетов: `resources/js/components/subscriber/MarketplaceCabinetSwitcher.vue` (секции WB + Ozon).
 
 ## Инструменты
 
 | Инструмент | Маркетплейс | Permission | Документация |
 |------------|-------------|------------|--------------|
 | **Единый кабинет WB** | WB | (панель) | [wb-cabinets.md](wb-cabinets.md) |
+| **Единый кабинет Ozon** | Ozon | (панель) | [oz-cabinets.md](oz-cabinets.md) |
 | AI Cabinet Analyzer | WB | `subscriber wb ai cabinet analyzer` | [wb-ai-cabinet-analyzer.md](wb-ai-cabinet-analyzer.md) |
+| AI Cabinet Analyzer | Ozon | `subscriber oz ai cabinet analyzer` | [oz-ai-cabinet-analyzer.md](oz-ai-cabinet-analyzer.md) |
 | AI Marketplace | WB/Ozon | `subscriber ai` | [ai-marketplace.md](ai-marketplace.md) |
 | Рентабельность | WB | `subscriber wb profitability` | [wb-profitability.md](wb-profitability.md) |
 | Ценообразование V3 | WB | `subscriber wb price calculator` | [wb-price-calculation-v3.md](wb-price-calculation-v3.md) |
 | Калькулятор акций | WB | `subscriber wb promo calculator` | [wb-promo-calculator.md](wb-promo-calculator.md) |
 | Отзывы | WB | `subscriber wb feedbacks` | [wb-feedbacks.md](wb-feedbacks.md) |
-| Отзывы | Ozon | `subscriber oz feedbacks` | [ozon-feedbacks.md](ozon-feedbacks.md) |
 | Репрайсер | WB | `subscriber wb repricer` | [wb-repricer.md](wb-repricer.md) |
 | A/B-тестирование | WB | `subscriber wb ab testing` | [wb-ab-testing.md](wb-ab-testing.md) |
 | Ценообразование | Ozon | `subscriber oz price calc` | [ozon-price-calculation.md](ozon-price-calculation.md) |
@@ -134,7 +137,7 @@ JSON-эндпоинты для polling (генерации ИИ, статусы 
 
 Старые URL вида `/panel/wb/{tool}/cabinets/{id}` редиректят на flat path.
 
-Ozon сохраняет per-tool кабинеты (`/panel/oz/feedbacks/cabinets/{id}`, …).
+Ozon использует **единый** кабинет (`oz_cabinets`) — см. [oz-cabinets.md](oz-cabinets.md).
 
 ## Справочники
 
@@ -147,7 +150,7 @@ Ozon сохраняет per-tool кабинеты (`/panel/oz/feedbacks/cabinets
 
 ## Платформенные модули (без отдельной документации)
 
-- **Подписки и лимиты** — `SubscribersSubscriptions`, `limits_plan`, `limits_month`, `extra_limits_*` (JSON). Для WB-кабинетов: ключ `wb_cabinets` (см. [wb-cabinets.md](wb-cabinets.md))
+- **Подписки и лимиты** — `SubscribersSubscriptions`, `limits_plan`, `limits_month`, `extra_limits_*` (JSON). Кабинеты: `wb_cabinets`, `oz_cabinets` (см. [wb-cabinets.md](wb-cabinets.md), [oz-cabinets.md](oz-cabinets.md))
 - **Платежи** — YooKassa (`/payments/yoo/*`)
 - **Баланс** — пополнение/списание через wallet, лог `balance`
 - **Админка подписчиков** — управление планами, купонами, ролями (Super-Admin)

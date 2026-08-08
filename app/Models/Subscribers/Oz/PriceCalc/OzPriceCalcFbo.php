@@ -68,6 +68,6 @@ class OzPriceCalcFbo extends Model
 
     public function cabinet()
     {
-        return $this->belongsTo(OzPriceCalcCabinet::class, 'cabinet_id');
+        return $this->belongsTo(\App\Models\Subscribers\Oz\OzCabinet::class, 'cabinet_id');
     }
 }

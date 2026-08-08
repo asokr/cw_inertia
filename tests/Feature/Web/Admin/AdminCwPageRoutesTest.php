@@ -87,6 +87,8 @@ class AdminCwPageRoutesTest extends WebAuthTestCase
             ['/cw-page/services/repricer/nmids', 'Admin/Services/Repricer/Nmids/Index'],
             ['/cw-page/services/ai-cabinet/cabinets', 'Admin/Services/AiCabinet/Cabinets/Index'],
             ['/cw-page/services/ai-cabinet/prompts', 'Admin/Services/AiCabinet/Prompts/Index'],
+            ['/cw-page/services/oz-ai-cabinet/cabinets', 'Admin/Services/OzAiCabinet/Cabinets/Index'],
+            ['/cw-page/services/oz-ai-cabinet/prompts', 'Admin/Services/OzAiCabinet/Prompts/Index'],
             ['/cw-page/services/ai/marketplace-logs', 'Admin/Services/Ai/MarketplaceLogs/Index'],
             ['/cw-page/services/ai/costs-archive', 'Admin/Services/Ai/CostsArchive/Index'],
             ['/cw-page/wb/api-usage', 'Admin/Wb/ApiUsage/Index'],
@@ -247,6 +249,14 @@ class AdminCwPageRoutesTest extends WebAuthTestCase
                 $table->timestamp('limit_consumed_at')->nullable();
                 $table->timestamp('updated_at')->nullable();
             },
+            'wb_cabinets' => function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id');
+                $table->string('name')->nullable();
+                $table->text('apikey')->nullable();
+                $table->string('api_key_hash', 64)->nullable();
+                $table->timestamps();
+            },
             'wb_ai_cabinet_analyzer_cabinets' => function (Blueprint $table) {
                 $table->id();
                 $table->unsignedBigInteger('user_id');
@@ -254,6 +264,7 @@ class AdminCwPageRoutesTest extends WebAuthTestCase
                 $table->text('apikey')->nullable();
                 $table->timestamps();
             },
+
             'wb_ai_cabinet_analyzer_templates' => function (Blueprint $table) {
                 $table->id();
                 $table->string('name');
@@ -262,6 +273,27 @@ class AdminCwPageRoutesTest extends WebAuthTestCase
                 $table->unsignedInteger('sort_order')->default(100);
                 $table->boolean('is_active')->default(true);
                 $table->string('response_format')->default('json');
+                $table->json('data_sources')->nullable();
+                $table->timestamps();
+            },
+            'oz_cabinets' => function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id');
+                $table->string('name')->nullable();
+                $table->string('client_id')->nullable();
+                $table->text('apikey')->nullable();
+                $table->text('last_sync_error')->nullable();
+                $table->timestamps();
+            },
+            'oz_ai_cabinet_analyzer_templates' => function (Blueprint $table) {
+                $table->id();
+                $table->string('name');
+                $table->text('description')->nullable();
+                $table->longText('system_prompt');
+                $table->unsignedInteger('sort_order')->default(100);
+                $table->boolean('is_active')->default(true);
+                $table->string('response_format')->default('json');
+                $table->json('data_sources')->nullable();
                 $table->timestamps();
             },
             'wb_api_usage_stats' => function (Blueprint $table) {

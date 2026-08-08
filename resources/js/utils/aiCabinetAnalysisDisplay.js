@@ -9,6 +9,15 @@ const metricsLabelMap = {
     top_sku_ctr_percent: "CTR лучшего SKU",
 };
 
+const shortMetricsLabelMap = {
+    total_campaigns: "Кампаний",
+    active_spending_campaigns: "Активных",
+    total_ad_spend_rub: "Расходы",
+    total_ad_orders: "Заказы",
+    top_sku_cpc_rub: "CPC",
+    top_sku_ctr_percent: "CTR",
+};
+
 export function formatAnalysisDateTime(value) {
     if (!value) return "—";
     return new Date(value).toLocaleString("ru-RU", {
@@ -20,18 +29,53 @@ export function formatAnalysisDateTime(value) {
     });
 }
 
+export function formatAnalysisDate(value) {
+    if (!value) return "—";
+    return new Date(value).toLocaleDateString("ru-RU", {
+        day: "numeric",
+        month: "long",
+    });
+}
+
+export function formatAnalysisTime(value) {
+    if (!value) return "—";
+    return new Date(value).toLocaleTimeString("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
+export function formatDisplayDateRange(beginDate, endDate) {
+    if (!beginDate || !endDate) return "";
+    const begin = new Date(`${beginDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
+    if (Number.isNaN(begin.getTime()) || Number.isNaN(end.getTime())) {
+        return `${beginDate} — ${endDate}`;
+    }
+    const opts = { day: "2-digit", month: "2-digit", year: "numeric" };
+    return `${begin.toLocaleDateString("ru-RU", opts)} — ${end.toLocaleDateString("ru-RU", opts)}`;
+}
+
 export function analysisStatusLabel(status) {
-    if (status === "done") return "готов";
-    if (status === "failed") return "ошибка";
-    if (status === "processing") return "обработка";
-    return "неизвестно";
+    if (status === "done") return "Готов";
+    if (status === "failed") return "Ошибка";
+    if (status === "processing") return "В обработке";
+    if (status === "cancelled" || status === "canceled") return "Отменён";
+    return "Неизвестно";
 }
 
 export function analysisStatusVariant(status) {
     if (status === "done") return "success";
     if (status === "failed") return "destructive";
     if (status === "processing") return "default";
+    if (status === "cancelled" || status === "canceled") return "secondary";
     return "default";
+}
+
+export function shortMetricLabel(key, label) {
+    if (shortMetricsLabelMap[key]) return shortMetricsLabelMap[key];
+    if (label && String(label).length <= 24) return label;
+    return label || key;
 }
 
 export function canRegenerateAnalysis(item) {
@@ -104,9 +148,11 @@ export function buildMetricsRows(structuredAnalysis) {
         return metrics.map((item, index) => {
             const key = item?.key || item?.code || `metric_${index}`;
             const rawValue = item?.value ?? item?.metric_value ?? item?.amount ?? item?.raw ?? "—";
+            const fullLabel = item?.label || metricsLabelMap[key] || key;
             return {
                 key,
-                label: item?.label || metricsLabelMap[key] || key,
+                label: fullLabel,
+                shortLabel: shortMetricLabel(key, fullLabel),
                 value: formatMetricValue(String(key), rawValue),
             };
         });
@@ -118,10 +164,12 @@ export function buildMetricsRows(structuredAnalysis) {
         const metricValue = isObj
             ? (value.value ?? value.metric_value ?? value.amount ?? value.raw ?? "—")
             : value;
+        const fullLabel = metricLabel || metricsLabelMap[key] || key;
 
         return {
             key,
-            label: metricLabel || metricsLabelMap[key] || key,
+            label: fullLabel,
+            shortLabel: shortMetricLabel(key, fullLabel),
             value: formatMetricValue(key, metricValue),
         };
     });

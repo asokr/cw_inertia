@@ -17,6 +17,7 @@ class AiCabinetAnalyzerTemplatesSeeder extends Seeder
                 'sort_order' => 10,
                 'is_active' => true,
                 'response_format' => 'json',
+                'data_sources' => ['ads'],
             ],
             [
                 'name' => 'Анализ прибыли',
@@ -25,14 +26,16 @@ class AiCabinetAnalyzerTemplatesSeeder extends Seeder
                 'sort_order' => 20,
                 'is_active' => true,
                 'response_format' => 'json',
+                'data_sources' => ['ads', 'funnel'],
             ],
             [
                 'name' => 'Точки роста',
                 'description' => 'Находит направления роста по товарам и кампаниям.',
-                'system_prompt' => 'Ты эксперт по росту продаж маркетплейса WildBerries. Найди точки роста по данным рекламы и воронки, укажи ожидаемый эффект и приоритет внедления. Отвечай на русском языке.',
+                'system_prompt' => 'Ты эксперт по росту продаж маркетплейса WildBerries. Найди точки роста по данным рекламы и воронки, укажи ожидаемый эффект и приоритет внедрения. Отвечай на русском языке.',
                 'sort_order' => 30,
                 'is_active' => true,
                 'response_format' => 'json',
+                'data_sources' => ['ads', 'funnel'],
             ],
             [
                 'name' => 'Ошибки воронки',
@@ -41,6 +44,7 @@ class AiCabinetAnalyzerTemplatesSeeder extends Seeder
                 'sort_order' => 40,
                 'is_active' => true,
                 'response_format' => 'json',
+                'data_sources' => ['funnel'],
             ],
             [
                 'name' => 'План действий',
@@ -49,6 +53,7 @@ class AiCabinetAnalyzerTemplatesSeeder extends Seeder
                 'sort_order' => 50,
                 'is_active' => true,
                 'response_format' => 'json',
+                'data_sources' => ['ads', 'reviews', 'funnel'],
             ],
         ];
 

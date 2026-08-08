@@ -1,12 +1,13 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref, unref, watch } from "vue";
 import { router, useForm } from "@inertiajs/vue3";
-import AiAnalysesHistoryTable from "@/components/subscriber/wb/ai-cabinet-analyzer/AiAnalysesHistoryTable.vue";
+import AiAnalysesHistory from "@/components/subscriber/wb/ai-cabinet-analyzer/AiAnalysesHistory.vue";
 import AiAnalysisDetailDialog from "@/components/subscriber/wb/ai-cabinet-analyzer/AiAnalysisDetailDialog.vue";
 import AiAnalysisLauncher from "@/components/subscriber/wb/ai-cabinet-analyzer/AiAnalysisLauncher.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import Dialog from "@/components/ui/Dialog.vue";
+import Separator from "@/components/ui/Separator.vue";
 import { useAiCabinetAnalysesPoll } from "@/composables/useAiCabinetAnalysesPoll";
 
 const props = defineProps({
@@ -17,12 +18,12 @@ const props = defineProps({
     showUrl: { type: String, required: true },
 });
 
-const selectedTemplateId = ref(props.templates[0]?.id ?? null);
 const detailOpen = ref(false);
 const detailAnalysis = ref(null);
 const confirmRegenerateOpen = ref(false);
 const regenerateTarget = ref(null);
 const regeneratingId = ref(null);
+const launchingTemplateId = ref(null);
 
 const startForm = useForm({
     report_id: null,
@@ -33,17 +34,10 @@ const regenerateForm = useForm({});
 
 const analysesPoll = useAiCabinetAnalysesPoll();
 
-const isReportReady = computed(() => Boolean(props.report?.id) && props.report?.status === "done");
+// Nested refs from plain objects are not auto-unwrapped in templates
+const isAnalysesPolling = computed(() => Boolean(unref(analysesPoll.isPolling)));
 
-watch(
-    () => props.templates,
-    (items) => {
-        if (!selectedTemplateId.value && items.length) {
-            selectedTemplateId.value = items[0].id;
-        }
-    },
-    { immediate: true },
-);
+const isReportReady = computed(() => Boolean(props.report?.id) && props.report?.status === "done");
 
 watch(
     () => [props.report?.id, props.report?.status],
@@ -69,14 +63,23 @@ function refreshAnalyses() {
     });
 }
 
-function startAnalysis() {
-    if (!isReportReady.value || !selectedTemplateId.value) return;
+function startAnalysis(templateId) {
+    if (!isReportReady.value || !templateId) return;
 
+    const alreadyRunning = (props.analyses || []).some(
+        (item) => item?.status === "processing" && Number(item?.template_id) === Number(templateId),
+    );
+    if (alreadyRunning) return;
+
+    launchingTemplateId.value = templateId;
     startForm.report_id = props.report.id;
-    startForm.template_id = selectedTemplateId.value;
+    startForm.template_id = templateId;
 
     startForm.post("/panel/wb/ai-cabinet-analyzer/ai-analyses/start", {
         preserveScroll: true,
+        onFinish: () => {
+            launchingTemplateId.value = null;
+        },
         onSuccess: () => {
             analysesPoll.start();
         },
@@ -135,21 +138,26 @@ function downloadAnalysis(row) {
 
 <template>
     <Card class="overflow-hidden">
-        <div class="space-y-6 p-4">
+        <div class="space-y-8 p-5 sm:p-6 md:p-8">
             <AiAnalysisLauncher
                 :is-report-ready="isReportReady"
                 :report-status="report?.status"
                 :templates="templates"
-                :selected-template-id="selectedTemplateId"
+                :analyses="analyses"
                 :processing="startForm.processing"
-                @update:selected-template-id="selectedTemplateId = $event"
+                :launching-template-id="launchingTemplateId"
                 @start="startAnalysis"
             />
 
-            <AiAnalysesHistoryTable
+            <Separator />
+
+            <AiAnalysesHistory
                 :items="analyses"
-                :polling="analysesPoll.isPolling"
+                :meta="analysesMeta"
+                :polling="isAnalysesPolling"
                 :regenerating-id="regeneratingId"
+                :show-url="showUrl"
+                :report-id="report?.id"
                 @refresh="refreshAnalyses"
                 @open="openAnalysis"
                 @regenerate="requestRegenerate"
@@ -168,8 +176,12 @@ function downloadAnalysis(row) {
         @download="downloadAnalysis"
     />
 
-    <Dialog :open="confirmRegenerateOpen" title="Перегенерировать анализ?" @update:open="confirmRegenerateOpen = $event">
-        <p class="text-sm">
+    <Dialog
+        :open="confirmRegenerateOpen"
+        title="Перегенерировать анализ?"
+        @update:open="confirmRegenerateOpen = $event"
+    >
+        <p class="text-sm leading-relaxed">
             Будет обновлён текущий анализ
             <strong>{{ regenerateTarget?.template?.name || "без названия" }}</strong>.
             Предыдущий результат будет заменён новым.

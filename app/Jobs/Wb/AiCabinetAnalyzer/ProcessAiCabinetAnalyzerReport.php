@@ -59,7 +59,12 @@ class ProcessAiCabinetAnalyzerReport implements ShouldQueue
                 'end_date' => $endDate,
             ]);
 
-            $snapshot = $service->collectReport((string) $report->cabinet->apikey, $beginDate, $endDate);
+            $snapshot = $service->collectReport(
+                (string) $report->cabinet->apikey,
+                $beginDate,
+                $endDate,
+                $report,
+            );
 
             DB::transaction(function () use ($report, $snapshot): void {
                 $report->status = AiCabinetAnalyzerReport::STATUS_DONE;

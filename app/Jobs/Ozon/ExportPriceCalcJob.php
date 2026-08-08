@@ -3,7 +3,7 @@
 namespace App\Jobs\Ozon;
 
 use App\Exports\Ozon\PriceCalc\FboFbsExport;
-use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
+use App\Models\Subscribers\Oz\OzCabinet;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbo;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbs;
 use Illuminate\Bus\Batchable;
@@ -31,7 +31,7 @@ class ExportPriceCalcJob implements ShouldQueue
     public function handle(): void
     {
         try {
-            $cabinet = OzPriceCalcCabinet::find($this->cabinetId);
+            $cabinet = OzCabinet::find($this->cabinetId);
             if (! $cabinet) {
                 Log::error("ExportPriceCalcJob: Cabinet {$this->cabinetId} not found");
                 return;

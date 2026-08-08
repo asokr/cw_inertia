@@ -102,10 +102,18 @@ Prefix: `/panel/wb/ai-cabinet-analyzer` · name: `subscriber.wb.ai-cabinet-analy
 - `cabinet_id` в reports = `wb_cabinets.id` (после миграции; legacy FK на analyzer-cabinets снят/переписан).
 - AI-анализ только по snapshot в `result_json` (без повторных WB-запросов).
 - Шаблоны: `wb_ai_cabinet_analyzer_templates`.
+- У шаблона поле `data_sources` (JSON-массив): `ads` | `reviews` | `funnel` — какие блоки snapshot отдавать ИИ.
+  - `ads` — `campaigns[]` и рекламные метрики в `items[]`
+  - `funnel` — `items[].funnel`
+  - `reviews` — `items[].reviews` + `feedbacks[]`
+  - `ads_vs_funnel` попадает в payload только если выбраны **и** ads, **и** funnel
+  - Snapshot-отчёт по-прежнему полный; фильтрация только на этапе ИИ-анализа
+  - Пустое/null → все три источника (обратная совместимость)
 - AI-анализы: `wb_ai_cabinet_analyzer_ai_analyses` (`processing|done|failed`).
-- AI: `GeminiApiClient` + fallback GPT (`APP_GPT_KEY`), очередь `wb_profit_analyzer`.
+- AI: `GeminiApiClient` + fallback GPT (`APP_GPT_KEY`), очередь **`wb_profit_analyzer`** (и snapshot-report, и AI-analysis job).
 - Модель по умолчанию: `gemini`.
 - Пустой итоговый AI-результат → `failed`, не `done`.
+- Зависшие `processing` отчёты (>70 мин) при открытии workspace помечаются `failed`.
 - Большие отчёты: батчинг dataset → единый результат.
 - В API-ответах `analysis_text` — JSON-структура; `analysis_json` / `model` на фронт не отдаются.
 - `analysis_text.metrics`: массив `{key,label,value}`, `label` на русском.

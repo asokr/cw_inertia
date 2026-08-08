@@ -25,12 +25,11 @@ const props = defineProps({
 
 const breadcrumbs = [
     { label: "Главная", href: "/panel" },
-    { label: "Ценообразование Ozon", href: "/panel/oz/price-calc" },
-    { label: props.cabinet.name },
+    { label: "Ценообразование Ozon" },
 ];
 
 const activeMode = ref(props.mode);
-const baseUrl = `/panel/oz/price-calc/cabinets/${props.cabinet.id}`;
+const baseUrl = "/panel/oz/price-calc";
 
 const exportDownloadUrl = computed(() => (
     activeMode.value === "fbs"

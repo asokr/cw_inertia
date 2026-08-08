@@ -12,7 +12,7 @@ class PlanLimitPresenterTest extends TestCase
         $entries = PlanLimitPresenter::displayEntries([
             'feedbacks_clients' => 3,
             'price_calc_clients' => 1,
-            'oz_feedbacks_clients' => 2,
+            'oz_cabinets' => 2,
             'repricer_nmid' => 50,
         ], [
             'ai_text_query' => 100,
@@ -23,7 +23,7 @@ class PlanLimitPresenterTest extends TestCase
         $this->assertContains('wb_cabinets', $keys);
         $this->assertNotContains('feedbacks_clients', $keys);
         $this->assertNotContains('price_calc_clients', $keys);
-        $this->assertContains('oz_feedbacks_clients', $keys);
+        $this->assertContains('oz_cabinets', $keys);
         $this->assertContains('repricer_nmid', $keys);
         $this->assertContains('ai_text_query', $keys);
 
@@ -58,5 +58,40 @@ class PlanLimitPresenterTest extends TestCase
         $this->assertSame(10, $map['ai_text_query']);
         $this->assertArrayNotHasKey('feedbacks_clients', $map);
         $this->assertArrayNotHasKey('price_calc_clients', $map);
+    }
+
+    public function test_drops_legacy_oz_cabinet_keys(): void
+    {
+        $entries = PlanLimitPresenter::displayEntries([
+            'oz_price_calc_clients' => 4,
+            'oz_feedbacks_clients' => 1,
+            'oz_cabinets' => 3,
+        ]);
+
+        $keys = array_column($entries, 'key');
+
+        $this->assertContains('oz_cabinets', $keys);
+        $this->assertNotContains('oz_price_calc_clients', $keys);
+        $this->assertNotContains('oz_feedbacks_clients', $keys);
+
+        $oz = collect($entries)->firstWhere('key', 'oz_cabinets');
+        $this->assertSame(3, $oz['value']);
+        $this->assertSame('Единый кабинет Ozon', $oz['label']);
+        $this->assertSame('Кабинет на все услуги для маркетплейса Ozon', $oz['hint']);
+    }
+
+    public function test_drops_legacy_oz_keys_without_oz_cabinets(): void
+    {
+        $entries = PlanLimitPresenter::displayEntries([
+            'oz_price_calc_clients' => 4,
+            'oz_feedbacks_clients' => 1,
+        ]);
+
+        $keys = array_column($entries, 'key');
+
+        $this->assertNotContains('oz_cabinets', $keys);
+        $this->assertNotContains('oz_price_calc_clients', $keys);
+        $this->assertNotContains('oz_feedbacks_clients', $keys);
+        $this->assertSame([], $entries);
     }
 }

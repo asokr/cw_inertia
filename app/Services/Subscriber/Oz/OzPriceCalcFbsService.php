@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Services\Subscriber\Oz;
-use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
+use App\Models\Subscribers\Oz\OzCabinet;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbs;
 use App\Services\Ozon\OzonApiService;
 use App\Support\Ozon\PriceCalc\OzonPriceCalcColumns;
@@ -28,7 +28,7 @@ class OzPriceCalcFbsService
         $batchName = sprintf('ozon_fbs_sync_%s', $cabinetId);
         $isSyncing = $this->hasActiveBatch($batchName);
 
-        $cabinet = OzPriceCalcCabinet::where('user_id', $request->user()->id)
+        $cabinet = OzCabinet::where('user_id', $request->user()->id)
             ->find($cabinetId);
 
         return response()->json([
@@ -42,7 +42,7 @@ class OzPriceCalcFbsService
 
     public function index(Request $request, int $cabinetId)
     {
-        $cabinet = OzPriceCalcCabinet::where('user_id', $request->user()->id)
+        $cabinet = OzCabinet::where('user_id', $request->user()->id)
             ->find($cabinetId);
 
         if (! $cabinet) {
@@ -133,7 +133,7 @@ class OzPriceCalcFbsService
 
     public function export(Request $request, int $cabinetId)
     {
-        $cabinet = OzPriceCalcCabinet::where('user_id', $request->user()->id)
+        $cabinet = OzCabinet::where('user_id', $request->user()->id)
             ->find($cabinetId);
 
         if (! $cabinet) {
@@ -186,7 +186,7 @@ class OzPriceCalcFbsService
 
     public function calculate(Request $request, int $cabinetId)
     {
-        $cabinet = OzPriceCalcCabinet::where('user_id', $request->user()->id)
+        $cabinet = OzCabinet::where('user_id', $request->user()->id)
             ->find($cabinetId);
 
         if (! $cabinet) {
@@ -230,7 +230,7 @@ class OzPriceCalcFbsService
 
     public function import(Request $request, int $cabinetId)
     {
-        $cabinet = OzPriceCalcCabinet::where('user_id', $request->user()->id)
+        $cabinet = OzCabinet::where('user_id', $request->user()->id)
             ->find($cabinetId);
 
         if (! $cabinet) {
@@ -277,7 +277,7 @@ class OzPriceCalcFbsService
 
     public function sync(Request $request, int $cabinetId)
     {
-        $cabinet = OzPriceCalcCabinet::where('user_id', $request->user()->id)
+        $cabinet = OzCabinet::where('user_id', $request->user()->id)
             ->find($cabinetId);
 
         if (! $cabinet) {

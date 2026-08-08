@@ -36,6 +36,8 @@ class WorkspaceController extends SubscriberToolController
         /** @var WbCabinet $cabinet */
         $cabinet = $cabinetOrResponse;
 
+        $this->failStaleProcessingReports($cabinet);
+
         $reportPayload = $this->resolveReportPayload($request, $cabinet);
         $report = $this->buildReportProp($request, $reportPayload);
         $meta = $this->buildMetaProp($reportPayload);
@@ -85,12 +87,7 @@ class WorkspaceController extends SubscriberToolController
         /** @var WbCabinet $cabinet */
         $cabinet = $cabinetOrResponse;
 
-        $response = $this->reportsService->start(
-            $request->duplicate(null, array_merge(
-                $request->validated(),
-                ['cabinet_id' => $cabinet->id]
-            ))
-        );
+        $response = $this->reportsService->start($request, $cabinet);
         $payload = $this->decodeApiResponse($response);
 
         if (($payload['success'] ?? false) !== true) {
@@ -106,6 +103,34 @@ class WorkspaceController extends SubscriberToolController
                 'report_id' => $reportId,
             ])
             ->with('success', $this->apiMessage($payload, 'Анализ запущен'));
+    }
+
+    /**
+     * Переводит в failed отчёты, зависшие в processing дольше порога
+     * (нет воркера / job умер без callback). Job timeout = 3600s, берём 70 мин.
+     */
+    private function failStaleProcessingReports(WbCabinet $cabinet): void
+    {
+        $thresholdMinutes = 70;
+        $threshold = now()->subMinutes($thresholdMinutes);
+
+        $stale = AiCabinetAnalyzerReport::query()
+            ->where('cabinet_id', $cabinet->id)
+            ->where('status', AiCabinetAnalyzerReport::STATUS_PROCESSING)
+            ->where('updated_at', '<', $threshold)
+            ->get();
+
+        foreach ($stale as $report) {
+            $payload = is_array($report->result_json) ? $report->result_json : [];
+            data_set(
+                $payload,
+                'meta.error',
+                "Сбор данных прерван: отчёт слишком долго был в обработке (более {$thresholdMinutes} мин). Запустите сбор заново."
+            );
+            $report->status = AiCabinetAnalyzerReport::STATUS_FAILED;
+            $report->result_json = $payload;
+            $report->save();
+        }
     }
 
     /**
@@ -296,6 +321,10 @@ class WorkspaceController extends SubscriberToolController
                 'id' => $row['id'],
                 'name' => $row['name'],
                 'description' => $row['description'] ?? '',
+                'data_sources' => array_values(array_filter(
+                    (array) ($row['data_sources'] ?? ['ads', 'reviews', 'funnel']),
+                    static fn ($source) => in_array((string) $source, ['ads', 'reviews', 'funnel'], true)
+                )),
             ];
         }, $payload['data'] ?? []));
     }
@@ -317,9 +346,14 @@ class WorkspaceController extends SubscriberToolController
             return [[], $emptyMeta];
         }
 
+        $analysesPage = max(1, (int) $request->input('analyses_page', 1));
+
         $payload = $this->decodeApiResponse(
             $this->aiAnalysesService->indexByReport(
-                $request->duplicate(['per_page' => 15]),
+                $request->duplicate(array_merge($request->query(), [
+                    'per_page' => 15,
+                    'page' => $analysesPage,
+                ])),
                 (string) $report['id']
             )
         );

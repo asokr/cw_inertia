@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Services\Admin\AiCostService;
+use App\Services\Subscriber\Oz\OzCabinetService;
 use App\Services\Subscriber\SubscriberContextService;
 use App\Services\Subscriber\Wb\WbCabinetMigrationService;
 use App\Services\Subscriber\Wb\WbCabinetService;
@@ -130,6 +131,28 @@ class HandleInertiaRequests extends Middleware
                 }
 
                 return app(WbCabinetMigrationService::class)->needsMigration($user);
+            },
+            'oz_cabinets' => function () use ($request, $user) {
+                if (! $user || ! $request->is('panel', 'panel/*')) {
+                    return [];
+                }
+
+                if (! \App\Support\HomeRedirect::canAccessPanel($user)) {
+                    return [];
+                }
+
+                return app(OzCabinetService::class)->listSummaries($user);
+            },
+            'selected_oz_cabinet' => function () use ($request, $user) {
+                if (! $user || ! $request->is('panel', 'panel/*')) {
+                    return null;
+                }
+
+                if (! \App\Support\HomeRedirect::canAccessPanel($user)) {
+                    return null;
+                }
+
+                return app(OzCabinetService::class)->selectedSummary($user);
             },
         ];
     }

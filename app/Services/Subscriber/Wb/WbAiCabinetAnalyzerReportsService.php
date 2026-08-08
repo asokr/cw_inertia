@@ -12,10 +12,14 @@ use Illuminate\Support\Facades\Validator;
 
 class WbAiCabinetAnalyzerReportsService
 {
-    public function start(Request $request)
+    /**
+     * @param  WbCabinet|null  $cabinet  Кабинет уже выбран в web-контроллере (selected cabinet).
+     *                                   Если null — берётся cabinet_id из request (legacy/API).
+     */
+    public function start(Request $request, ?WbCabinet $cabinet = null)
     {
         $validator = Validator::make($request->all(), [
-            'cabinet_id' => 'required|integer|exists:wb_cabinets,id',
+            'cabinet_id' => $cabinet ? 'nullable|integer|exists:wb_cabinets,id' : 'required|integer|exists:wb_cabinets,id',
             'begin_date' => 'nullable|date|required_with:end_date',
             'end_date' => 'nullable|date|required_with:begin_date|after_or_equal:begin_date',
         ]);
@@ -27,7 +31,10 @@ class WbAiCabinetAnalyzerReportsService
             ], 200);
         }
 
-        $cabinet = WbCabinet::find((int) $request->cabinet_id);
+        if ($cabinet === null) {
+            $cabinet = WbCabinet::find((int) $request->input('cabinet_id'));
+        }
+
         if (!$cabinet || (int) $cabinet->user_id !== (int) $request->user()->id) {
             return response()->json([
                 'success' => false,
@@ -60,8 +67,9 @@ class WbAiCabinetAnalyzerReportsService
             ]);
         });
 
+        // Очередь должна совпадать с воркером: queue:work --queue=wb_profit_analyzer
         ProcessAiCabinetAnalyzerReport::dispatch((int) $report->id, (int) $request->user()->id)
-            ->onQueue('wb_ai_cabinet_analyzer');
+            ->onQueue('wb_profit_analyzer');
 
         return response()->json([
             'success' => true,

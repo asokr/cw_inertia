@@ -16,8 +16,7 @@ class SubscriberLimitLabels
      */
     private const LABELS = [
         'wb_cabinets' => 'Единый кабинет Wildberries',
-        'oz_feedbacks_clients' => 'Кабинеты отзывов Ozon',
-        'oz_price_calc_clients' => 'Кабинеты ценообразования Ozon',
+        'oz_cabinets' => 'Единый кабинет Ozon',
         'repricer_nmid' => 'Номенклатуры в репрайсере',
         // Soft fallbacks if slug not yet in extra_limits catalog
         'feedbacks_gpt_query' => 'Запросы к ИИ для отзывов',

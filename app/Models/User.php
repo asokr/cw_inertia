@@ -5,6 +5,7 @@ namespace App\Models;
 use O21\LaravelWallet\Models\Balance;
 use Spatie\Permission\Traits\HasRoles;
 use App\Models\Subscribers\Subscribers;
+use App\Models\Subscribers\Oz\OzCabinet;
 use App\Models\Subscribers\Wb\WbCabinet;
 use Illuminate\Notifications\Notifiable;
 use O21\LaravelWallet\Contracts\Payable;
@@ -39,6 +40,7 @@ class User extends Authenticatable implements MustVerifyEmail, Payable, CanReset
         'vk_id',
         'yandex_id',
         'selected_wb_cabinet_id',
+        'selected_oz_cabinet_id',
     ];
 
     /**
@@ -90,6 +92,16 @@ class User extends Authenticatable implements MustVerifyEmail, Payable, CanReset
     public function selectedWbCabinet(): BelongsTo
     {
         return $this->belongsTo(WbCabinet::class, 'selected_wb_cabinet_id');
+    }
+
+    public function ozCabinets(): HasMany
+    {
+        return $this->hasMany(OzCabinet::class, 'user_id');
+    }
+
+    public function selectedOzCabinet(): BelongsTo
+    {
+        return $this->belongsTo(OzCabinet::class, 'selected_oz_cabinet_id');
     }
 
     public function balances()

@@ -41,8 +41,15 @@ function logout() {
     router.post("/logout");
 }
 
+/** Path only — nested admin screens may use query params. */
+function currentPath() {
+    return String(page.url || "").split("?")[0].split("#")[0];
+}
+
 function isActive(href) {
-    return page.url === href || page.url.startsWith(href + "/");
+    const path = currentPath();
+
+    return path === href || path.startsWith(`${href}/`);
 }
 </script>
 

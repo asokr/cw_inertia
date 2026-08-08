@@ -20,6 +20,7 @@ enum AiTaskType: string
     case WB_FEEDBACK_ANSWER_TEMPLATE = 'wb_feedback_answer_template';
     case OZON_FEEDBACK_ANSWER_AI = 'ozon_feedback_answer_ai';
     case WB_AI_CABINET_ANALYZER_AI = 'wb_ai_cabinet_analyzer_ai';
+    case OZ_AI_CABINET_ANALYZER_AI = 'oz_ai_cabinet_analyzer_ai';
 
     public static function values(): array
     {

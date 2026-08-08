@@ -2,7 +2,7 @@
 
 namespace App\Jobs\Ozon;
 
-use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
+use App\Models\Subscribers\Oz\OzCabinet;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbo;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbs;
 use App\Services\Ozon\OzonApiService;
@@ -43,7 +43,7 @@ class SyncPriceCalcJob implements ShouldQueue
 
     private function process(OzonApiService $ozonApiService): void
     {
-        $cabinet = OzPriceCalcCabinet::find($this->cabinetId);
+        $cabinet = OzCabinet::find($this->cabinetId);
 
         if (! $cabinet) {
             Log::warning("SyncPriceCalcJob: Cabinet {$this->cabinetId} not found");
@@ -147,7 +147,7 @@ class SyncPriceCalcJob implements ShouldQueue
         });
     }
 
-    private function fetchAllProducts(OzonApiService $ozonApiService, OzPriceCalcCabinet $cabinet): array
+    private function fetchAllProducts(OzonApiService $ozonApiService, OzCabinet $cabinet): array
     {
         $items = [];
         $lastId = '';
@@ -191,7 +191,7 @@ class SyncPriceCalcJob implements ShouldQueue
         ];
     }
 
-    private function fetchProductsDetails(OzonApiService $ozonApiService, OzPriceCalcCabinet $cabinet, array $productIds): array
+    private function fetchProductsDetails(OzonApiService $ozonApiService, OzCabinet $cabinet, array $productIds): array
     {
         $details = [];
 
@@ -216,7 +216,7 @@ class SyncPriceCalcJob implements ShouldQueue
         ];
     }
 
-    private function fetchProductAttributes(OzonApiService $ozonApiService, OzPriceCalcCabinet $cabinet, array $productIds): array
+    private function fetchProductAttributes(OzonApiService $ozonApiService, OzCabinet $cabinet, array $productIds): array
     {
         $attributes = [];
 

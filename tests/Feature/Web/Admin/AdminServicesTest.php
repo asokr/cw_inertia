@@ -35,6 +35,8 @@ class AdminServicesTest extends WebAuthTestCase
         $routes = [
             '/cw-page/services/ai-cabinet/cabinets',
             '/cw-page/services/ai-cabinet/prompts',
+            '/cw-page/services/oz-ai-cabinet/cabinets',
+            '/cw-page/services/oz-ai-cabinet/prompts',
             '/cw-page/services/ai/marketplace-logs',
             '/cw-page/services/ai/costs-archive',
             '/cw-page/wb/api-usage',
@@ -42,7 +44,8 @@ class AdminServicesTest extends WebAuthTestCase
         ];
 
         foreach ($routes as $route) {
-            $this->actingAs($user)->get($route)->assertForbidden();
+            // EnsureAdminAccess aborts 404 for non-admins; role middleware would 403.
+            $this->actingAs($user)->get($route)->assertStatus(404);
         }
     }
 
@@ -62,6 +65,16 @@ class AdminServicesTest extends WebAuthTestCase
             ->get('/cw-page/services/ai-cabinet/prompts')
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('Admin/Services/AiCabinet/Prompts/Index'));
+
+        $this->actingAs($user)
+            ->get('/cw-page/services/oz-ai-cabinet/cabinets')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Admin/Services/OzAiCabinet/Cabinets/Index'));
+
+        $this->actingAs($user)
+            ->get('/cw-page/services/oz-ai-cabinet/prompts')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Admin/Services/OzAiCabinet/Prompts/Index'));
 
         $this->actingAs($user)
             ->get('/cw-page/services/ai/marketplace-logs')
@@ -84,6 +97,55 @@ class AdminServicesTest extends WebAuthTestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Admin/Wb/ApiUsage/Logs')
                 ->where('sellerId', '12345'));
+    }
+
+    public function test_super_admin_can_create_prompt_with_data_sources(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('password'),
+        ]);
+        $user->assignRole('super-admin');
+
+        $this->actingAs($user)
+            ->post('/cw-page/services/ai-cabinet/prompts', [
+                'name' => 'Только реклама',
+                'description' => 'Ads only',
+                'system_prompt' => 'Analyze ads',
+                'sort_order' => 15,
+                'is_active' => true,
+                'response_format' => 'json',
+                'data_sources' => ['ads'],
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('wb_ai_cabinet_analyzer_templates', [
+            'name' => 'Только реклама',
+        ]);
+
+        $template = \App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerTemplate::query()
+            ->where('name', 'Только реклама')
+            ->first();
+
+        $this->assertNotNull($template);
+        $this->assertSame(['ads'], $template->resolvedDataSources());
+    }
+
+    public function test_prompt_requires_at_least_one_data_source(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('password'),
+        ]);
+        $user->assignRole('super-admin');
+
+        $this->actingAs($user)
+            ->from('/cw-page/services/ai-cabinet/prompts')
+            ->post('/cw-page/services/ai-cabinet/prompts', [
+                'name' => 'Empty sources',
+                'system_prompt' => 'Analyze',
+                'data_sources' => [],
+            ])
+            ->assertRedirect('/cw-page/services/ai-cabinet/prompts')
+            ->assertSessionHasErrors('data_sources');
     }
 
     private function setupServicesSchema(): void
@@ -130,6 +192,17 @@ class AdminServicesTest extends WebAuthTestCase
             });
         }
 
+        if (! Schema::hasTable('wb_cabinets')) {
+            Schema::create('wb_cabinets', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id');
+                $table->string('name')->nullable();
+                $table->text('apikey')->nullable();
+                $table->string('api_key_hash', 64)->nullable();
+                $table->timestamps();
+            });
+        }
+
         if (! Schema::hasTable('wb_ai_cabinet_analyzer_cabinets')) {
             Schema::create('wb_ai_cabinet_analyzer_cabinets', function (Blueprint $table) {
                 $table->id();
@@ -149,6 +222,37 @@ class AdminServicesTest extends WebAuthTestCase
                 $table->unsignedInteger('sort_order')->default(100);
                 $table->boolean('is_active')->default(true);
                 $table->string('response_format')->default('json');
+                $table->json('data_sources')->nullable();
+                $table->timestamps();
+            });
+        } elseif (! Schema::hasColumn('wb_ai_cabinet_analyzer_templates', 'data_sources')) {
+            Schema::table('wb_ai_cabinet_analyzer_templates', function (Blueprint $table) {
+                $table->json('data_sources')->nullable();
+            });
+        }
+
+        if (! Schema::hasTable('oz_cabinets')) {
+            Schema::create('oz_cabinets', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id');
+                $table->string('name')->nullable();
+                $table->string('client_id')->nullable();
+                $table->text('apikey')->nullable();
+                $table->text('last_sync_error')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        if (! Schema::hasTable('oz_ai_cabinet_analyzer_templates')) {
+            Schema::create('oz_ai_cabinet_analyzer_templates', function (Blueprint $table) {
+                $table->id();
+                $table->string('name');
+                $table->text('description')->nullable();
+                $table->longText('system_prompt');
+                $table->unsignedInteger('sort_order')->default(100);
+                $table->boolean('is_active')->default(true);
+                $table->string('response_format')->default('json');
+                $table->json('data_sources')->nullable();
                 $table->timestamps();
             });
         }

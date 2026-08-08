@@ -19,12 +19,31 @@ class PromptController extends Controller
 
     public function index(): Response
     {
+        $templates = $this->aiCabinetService->listTemplates()->map(function (AiCabinetAnalyzerTemplate $template) {
+            return [
+                'id' => $template->id,
+                'name' => $template->name,
+                'description' => $template->description,
+                'system_prompt' => $template->system_prompt,
+                'sort_order' => $template->sort_order,
+                'is_active' => $template->is_active,
+                'response_format' => $template->response_format,
+                'data_sources' => $template->resolvedDataSources(),
+                'created_at' => $template->created_at,
+                'updated_at' => $template->updated_at,
+            ];
+        });
+
         return Inertia::render('Admin/Services/AiCabinet/Prompts/Index', [
-            'templates' => $this->aiCabinetService->listTemplates(),
+            'templates' => $templates,
             'responseFormats' => [
                 ['value' => 'json', 'label' => 'Структурированный JSON'],
                 ['value' => 'markdown', 'label' => 'Markdown-отчёт'],
             ],
+            'dataSources' => collect((array) config('ai_cabinet_analyzer.data_sources', []))
+                ->map(fn (string $label, string $key) => ['value' => $key, 'label' => $label])
+                ->values()
+                ->all(),
         ]);
     }
 

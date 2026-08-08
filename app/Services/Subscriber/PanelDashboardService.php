@@ -3,8 +3,7 @@
 namespace App\Services\Subscriber;
 
 use App\Models\PaymentsTransaction;
-use App\Models\Subscribers\Oz\Feedbacks\FeedbacksClients as OzFeedbacksClients;
-use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
+use App\Models\Subscribers\Oz\OzCabinet;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
@@ -130,10 +129,12 @@ class PanelDashboardService
             }
         }
 
-        foreach (['oz_feedbacks_clients', 'oz_price_calc_clients', 'repricer_nmid'] as $key) {
-            if (array_key_exists($key, $planLimits)) {
-                $limits[$key] = (int) $planLimits[$key];
-            }
+        if (array_key_exists('oz_cabinets', $planLimits)) {
+            $limits['oz_cabinets'] = (int) $planLimits['oz_cabinets'];
+        }
+
+        if (array_key_exists('repricer_nmid', $planLimits)) {
+            $limits['repricer_nmid'] = (int) $planLimits['repricer_nmid'];
         }
 
         return PlanLimitPresenter::normalizeRemainingMap($limits);
@@ -151,17 +152,12 @@ class PanelDashboardService
             fn ($query) => $query->where('user_id', $userId)
         );
 
-        $ozFeedbacksCount = $this->countCabinets(
-            OzFeedbacksClients::class,
+        $ozCabinetsCount = $this->countCabinets(
+            OzCabinet::class,
             fn ($query) => $query->where('user_id', $userId)
         );
 
-        $ozPriceCalcCount = $this->countCabinets(
-            OzPriceCalcCabinet::class,
-            fn ($query) => $query->where('user_id', $userId)
-        );
-
-        // Unified WB cabinets are shared across tools — report the same count per WB tool,
+        // Unified cabinets are shared across tools — report the same count per tool,
         // but do not multiply them in the total.
         $cabinetsByTool = [
             'wb_feedbacks' => $wbCabinetsCount,
@@ -169,8 +165,8 @@ class PanelDashboardService
             'wb_price_calc' => $wbCabinetsCount,
             'wb_repricer' => $wbCabinetsCount,
             'wb_ai_cabinet_analyzer' => $wbCabinetsCount,
-            'oz_feedbacks' => $ozFeedbacksCount,
-            'oz_price_calc' => $ozPriceCalcCount,
+            'oz_price_calc' => $ozCabinetsCount,
+            'oz_ai_cabinet_analyzer' => $ozCabinetsCount,
         ];
 
         $activeBots = $this->countCabinets(
@@ -178,16 +174,10 @@ class PanelDashboardService
             fn ($query) => $query
                 ->where('bot_status', true)
                 ->whereHas('cabinet', fn ($q) => $q->where('user_id', $userId))
-        )
-            + $this->countCabinets(
-                OzFeedbacksClients::class,
-                fn ($query) => $query
-                    ->where('user_id', $userId)
-                    ->where('bot_status', 1)
-            );
+        );
 
         return [
-            'cabinets_total' => $wbCabinetsCount + $ozFeedbacksCount + $ozPriceCalcCount,
+            'cabinets_total' => $wbCabinetsCount + $ozCabinetsCount,
             'active_bots' => $activeBots,
             'cabinets_by_tool' => $cabinetsByTool,
         ];

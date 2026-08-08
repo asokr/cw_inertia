@@ -88,11 +88,42 @@ function submit() {
 
             <ApiKeyField
                 :model-value="modelValue.apikey"
-                :label="isOzon ? 'API-ключ Ozon' : 'API-ключ Wildberries'"
+                :label="isOzon ? 'API-ключ Ozon (Seller API)' : 'API-ключ Wildberries'"
                 :error="Boolean(errors.apikey)"
                 @update:model-value="updateField('apikey', $event)"
             />
             <p v-if="errors.apikey" class="text-xs text-destructive">{{ errors.apikey }}</p>
+
+            <template v-if="isOzon">
+                <div class="space-y-2 rounded-md border border-border/60 bg-muted/30 p-3">
+                    <p class="text-xs text-muted-foreground">
+                        Опционально: ключи <strong>Performance API</strong> (реклама) из
+                        Настройки → Performance API. Это не Seller API-ключ — в ролях Seller API
+                        пункта «реклама» нет.
+                    </p>
+                    <div class="space-y-2">
+                        <Label>Performance Client ID</Label>
+                        <Input
+                            :model-value="modelValue.performance_client_id ?? ''"
+                            placeholder="Client ID рекламы (только цифры)"
+                            :error="Boolean(errors.performance_client_id)"
+                            @update:model-value="updateField('performance_client_id', $event)"
+                        />
+                        <p v-if="errors.performance_client_id" class="text-xs text-destructive">
+                            {{ errors.performance_client_id }}
+                        </p>
+                    </div>
+                    <ApiKeyField
+                        :model-value="modelValue.performance_client_secret ?? ''"
+                        label="Performance Client Secret"
+                        :error="Boolean(errors.performance_client_secret)"
+                        @update:model-value="updateField('performance_client_secret', $event)"
+                    />
+                    <p v-if="errors.performance_client_secret" class="text-xs text-destructive">
+                        {{ errors.performance_client_secret }}
+                    </p>
+                </div>
+            </template>
 
             <div v-if="!isOzon && modelValue.brands !== undefined" class="space-y-2">
                 <Label>Бренды (через запятую)</Label>

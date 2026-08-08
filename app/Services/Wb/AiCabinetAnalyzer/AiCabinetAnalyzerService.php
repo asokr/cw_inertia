@@ -2,6 +2,7 @@
 
 namespace App\Services\Wb\AiCabinetAnalyzer;
 
+use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerReport;
 use App\Services\Wb\WbPriceCalculationService;
 use App\Support\Wb\WbBasketHost;
 use Carbon\Carbon;
@@ -35,6 +36,8 @@ class AiCabinetAnalyzerService
     private array $lastRequestAtByToken = [];
     private array $funnelRequestTimelineByToken = [];
     private array $funnelLastRequestAtByToken = [];
+    private ?AiCabinetAnalyzerReport $heartbeatReport = null;
+    private float $lastHeartbeatAt = 0.0;
 
     public function __construct(
         private readonly WbPriceCalculationService $wbPriceCalculationService,
@@ -42,21 +45,33 @@ class AiCabinetAnalyzerService
         private readonly AiCabinetAnalyzerFeedbacksCollector $feedbacksCollector,
     ) {}
 
-    public function collectReport(string $apiKey, string $beginDate, string $endDate): array
-    {
+    public function collectReport(
+        string $apiKey,
+        string $beginDate,
+        string $endDate,
+        ?AiCabinetAnalyzerReport $heartbeatReport = null,
+    ): array {
+        $this->heartbeatReport = $heartbeatReport;
+        $this->lastHeartbeatAt = 0.0;
         $warnings = [];
 
+        $this->touchHeartbeat('catalog');
         $catalogMeta = $this->fetchCabinetCatalogMeta($apiKey, $warnings);
         $allCabinetNmids = $catalogMeta['nmids'];
         $vendorCodesByNmid = $catalogMeta['vendor_codes'];
+
+        $this->touchHeartbeat('sales_funnel');
         $salesFunnelMap = $this->fetchSalesFunnelMap($apiKey, $allCabinetNmids, $beginDate, $endDate, $warnings);
 
+        $this->touchHeartbeat('adverts');
         $advertIds = $this->fetchAdvertIds($apiKey);
         if (empty($advertIds)) {
             throw new RuntimeException('Не удалось получить рекламные кампании или список кампаний пуст.');
         }
 
+        $this->touchHeartbeat('campaign_nmids');
         $campaignNmids = $this->fetchCampaignNmids($apiKey, $advertIds, $warnings);
+        $this->touchHeartbeat('campaign_stats');
         $campaignStats = $this->fetchCampaignStats($apiKey, $advertIds, $beginDate, $endDate, $warnings);
 
         $campaigns = [];
@@ -98,6 +113,7 @@ class AiCabinetAnalyzerService
 
         $itemsMap = $this->mergeAdsAndFunnel($itemsMap, $salesFunnelMap);
 
+        $this->touchHeartbeat('reviews');
         $reviewsByNmid = $this->reviewProductStatisticAggregator->latestByNmids(
             array_map('intval', array_keys($itemsMap)),
         );
@@ -105,6 +121,7 @@ class AiCabinetAnalyzerService
 
         ksort($itemsMap);
 
+        $this->touchHeartbeat('feedbacks');
         $feedbacksResult = $this->feedbacksCollector->collect(
             $apiKey,
             $beginDate,
@@ -267,6 +284,11 @@ class AiCabinetAnalyzerService
         $map = [];
 
         foreach ($batches as $batchIndex => $batchNmids) {
+            $this->touchHeartbeat(sprintf(
+                'sales_funnel_batch_%d_of_%d',
+                $batchIndex + 1,
+                count($batches),
+            ));
             $offset = 0;
 
             while (true) {
@@ -873,6 +895,42 @@ class AiCabinetAnalyzerService
 
         $this->requestTimelineByToken[$tokenScope][] = $now;
         $this->lastRequestAtByToken[$tokenScope] = $now;
+    }
+
+    /**
+     * Обновляет updated_at отчёта, чтобы UI не считал долгий сбор «зависшим».
+     * Не чаще раза в 30 секунд (чтобы не ддосить БД в tight-loop).
+     */
+    private function touchHeartbeat(string $stage = ''): void
+    {
+        if ($this->heartbeatReport === null) {
+            return;
+        }
+
+        $now = microtime(true);
+        if ($this->lastHeartbeatAt > 0 && ($now - $this->lastHeartbeatAt) < 30) {
+            return;
+        }
+
+        $this->lastHeartbeatAt = $now;
+
+        try {
+            $payload = is_array($this->heartbeatReport->result_json)
+                ? $this->heartbeatReport->result_json
+                : [];
+            if ($stage !== '') {
+                data_set($payload, 'meta.progress_stage', $stage);
+                data_set($payload, 'meta.progress_at', now()->toIso8601String());
+                $this->heartbeatReport->result_json = $payload;
+            }
+            $this->heartbeatReport->save();
+        } catch (Throwable $e) {
+            Log::debug('[AiCabinetAnalyzer] heartbeat failed', [
+                'report_id' => $this->heartbeatReport->id ?? null,
+                'stage' => $stage,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function throttleFunnelToken(string $tokenScope): void

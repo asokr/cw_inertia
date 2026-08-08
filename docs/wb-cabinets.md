@@ -11,13 +11,13 @@
 3. Все WB-инструменты читают данные и настройки для этого кабинета.
 4. Данные инструментов (отзывы, цены, настройки репрайсера и т.д.) ссылаются на `wb_cabinets.id` через `cabinet_id`.
 
-Ozon-инструменты по-прежнему имеют **свои** кабинеты на инструмент — унификация касается только Wildberries.
+Ozon-инструменты используют **свой** единый кабинет — см. [oz-cabinets.md](oz-cabinets.md).
 
 ## UX
 
 | Элемент | Поведение |
 |---------|-----------|
-| Переключатель в шапке | `resources/js/components/subscriber/wb/WbCabinetSwitcher.vue` — список, выбор, создание, редактирование, удаление |
+| Переключатель в шапке | `resources/js/components/subscriber/MarketplaceCabinetSwitcher.vue` — секции WB + Ozon в одном dropdown |
 | Смена активного кабинета | POST `/select` → редирект на главную панели (`/panel`), чтобы не оставаться в workspace старого кабинета |
 | Нет кабинета | Инструменты показывают `Subscriber/Wb/Shared/NoCabinet` |
 | Старые URL с `/cabinets/{id}` | Редирект на flat workspace (без id в path) |
@@ -77,7 +77,7 @@ Prefix: `/panel/wb/cabinets` · name: `subscriber.wb.cabinets.*`
 - `app/Http/Controllers/Web/Subscriber/Concerns/EnsuresWbCabinetOwnership.php`
 - `app/Http/Middleware/EnsureWbCabinetsMigrated.php`
 - `app/Http/Middleware/HandleInertiaRequests.php` — shared props
-- `resources/js/components/subscriber/wb/WbCabinetSwitcher.vue`
+- `resources/js/components/subscriber/MarketplaceCabinetSwitcher.vue`
 - `resources/js/Pages/Subscriber/Wb/Cabinets/Migration.vue`
 - `resources/js/Pages/Subscriber/Wb/Shared/NoCabinet.vue`
 

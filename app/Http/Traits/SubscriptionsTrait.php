@@ -7,8 +7,7 @@ use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Support\ToolLimits;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
-use App\Models\Subscribers\Oz\Feedbacks\FeedbacksClients as OzFeedbacksClients;
-use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
+use App\Models\Subscribers\Oz\OzCabinet;
 
 trait SubscriptionsTrait
 {
@@ -27,17 +26,13 @@ trait SubscriptionsTrait
                 $clients = WbCabinet::where('user_id', $user->id)->get();
                 $this->updateLimits($limit_type === 'wb_cabinets' ? 'wb_cabinets' : 'feedbacks_clients', $clients->count(), $subscriber_id);
                 break;
-            case 'oz_feedbacks_clients':
-                $clients = OzFeedbacksClients::where('user_id', $user->id)->get();
-                $this->updateLimits('oz_feedbacks_clients', $clients->count(), $subscriber_id);
-                break;
             case 'price_calc_clients':
                 $clients = WbCabinet::where('user_id', $user->id)->get();
                 $this->updateLimits('price_calc_clients', $clients->count(), $subscriber_id);
                 break;
-            case 'oz_price_calc_clients':
-                $clients = OzPriceCalcCabinet::where('user_id', $user->id)->get();
-                $this->updateLimits('oz_price_calc_clients', $clients->count(), $subscriber_id);
+            case 'oz_cabinets':
+                $clients = OzCabinet::where('user_id', $user->id)->get();
+                $this->updateLimits('oz_cabinets', $clients->count(), $subscriber_id);
                 break;
             case 'repricer_nmid':
                 $cabinets = WbCabinet::where('user_id', $user->id)->get();
@@ -66,16 +61,12 @@ trait SubscriptionsTrait
                 $clients = WbCabinet::where('user_id', $user->id)->get();
                 return $clients->count();
                 break;
-            case 'oz_feedbacks_clients':
-                $clients = OzFeedbacksClients::where('user_id', $user->id)->get();
-                return $clients->count();
-                break;
             case 'price_calc_clients':
                 $clients = WbCabinet::where('user_id', $user->id)->get();
                 return $clients->count();
                 break;
-            case 'oz_price_calc_clients':
-                $clients = OzPriceCalcCabinet::where('user_id', $user->id)->get();
+            case 'oz_cabinets':
+                $clients = OzCabinet::where('user_id', $user->id)->get();
                 return $clients->count();
                 break;
             case 'repricer_nmid':
@@ -130,16 +121,6 @@ trait SubscriptionsTrait
                         return;
                 }
                 break;
-            case 'oz_feedbacks_clients':
-                $clients = OzFeedbacksClients::where('subscriber_id', $user->id)->get();
-                $i = 0;
-                foreach ($clients as $client) {
-                    $client->delete();
-                    $i++;
-                    if ($i >= $to_delete)
-                        return;
-                }
-                break;
             case 'price_calc_clients':
                 $clients = WbCabinet::where('user_id', $user->id)->get();
                 $i = 0;
@@ -150,8 +131,8 @@ trait SubscriptionsTrait
                         return;
                 }
                 break;
-            case 'oz_price_calc_clients':
-                $clients = OzPriceCalcCabinet::where('user_id', $user->id)->get();
+            case 'oz_cabinets':
+                $clients = OzCabinet::where('user_id', $user->id)->get();
                 $i = 0;
                 foreach ($clients as $client) {
                     $client->delete();

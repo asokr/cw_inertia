@@ -241,11 +241,6 @@ class PanelTest extends WebAuthTestCase
                 $table->unsignedTinyInteger('bot_status')->default(0);
                 $table->timestamps();
             },
-            'oz_feedbacks_clients' => function (Blueprint $table) {
-                $table->id();
-                $table->unsignedBigInteger('user_id')->index();
-                $table->unsignedTinyInteger('bot_status')->default(0);
-            },
             'wb_profitability_cabinets' => function (Blueprint $table) {
                 $table->id();
                 $table->boolean('is_migrated')->default(false);
@@ -265,6 +260,13 @@ class PanelTest extends WebAuthTestCase
                 $table->id();
                 $table->boolean('is_migrated')->default(false);
                 $table->unsignedBigInteger('user_id')->index();
+            },
+            'oz_cabinets' => function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id')->index();
+                $table->string('name')->nullable();
+                $table->string('client_id')->nullable();
+                $table->text('apikey')->nullable();
             },
             'oz_price_calc_cabinets' => function (Blueprint $table) {
                 $table->id();

@@ -48,6 +48,7 @@ class AdminAiCabinetService
             'sort_order' => (int) ($data['sort_order'] ?? 100),
             'is_active' => (bool) ($data['is_active'] ?? true),
             'response_format' => (string) ($data['response_format'] ?? 'json'),
+            'data_sources' => $this->normalizeDataSources($data['data_sources'] ?? null),
         ]);
     }
 
@@ -61,9 +62,31 @@ class AdminAiCabinetService
         if (array_key_exists('response_format', $data)) {
             $template->response_format = (string) $data['response_format'];
         }
+        if (array_key_exists('data_sources', $data)) {
+            $template->data_sources = $this->normalizeDataSources($data['data_sources']);
+        }
         $template->save();
 
         return $template;
+    }
+
+    /**
+     * @param  mixed  $sources
+     * @return list<string>
+     */
+    private function normalizeDataSources(mixed $sources): array
+    {
+        $allowed = array_flip(AiCabinetAnalyzerTemplate::DATA_SOURCES);
+        $resolved = [];
+
+        foreach ((array) $sources as $source) {
+            $key = (string) $source;
+            if (isset($allowed[$key]) && ! in_array($key, $resolved, true)) {
+                $resolved[] = $key;
+            }
+        }
+
+        return $resolved !== [] ? $resolved : AiCabinetAnalyzerTemplate::DATA_SOURCES;
     }
 
     public function deleteTemplate(AiCabinetAnalyzerTemplate $template): void

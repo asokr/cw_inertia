@@ -25,7 +25,6 @@ class Kernel extends ConsoleKernel
         Commands\WbRepricerBot::class,
         Commands\DispatchRepricerStocksJobCommand::class,
         Commands\DispatchRepricerStrategyOneJobCommand::class,
-        Commands\OzFeedbacksAnswer::class,
         Commands\DispatchRepricerCompetitorsJobCommand::class,
         Commands\ResetStuckProfitabilityReportsCommand::class,
         Commands\AggregateAiCosts::class,
@@ -101,14 +100,6 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->onOneServer()
             ->runInBackground();
-
-        // Сервис ответов на отзывы Ozon
-        $schedule->command('subscriber:oz-feedbacks-answer')
-            ->hourly()
-            ->withoutOverlapping()
-            ->onOneServer()
-            ->runInBackground();
-
 
         // Репрайсер по времени
         $schedule->command('subscriber:wb-repricer-bot')->withoutOverlapping()->everyMinute();

@@ -15,7 +15,7 @@ import CabinetFooter from "@/components/CabinetFooter.vue";
 import FlashToasts from "@/components/admin/FlashToasts.vue";
 import SubscriptionPromoBanner from "@/components/subscriber/SubscriptionPromoBanner.vue";
 import TopBalance from "@/components/subscriber/TopBalance.vue";
-import WbCabinetSwitcher from "@/components/subscriber/wb/WbCabinetSwitcher.vue";
+import MarketplaceCabinetSwitcher from "@/components/subscriber/MarketplaceCabinetSwitcher.vue";
 import Badge from "@/components/ui/Badge.vue";
 import Button from "@/components/ui/Button.vue";
 import { getSubscriberNav } from "@/config/subscriberNav";
@@ -64,12 +64,19 @@ function logout() {
     router.post("/logout");
 }
 
+/** Path only — nested tool screens often use query params (?product_id=…). */
+function currentPath() {
+    return String(page.url || "").split("?")[0].split("#")[0];
+}
+
 function isActive(href) {
+    const path = currentPath();
+
     if (href === "/panel") {
-        return page.url === "/panel";
+        return path === "/panel";
     }
 
-    return page.url === href || page.url.startsWith(href + "/");
+    return path === href || path.startsWith(`${href}/`);
 }
 
 function navLinkClass(href, comingSoon) {
@@ -344,7 +351,7 @@ function closeMobile() {
                         </Link>
                     </div>
                     <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
-                        <WbCabinetSwitcher />
+                        <MarketplaceCabinetSwitcher />
                         <div class="hidden min-[450px]:block">
                             <TopBalance />
                         </div>

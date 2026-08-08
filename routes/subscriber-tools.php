@@ -11,7 +11,6 @@
 | Planned modules:
 | - 3b.1  Public blog (routes in web.php, not under /panel)
 | - 3b.2  WB Feedbacks       → /panel/wb/feedbacks
-| - 3b.3  Ozon Feedbacks     → /panel/oz/feedbacks
 | - 3b.4  WB Price Calc V3   → /panel/wb/price-calc
 | - 3b.5  Ozon Price Calc    → /panel/oz/price-calc
 | - 3b.6  WB Repricer        → /panel/wb/repricer
@@ -20,12 +19,13 @@
 | - 3b.9  WB Promo Calculator → /panel/wb/promocalculator
 | - 3b.10 AI Marketplace     → /panel/ai
 | - 3b.11 WB A/B Testing     → /panel/wb/ab-testing
+| - 3b.12 Ozon AI Cabinet Analyzer → /panel/oz/ai-cabinet-analyzer
 |
 */
 
-use App\Http\Controllers\Web\Subscriber\Oz\Feedbacks\ClientsController as OzFeedbacksClientsController;
-use App\Http\Controllers\Web\Subscriber\Oz\Feedbacks\FeedbacksController as OzFeedbacksController;
-use App\Http\Controllers\Web\Subscriber\Oz\PriceCalc\CabinetsController as OzPriceCalcCabinetsController;
+use App\Http\Controllers\Web\Subscriber\Oz\Cabinets\CabinetsController as OzCabinetsController;
+use App\Http\Controllers\Web\Subscriber\Oz\AiCabinetAnalyzer\AiAnalysesController as OzAiCabinetAnalyzerAiAnalysesController;
+use App\Http\Controllers\Web\Subscriber\Oz\AiCabinetAnalyzer\WorkspaceController as OzAiCabinetAnalyzerWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Oz\PriceCalc\WorkspaceController as OzPriceCalcWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Wb\PriceCalc\CabinetsController as WbPriceCalcCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Wb\PriceCalc\WorkspaceController as WbPriceCalcWorkspaceController;
@@ -68,6 +68,19 @@ Route::prefix('wb/cabinets')
         Route::post('/select', [WbCabinetsController::class, 'select'])->name('select');
     });
 
+/*
+| Unified Ozon Cabinets (global for all Ozon tools)
+*/
+Route::prefix('oz/cabinets')
+    ->name('subscriber.oz.cabinets.')
+    ->group(function () {
+        Route::redirect('/', '/panel')->name('index');
+        Route::post('/', [OzCabinetsController::class, 'store'])->name('store');
+        Route::put('/{cabinet}', [OzCabinetsController::class, 'update'])->name('update');
+        Route::delete('/{cabinet}', [OzCabinetsController::class, 'destroy'])->name('destroy');
+        Route::post('/select', [OzCabinetsController::class, 'select'])->name('select');
+    });
+
 Route::middleware(['permission:subscriber wb feedbacks'])
     ->prefix('wb/feedbacks')
     ->name('subscriber.wb.feedbacks.')
@@ -95,23 +108,6 @@ Route::middleware(['permission:subscriber wb feedbacks'])
         Route::get('/products/{product}', [StatsController::class, 'product'])->name('products.stats');
     });
 
-Route::middleware(['permission:subscriber oz feedbacks'])
-    ->prefix('oz/feedbacks')
-    ->name('subscriber.oz.feedbacks.')
-    ->group(function () {
-        Route::get('/', [OzFeedbacksClientsController::class, 'index'])->name('index');
-
-        Route::post('/cabinets', [OzFeedbacksClientsController::class, 'store'])->name('cabinets.store');
-        Route::put('/cabinets/{cabinet}', [OzFeedbacksClientsController::class, 'update'])->name('cabinets.update');
-        Route::delete('/cabinets/{cabinet}', [OzFeedbacksClientsController::class, 'destroy'])->name('cabinets.destroy');
-
-        Route::get('/cabinets/{cabinet}', [OzFeedbacksController::class, 'show'])->name('cabinets.show');
-        Route::post('/cabinets/{cabinet}/feedbacks', [OzFeedbacksController::class, 'refresh'])->name('cabinets.feedbacks.refresh');
-        Route::post('/cabinets/{cabinet}/feedbacks/send', [OzFeedbacksController::class, 'send'])->name('cabinets.feedbacks.send');
-        Route::post('/cabinets/{cabinet}/ai', [OzFeedbacksController::class, 'updateAi'])->name('cabinets.ai.update');
-        Route::post('/cabinets/{cabinet}/ai/generate', [OzFeedbacksController::class, 'generateAi'])->name('cabinets.ai.generate');
-    });
-
 Route::middleware(['permission:subscriber wb price calculator'])
     ->prefix('wb/price-calc')
     ->name('subscriber.wb.price-calc.')
@@ -130,25 +126,38 @@ Route::middleware(['permission:subscriber oz price calc'])
     ->prefix('oz/price-calc')
     ->name('subscriber.oz.price-calc.')
     ->group(function () {
-        Route::get('/', [OzPriceCalcCabinetsController::class, 'index'])->name('index');
+        // Legacy URLs → flat workspace (cabinet lives in header)
+        Route::redirect('/cabinets/{cabinet}', '/panel/oz/price-calc');
+        Route::get('/cabinets/{cabinet}/{any?}', function () {
+            return redirect('/panel/oz/price-calc');
+        })->where('any', '.*');
 
-        Route::post('/cabinets', [OzPriceCalcCabinetsController::class, 'store'])->name('cabinets.store');
-        Route::put('/cabinets/{cabinet}', [OzPriceCalcCabinetsController::class, 'update'])->name('cabinets.update');
-        Route::delete('/cabinets/{cabinet}', [OzPriceCalcCabinetsController::class, 'destroy'])->name('cabinets.destroy');
+        Route::get('/', [OzPriceCalcWorkspaceController::class, 'show'])->name('index');
 
-        Route::get('/cabinets/{cabinet}', [OzPriceCalcWorkspaceController::class, 'show'])->name('cabinets.show');
+        Route::post('/sync', [OzPriceCalcWorkspaceController::class, 'syncFbo'])->name('sync');
+        Route::post('/calculate', [OzPriceCalcWorkspaceController::class, 'calculateFbo'])->name('calculate');
+        Route::post('/import', [OzPriceCalcWorkspaceController::class, 'importFbo'])->name('import');
+        Route::post('/export', [OzPriceCalcWorkspaceController::class, 'exportFbo'])->name('export');
+        Route::get('/export-download', [OzPriceCalcWorkspaceController::class, 'exportDownloadFbo'])->name('export-download');
 
-        Route::post('/cabinets/{cabinet}/sync', [OzPriceCalcWorkspaceController::class, 'syncFbo'])->name('cabinets.sync');
-        Route::post('/cabinets/{cabinet}/calculate', [OzPriceCalcWorkspaceController::class, 'calculateFbo'])->name('cabinets.calculate');
-        Route::post('/cabinets/{cabinet}/import', [OzPriceCalcWorkspaceController::class, 'importFbo'])->name('cabinets.import');
-        Route::post('/cabinets/{cabinet}/export', [OzPriceCalcWorkspaceController::class, 'exportFbo'])->name('cabinets.export');
-        Route::get('/cabinets/{cabinet}/export-download', [OzPriceCalcWorkspaceController::class, 'exportDownloadFbo'])->name('cabinets.export-download');
+        Route::post('/fbs/sync', [OzPriceCalcWorkspaceController::class, 'syncFbs'])->name('fbs.sync');
+        Route::post('/fbs/calculate', [OzPriceCalcWorkspaceController::class, 'calculateFbs'])->name('fbs.calculate');
+        Route::post('/fbs/import', [OzPriceCalcWorkspaceController::class, 'importFbs'])->name('fbs.import');
+        Route::post('/fbs/export', [OzPriceCalcWorkspaceController::class, 'exportFbs'])->name('fbs.export');
+        Route::get('/fbs/export-download', [OzPriceCalcWorkspaceController::class, 'exportDownloadFbs'])->name('fbs.export-download');
+    });
 
-        Route::post('/cabinets/{cabinet}/fbs/sync', [OzPriceCalcWorkspaceController::class, 'syncFbs'])->name('cabinets.fbs.sync');
-        Route::post('/cabinets/{cabinet}/fbs/calculate', [OzPriceCalcWorkspaceController::class, 'calculateFbs'])->name('cabinets.fbs.calculate');
-        Route::post('/cabinets/{cabinet}/fbs/import', [OzPriceCalcWorkspaceController::class, 'importFbs'])->name('cabinets.fbs.import');
-        Route::post('/cabinets/{cabinet}/fbs/export', [OzPriceCalcWorkspaceController::class, 'exportFbs'])->name('cabinets.fbs.export');
-        Route::get('/cabinets/{cabinet}/fbs/export-download', [OzPriceCalcWorkspaceController::class, 'exportDownloadFbs'])->name('cabinets.fbs.export-download');
+Route::middleware(['permission:subscriber oz ai cabinet analyzer'])
+    ->prefix('oz/ai-cabinet-analyzer')
+    ->name('subscriber.oz.ai-cabinet-analyzer.')
+    ->group(function () {
+        Route::get('/', [OzAiCabinetAnalyzerWorkspaceController::class, 'show'])->name('index');
+        Route::post('/reports', [OzAiCabinetAnalyzerWorkspaceController::class, 'startReport'])->name('reports.store');
+
+        Route::post('/ai-analyses/start', [OzAiCabinetAnalyzerAiAnalysesController::class, 'start'])->name('ai-analyses.start');
+        Route::post('/ai-analyses/{analysis}/regenerate', [OzAiCabinetAnalyzerAiAnalysesController::class, 'regenerate'])->name('ai-analyses.regenerate');
+        Route::get('/ai-analyses/{analysis}', [OzAiCabinetAnalyzerAiAnalysesController::class, 'show'])->name('ai-analyses.show');
+        Route::get('/ai-analyses/{analysis}/download', [OzAiCabinetAnalyzerAiAnalysesController::class, 'download'])->name('ai-analyses.download');
     });
 
 Route::middleware(['permission:subscriber wb repricer'])

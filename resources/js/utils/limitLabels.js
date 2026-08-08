@@ -2,14 +2,17 @@
  * Structural labels for cabinet / plan limits.
  * Purchasable monthly names come from DB (extra_limits.name) via server props or catalog.
  * WB tools share a unified cabinet count (wb_cabinets); legacy per-tool keys collapse in UI.
+ * Ozon uses only oz_cabinets (legacy oz_*_clients keys are dropped).
  */
 
 export const LEGACY_WB_CABINET_KEYS = ["feedbacks_clients", "price_calc_clients", "adverts_clients"];
 
+/** Removed Ozon per-tool keys — dropped from display (no runtime fallback). */
+export const DROPPED_OZ_CABINET_KEYS = ["oz_price_calc_clients", "oz_feedbacks_clients"];
+
 export const limitLabels = {
     wb_cabinets: "Единый кабинет Wildberries",
-    oz_feedbacks_clients: "Кабинеты отзывов Ozon",
-    oz_price_calc_clients: "Кабинеты ценообразования Ozon",
+    oz_cabinets: "Единый кабинет Ozon",
     repricer_nmid: "Номенклатуры в репрайсере",
     // Soft fallbacks if server/catalog map is missing
     feedbacks_gpt_query: "Запросы к ИИ для отзывов",
@@ -30,6 +33,10 @@ export function formatLimitLabel(key, labelsMap = null) {
         return (labelsMap ?? externalLabels)?.wb_cabinets ?? limitLabels.wb_cabinets;
     }
 
+    if (key === "oz_cabinets" || DROPPED_OZ_CABINET_KEYS.includes(key)) {
+        return (labelsMap ?? externalLabels)?.oz_cabinets ?? limitLabels.oz_cabinets;
+    }
+
     const fromMap = labelsMap?.[key] ?? externalLabels?.[key];
     // Ignore empty / slug-as-name so soft fallbacks still work (common broken prod data).
     if (typeof fromMap === "string" && fromMap !== "" && fromMap !== key) {
@@ -40,7 +47,8 @@ export function formatLimitLabel(key, labelsMap = null) {
 }
 
 /**
- * Collapse legacy per-tool WB cabinet counters into a single wb_cabinets entry.
+ * Collapse legacy per-tool WB cabinet counters into unified entries;
+ * drop removed Ozon per-tool keys.
  * @param {Record<string, unknown>|null|undefined} limits
  * @returns {Record<string, number|string>}
  */
@@ -59,6 +67,10 @@ export function normalizePlanLimits(limits) {
 
         if (LEGACY_WB_CABINET_KEYS.includes(rawKey)) {
             legacyValues.push(Number(value) || 0);
+            continue;
+        }
+
+        if (DROPPED_OZ_CABINET_KEYS.includes(rawKey)) {
             continue;
         }
 

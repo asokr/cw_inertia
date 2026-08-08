@@ -75,13 +75,22 @@ export function getAdminNav({ can, hasRole }) {
                     icon: Warehouse,
                 },
                 {
-                    label: "ИИ-анализ",
+                    label: "ИИ-анализ WB",
                     children: [
                         { label: "Кабинеты", href: "/cw-page/services/ai-cabinet/cabinets" },
                         { label: "Промпты", href: "/cw-page/services/ai-cabinet/prompts" },
                     ],
                     icon: Sparkles,
                 },
+                {
+                    label: "ИИ-анализ Ozon",
+                    children: [
+                        { label: "Кабинеты", href: "/cw-page/services/oz-ai-cabinet/cabinets" },
+                        { label: "Промпты", href: "/cw-page/services/oz-ai-cabinet/prompts" },
+                    ],
+                    icon: Sparkles,
+                },
+
                 { label: "ИИ запросы", href: "/cw-page/services/ai/marketplace-logs", icon: Sparkles },
                 { label: "Архив расходов AI", href: "/cw-page/services/ai/costs-archive", icon: Sparkles },
                 { label: "WB API Usage", href: "/cw-page/wb/api-usage", icon: Activity },

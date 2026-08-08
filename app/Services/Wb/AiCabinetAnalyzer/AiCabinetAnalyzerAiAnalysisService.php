@@ -38,16 +38,21 @@ class AiCabinetAnalyzerAiAnalysisService
         $this->logUserId = $userId;
         $this->logSubscriberId = $subscriberId;
 
-        $normalizedDataset = $this->normalizeDataset((array) ($report->result_json ?? []));
-        if (empty($normalizedDataset['items']) && empty($normalizedDataset['campaigns'])) {
-            throw new RuntimeException('В отчёте нет данных для ИИ-анализа.');
+        $dataSources = $template->resolvedDataSources();
+        $normalizedDataset = $this->filterDatasetBySources(
+            $this->normalizeDataset((array) ($report->result_json ?? [])),
+            $dataSources,
+        );
+
+        if (! $this->datasetHasContentForSources($normalizedDataset, $dataSources)) {
+            throw new RuntimeException('В отчёте нет данных для ИИ-анализа по выбранным источникам шаблона.');
         }
 
         $model = $this->resolveModel($requestedModel);
         $batches = $this->buildBatches($normalizedDataset);
 
         $isMarkdown = ((string) ($template->response_format ?? 'json')) === 'markdown';
-        $fieldInstructions = $this->getFieldInstructions();
+        $fieldInstructions = $this->getFieldInstructions($dataSources);
 
         $batchResults = [];
         $totalInputTokens = 0;
@@ -250,6 +255,140 @@ class AiCabinetAnalyzerAiAnalysisService
             'items' => $items,
             'feedbacks' => $feedbacks,
         ];
+    }
+
+    /**
+     * Оставляет в dataset только блоки, выбранные в шаблоне промпта.
+     *
+     * @param  array<string, mixed>  $dataset
+     * @param  list<string>  $sources
+     * @return array<string, mixed>
+     */
+    public function filterDatasetBySources(array $dataset, array $sources): array
+    {
+        $includeAds = in_array(AiCabinetAnalyzerTemplate::DATA_SOURCE_ADS, $sources, true);
+        $includeReviews = in_array(AiCabinetAnalyzerTemplate::DATA_SOURCE_REVIEWS, $sources, true);
+        $includeFunnel = in_array(AiCabinetAnalyzerTemplate::DATA_SOURCE_FUNNEL, $sources, true);
+        $includeAdsVsFunnel = $includeAds && $includeFunnel;
+
+        if (! $includeAds) {
+            $dataset['campaigns'] = [];
+        }
+
+        if (! $includeReviews) {
+            $dataset['feedbacks'] = [];
+        }
+
+        $totals = (array) data_get($dataset, 'meta.totals', []);
+        if (! $includeAds) {
+            unset(
+                $totals['campaigns_count'],
+                $totals['campaigns_with_nmids'],
+            );
+        }
+        if (! $includeFunnel) {
+            unset(
+                $totals['funnel_nmids_total'],
+                $totals['funnel_nmids_with_data'],
+            );
+        }
+        if (! $includeReviews) {
+            unset(
+                $totals['reviews_nmids_with_data'],
+                $totals['feedbacks_in_period_count'],
+                $totals['feedbacks_fetched_count'],
+            );
+        }
+        data_set($dataset, 'meta.totals', $totals);
+
+        $items = [];
+        foreach ((array) ($dataset['items'] ?? []) as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $filtered = [
+                'nmid' => (int) ($item['nmid'] ?? 0),
+            ];
+
+            if ($includeAds) {
+                $filtered['advert_ids'] = array_values(array_map('intval', (array) ($item['advert_ids'] ?? [])));
+                $filtered['campaigns_count'] = (int) ($item['campaigns_count'] ?? 0);
+                $filtered['clicks'] = (int) ($item['clicks'] ?? 0);
+                $filtered['views'] = (int) ($item['views'] ?? 0);
+                $filtered['spend'] = (float) ($item['spend'] ?? 0);
+                $filtered['orders'] = (int) ($item['orders'] ?? 0);
+                $filtered['ctr'] = (float) ($item['ctr'] ?? 0);
+                $filtered['cpc'] = (float) ($item['cpc'] ?? 0);
+                $filtered['cr'] = (float) ($item['cr'] ?? 0);
+            }
+
+            if ($includeFunnel) {
+                $filtered['funnel'] = (array) ($item['funnel'] ?? []);
+            }
+
+            if ($includeAdsVsFunnel) {
+                $filtered['ads_vs_funnel'] = (array) ($item['ads_vs_funnel'] ?? []);
+            }
+
+            if ($includeReviews) {
+                $filtered['reviews'] = (array) ($item['reviews'] ?? []);
+            }
+
+            $items[] = $filtered;
+        }
+
+        $dataset['items'] = $items;
+
+        return $dataset;
+    }
+
+    /**
+     * @param  array<string, mixed>  $dataset
+     * @param  list<string>  $sources
+     */
+    private function datasetHasContentForSources(array $dataset, array $sources): bool
+    {
+        $includeAds = in_array(AiCabinetAnalyzerTemplate::DATA_SOURCE_ADS, $sources, true);
+        $includeReviews = in_array(AiCabinetAnalyzerTemplate::DATA_SOURCE_REVIEWS, $sources, true);
+        $includeFunnel = in_array(AiCabinetAnalyzerTemplate::DATA_SOURCE_FUNNEL, $sources, true);
+
+        if ($includeAds && ! empty($dataset['campaigns'])) {
+            return true;
+        }
+
+        if ($includeReviews && ! empty($dataset['feedbacks'])) {
+            return true;
+        }
+
+        foreach ((array) ($dataset['items'] ?? []) as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            if ($includeAds) {
+                $hasAdsSignal = ((int) ($item['clicks'] ?? 0)) > 0
+                    || ((int) ($item['views'] ?? 0)) > 0
+                    || ((float) ($item['spend'] ?? 0)) > 0
+                    || ((int) ($item['orders'] ?? 0)) > 0
+                    || ! empty($item['advert_ids']);
+                if ($hasAdsSignal) {
+                    return true;
+                }
+            }
+
+            if ($includeFunnel && ! empty($item['funnel'])) {
+                return true;
+            }
+
+            if ($includeReviews && ! empty($item['reviews'])) {
+                return true;
+            }
+        }
+
+        // Если в snapshot есть items (хотя бы nmid), считаем данные достаточными —
+        // иначе «пустой кабинет» с номенклатурой без метрик не сможет запустить анализ.
+        return ! empty($dataset['items']);
     }
 
     private function buildBatches(array $dataset): array
@@ -1157,13 +1296,58 @@ class AiCabinetAnalyzerAiAnalysisService
      * Возвращает отформатированные инструкции по названиям полей для промпта ИИ.
      * Берет данные из конфига, чтобы ИИ использовал человекопонятные русские названия
      * вместо технических ключей из базы данных.
+     * Справочник полей фильтруется по выбранным источникам шаблона.
+     *
+     * @param  list<string>  $sources
      */
-    private function getFieldInstructions(): string
+    private function getFieldInstructions(array $sources = []): string
     {
+        if ($sources === []) {
+            $sources = AiCabinetAnalyzerTemplate::DATA_SOURCES;
+        }
+
+        $includeAds = in_array(AiCabinetAnalyzerTemplate::DATA_SOURCE_ADS, $sources, true);
+        $includeReviews = in_array(AiCabinetAnalyzerTemplate::DATA_SOURCE_REVIEWS, $sources, true);
+        $includeFunnel = in_array(AiCabinetAnalyzerTemplate::DATA_SOURCE_FUNNEL, $sources, true);
+        $includeAdsVsFunnel = $includeAds && $includeFunnel;
+
         $funnelLabels = (array) config('ai_cabinet_analyzer.funnel_field_labels', []);
-        $reviewsLabels = (array) config('ai_cabinet_analyzer.reviews_field_labels', []);
-        $feedbacksLabels = (array) config('ai_cabinet_analyzer.feedbacks_field_labels', []);
-        $labels = array_merge($funnelLabels, $reviewsLabels, $feedbacksLabels);
+        $adsFieldKeys = array_flip((array) config('ai_cabinet_analyzer.ads_field_keys', []));
+        $adsVsFunnelKeys = array_flip((array) config('ai_cabinet_analyzer.ads_vs_funnel_field_keys', []));
+
+        $labels = [];
+        foreach ($funnelLabels as $key => $label) {
+            $key = (string) $key;
+            $isAdsKey = isset($adsFieldKeys[$key]);
+            $isAdsVsFunnelKey = isset($adsVsFunnelKeys[$key]);
+
+            if ($isAdsVsFunnelKey) {
+                if ($includeAdsVsFunnel) {
+                    $labels[$key] = $label;
+                }
+                continue;
+            }
+
+            if ($isAdsKey) {
+                if ($includeAds) {
+                    $labels[$key] = $label;
+                }
+                continue;
+            }
+
+            // Остальные ключи в funnel_field_labels — метрики воронки
+            if ($includeFunnel) {
+                $labels[$key] = $label;
+            }
+        }
+
+        if ($includeReviews) {
+            $labels = array_merge(
+                $labels,
+                (array) config('ai_cabinet_analyzer.reviews_field_labels', []),
+                (array) config('ai_cabinet_analyzer.feedbacks_field_labels', []),
+            );
+        }
 
         if ($labels === []) {
             return "Всегда отвечай строго на русском языке.\n";
@@ -1175,28 +1359,46 @@ class AiCabinetAnalyzerAiAnalysisService
         }
 
         $fieldList = implode("\n", $lines);
-        $feedbacksReference = trim((string) config('ai_cabinet_analyzer.feedbacks_api_field_reference', ''));
-        $feedbacksInstructions = trim((string) config('ai_cabinet_analyzer.feedbacks_field_instructions', ''));
+
+        $scopeHints = [];
+        if ($includeAds) {
+            $scopeHints[] = 'рекламы';
+        }
+        if ($includeFunnel) {
+            $scopeHints[] = 'воронки продаж';
+        }
+        if ($includeReviews) {
+            $scopeHints[] = 'отзывов';
+        }
+        $scopeText = $scopeHints !== []
+            ? implode(', ', $scopeHints)
+            : 'доступных данных';
 
         $parts = [
             "ПРАВИЛА ПО НАЗВАНИЯМ ПОЛЕЙ (ОБЯЗАТЕЛЬНО СОБЛЮДАЙ):",
             "- Всегда отвечай строго на русском языке.",
             "- Никогда не используй в ответе технические названия колонок из данных (open_count, cart_count, buyout_count, order_count, spend, clicks, views, average_rating, bables, productValuation, orderStatus и т.п.).",
-            "- Для всех метрик воронки продаж, агрегированных отзывов и сырых отзывов WB (feedbacks) используй ТОЛЬКО человекопонятные названия из этого списка:",
+            "- Анализируй только переданные источники данных: {$scopeText}.",
+            "- Для метрик из dataset используй ТОЛЬКО человекопонятные названия из этого списка:",
             '',
             $fieldList,
             '',
             (string) config('ai_cabinet_analyzer.field_instructions', ''),
         ];
 
-        if ($feedbacksReference !== '') {
-            $parts[] = '';
-            $parts[] = $feedbacksReference;
-        }
+        if ($includeReviews) {
+            $feedbacksReference = trim((string) config('ai_cabinet_analyzer.feedbacks_api_field_reference', ''));
+            $feedbacksInstructions = trim((string) config('ai_cabinet_analyzer.feedbacks_field_instructions', ''));
 
-        if ($feedbacksInstructions !== '') {
-            $parts[] = '';
-            $parts[] = $feedbacksInstructions;
+            if ($feedbacksReference !== '') {
+                $parts[] = '';
+                $parts[] = $feedbacksReference;
+            }
+
+            if ($feedbacksInstructions !== '') {
+                $parts[] = '';
+                $parts[] = $feedbacksInstructions;
+            }
         }
 
         return implode("\n", $parts) . "\n\n";

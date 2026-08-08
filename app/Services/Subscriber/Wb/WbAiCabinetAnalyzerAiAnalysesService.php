@@ -50,35 +50,58 @@ class WbAiCabinetAnalyzerAiAnalysesService
             ], 200);
         }
 
-        $existing = AiCabinetAnalyzerAiAnalysis::where('report_id', (int) $report->id)
-            ->where('template_id', (int) $template->id)
-            ->where('status', AiCabinetAnalyzerAiAnalysis::STATUS_DONE)
-            ->orderByDesc('id')
-            ->first();
+        $reportId = (int) $report->id;
+        $templateId = (int) $template->id;
 
-        if ($existing) {
+        // One in-flight analysis per report+template (same data sample + same analysis type).
+        return DB::transaction(function () use ($request, $reportId, $templateId) {
+            $existingForPair = AiCabinetAnalyzerAiAnalysis::query()
+                ->where('report_id', $reportId)
+                ->where('template_id', $templateId)
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->get();
+
+            $processing = $existingForPair->first(
+                static fn (AiCabinetAnalyzerAiAnalysis $row): bool => (string) $row->status === AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING
+            );
+
+            if ($processing) {
+                return response()->json([
+                    'success' => false,
+                    'messages' => ['Этот анализ уже выполняется для текущей выборки данных. Дождитесь завершения.'],
+                    'data' => $this->analysisPayload($processing->load('template')),
+                ], 200);
+            }
+
+            $existingDone = $existingForPair->first(
+                static fn (AiCabinetAnalyzerAiAnalysis $row): bool => (string) $row->status === AiCabinetAnalyzerAiAnalysis::STATUS_DONE
+            );
+
+            if ($existingDone) {
+                return response()->json([
+                    'success' => true,
+                    'messages' => ['Возвращён ранее сформированный ИИ-анализ'],
+                    'data' => $this->analysisPayload($existingDone->load('template')),
+                ], 200);
+            }
+
+            $analysis = AiCabinetAnalyzerAiAnalysis::create([
+                'report_id' => $reportId,
+                'template_id' => $templateId,
+                'status' => AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING,
+                'model' => (string) ($request->input('model') ?: 'gemini'),
+            ]);
+
+            ProcessAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $analysis->id, (int) $request->user()->id)
+                ->onQueue('wb_profit_analyzer');
+
             return response()->json([
                 'success' => true,
-                'messages' => ['Возвращён ранее сформированный ИИ-анализ'],
-                'data' => $this->analysisPayload($existing->load('template')),
+                'messages' => ['ИИ-анализ запущен'],
+                'data' => $this->analysisPayload($analysis->load('template')),
             ], 200);
-        }
-
-        $analysis = AiCabinetAnalyzerAiAnalysis::create([
-            'report_id' => (int) $report->id,
-            'template_id' => (int) $template->id,
-            'status' => AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING,
-            'model' => (string) ($request->input('model') ?: 'gemini'),
-        ]);
-
-        ProcessAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $analysis->id, (int) $request->user()->id)
-            ->onQueue('wb_ai_cabinet_analyzer');
-
-        return response()->json([
-            'success' => true,
-            'messages' => ['ИИ-анализ запущен'],
-            'data' => $this->analysisPayload($analysis->load('template')),
-        ], 200);
+        });
     }
 
     public function regenerate(Request $request, string $analysis)
@@ -103,13 +126,6 @@ class WbAiCabinetAnalyzerAiAnalysesService
             ], 200);
         }
 
-        if ((string) $entry->status === AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['ИИ-анализ уже выполняется'],
-            ], 200);
-        }
-
         if ((string) $entry->report->status !== AiCabinetAnalyzerReport::STATUS_DONE) {
             return response()->json([
                 'success' => false,
@@ -125,29 +141,65 @@ class WbAiCabinetAnalyzerAiAnalysesService
             ], 200);
         }
 
-        DB::transaction(function () use ($entry, $request): void {
-            $entry->status = AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING;
-            $entry->model = (string) ($request->input('model') ?: $entry->model ?: 'gemini');
-            $entry->analysis_json = null;
-            $entry->analysis_text = null;
-            $entry->analysis_markdown = null;
-            $entry->input_tokens = 0;
-            $entry->output_tokens = 0;
-            $entry->total_tokens = 0;
-            $entry->error_message = null;
-            $entry->started_at = null;
-            $entry->finished_at = null;
-            $entry->save();
+        $result = DB::transaction(function () use ($entry, $request) {
+            $locked = AiCabinetAnalyzerAiAnalysis::query()
+                ->whereKey($entry->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$locked) {
+                return response()->json([
+                    'success' => false,
+                    'messages' => ['ИИ-анализ не найден'],
+                ], 200);
+            }
+
+            if ((string) $locked->status === AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING) {
+                return response()->json([
+                    'success' => false,
+                    'messages' => ['ИИ-анализ уже выполняется'],
+                ], 200);
+            }
+
+            $siblingProcessing = AiCabinetAnalyzerAiAnalysis::query()
+                ->where('report_id', (int) $locked->report_id)
+                ->where('template_id', (int) $locked->template_id)
+                ->where('status', AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING)
+                ->where('id', '!=', (int) $locked->id)
+                ->lockForUpdate()
+                ->exists();
+
+            if ($siblingProcessing) {
+                return response()->json([
+                    'success' => false,
+                    'messages' => ['Этот анализ уже выполняется для текущей выборки данных. Дождитесь завершения.'],
+                ], 200);
+            }
+
+            $locked->status = AiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING;
+            $locked->model = (string) ($request->input('model') ?: $locked->model ?: 'gemini');
+            $locked->analysis_json = null;
+            $locked->analysis_text = null;
+            $locked->analysis_markdown = null;
+            $locked->input_tokens = 0;
+            $locked->output_tokens = 0;
+            $locked->total_tokens = 0;
+            $locked->error_message = null;
+            $locked->started_at = null;
+            $locked->finished_at = null;
+            $locked->save();
+
+            ProcessAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $locked->id, (int) $request->user()->id)
+                ->onQueue('wb_profit_analyzer');
+
+            return response()->json([
+                'success' => true,
+                'messages' => ['ИИ-анализ перезапущен'],
+                'data' => $this->analysisPayload($locked->load('template')),
+            ], 200);
         });
 
-        ProcessAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $entry->id, (int) $request->user()->id)
-            ->onQueue('wb_ai_cabinet_analyzer');
-
-        return response()->json([
-            'success' => true,
-            'messages' => ['ИИ-анализ перезапущен'],
-            'data' => $this->analysisPayload($entry->fresh()->load('template')),
-        ], 200);
+        return $result;
     }
 
     public function indexByReport(Request $request, string $report)
@@ -221,7 +273,22 @@ class WbAiCabinetAnalyzerAiAnalysesService
             ->where('is_active', true)
             ->orderBy('sort_order')
             ->orderBy('id')
-            ->get(['id', 'name', 'description', 'sort_order', 'is_active', 'response_format', 'created_at', 'updated_at']);
+            ->get(['id', 'name', 'description', 'sort_order', 'is_active', 'response_format', 'data_sources', 'created_at', 'updated_at'])
+            ->map(static function (AiCabinetAnalyzerTemplate $template): array {
+                return [
+                    'id' => (int) $template->id,
+                    'name' => (string) $template->name,
+                    'description' => (string) ($template->description ?? ''),
+                    'sort_order' => (int) $template->sort_order,
+                    'is_active' => (bool) $template->is_active,
+                    'response_format' => (string) ($template->response_format ?? 'json'),
+                    'data_sources' => $template->resolvedDataSources(),
+                    'created_at' => $template->created_at,
+                    'updated_at' => $template->updated_at,
+                ];
+            })
+            ->values()
+            ->all();
 
         return response()->json([
             'success' => true,

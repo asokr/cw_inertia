@@ -17,13 +17,15 @@
 | Subscriber tools infrastructure | `routes/subscriber-tools.php`, shared components, `useToolPoll` | `Web/Subscriber/SubscriberToolController` | `components/subscriber/tools/*` | done (Phase 3b.0) |
 | Public blog | `/blog`, `/blog/{slug}`, `/blog/sitemap.xml` | `Web/Blog/*` | `Blog/Index`, `Blog/Show` | done (Phase 3b.1) |
 | WB Feedbacks | `/panel/wb/feedbacks` (flat workspace), `/templates`, `/products/{product}`; legacy `/clients/{id}` → redirect | `Web/Subscriber/Wb/Feedbacks/*` | `Subscriber/Wb/Feedbacks/*` | done (Phase 3b.2 + unified cabinets) |
-| Ozon Feedbacks (2 pages) | `/panel/oz/feedbacks`, `/panel/oz/feedbacks/cabinets/{cabinet}` | `Web/Subscriber/Oz/Feedbacks/*` | `Subscriber/Oz/Feedbacks/*` | done (Phase 3b.3) |
+| Ozon Feedbacks | removed | — | — | removed (module dropped) |
 | WB Price Calc V3 | `/panel/wb/price-calc` (flat); legacy `/cabinets/{id}` → redirect | `Web/Subscriber/Wb/PriceCalc/*` | `Subscriber/Wb/PriceCalc/Cabinet/Show` | done (Phase 3b.4 + unified cabinets) |
-| Ozon Price Calc (2 pages) | `/panel/oz/price-calc`, `/panel/oz/price-calc/cabinets/{cabinet}` | `Web/Subscriber/Oz/PriceCalc/*` | `Subscriber/Oz/PriceCalc/*` | done (Phase 3b.5) |
+| Ozon Price Calc | `/panel/oz/price-calc` (flat); legacy `/cabinets/{id}` → redirect | `Web/Subscriber/Oz/PriceCalc/*` | `Subscriber/Oz/PriceCalc/Cabinet/Show` | done (Phase 3b.5 + unified cabinets) |
 | WB Repricer | `/panel/wb/repricer`, `/time`, `/stocks` (flat); legacy `/cabinets/{id}/*` → redirect | `Web/Subscriber/Wb/Repricer/*` | `Subscriber/Wb/Repricer/*` | done (Phase 3b.6 + unified cabinets) |
 | WB Profitability | `/panel/wb/profitability` (flat); legacy `/cabinets/{id}` → redirect | `Web/Subscriber/Wb/Profitability/*` | `Subscriber/Wb/Profitability/Cabinet/Show` | done (Phase 3b.7 + unified cabinets) |
 | WB AI Cabinet Analyzer | `/panel/wb/ai-cabinet-analyzer` (flat); legacy `/cabinets/{id}` → redirect | `Web/Subscriber/Wb/AiCabinetAnalyzer/*` | `Subscriber/Wb/AiCabinetAnalyzer/Cabinet/Show` | done (Phase 3b.8 + unified cabinets) |
+| Ozon AI Cabinet Analyzer | `/panel/oz/ai-cabinet-analyzer` (flat workspace) | `Web/Subscriber/Oz/AiCabinetAnalyzer/*` | `Subscriber/Oz/AiCabinetAnalyzer/Cabinet/Show` | done (stage 1: products snapshot) |
 | WB Promo Calculator (1 page) | `/panel/wb/promocalculator` | `Web/Subscriber/Wb/PromoCalculator/*` | `Subscriber/Wb/PromoCalculator/Index` | done (Phase 3b.9) |
 | AI Marketplace | `/panel/ai`, `/panel/ai/text|image|video`, history/generation pages | `Web/Subscriber/Ai/*` | `Subscriber/Ai/*` | done (Phase 3b.10) |
 | **Unified WB Cabinets** | `/panel/wb/cabinets/*` (CRUD + select), `/migration` wizard; header switcher | `Web/Subscriber/Wb/Cabinets/*` | `Cabinets/Migration`, `Shared/NoCabinet`, `WbCabinetSwitcher` | done |
+| **Unified Ozon Cabinets** | `/panel/oz/cabinets/*` (CRUD + select); header marketplace switcher | `Web/Subscriber/Oz/Cabinets/*` | `Shared/NoCabinet`, `MarketplaceCabinetSwitcher` | done |
 | Legacy API routes (`/subscriber/*` tools) | — | — | — | done (Phase 4 removed) |

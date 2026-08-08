@@ -2,7 +2,7 @@
 
 namespace Tests\Feature\Web\Subscriber\Oz;
 
-use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
+use App\Models\Subscribers\Oz\OzCabinet;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbo;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
@@ -34,7 +34,7 @@ class OzPriceCalcTest extends WebAuthTestCase
 
     public function test_guest_cannot_access_oz_price_calc_index(): void
     {
-        $this->get('/panel/oz/price-calc')->assertUnauthorized();
+        $this->get('/panel/oz/price-calc')->assertRedirect();
     }
 
     public function test_user_without_permission_cannot_access_index(): void
@@ -46,7 +46,7 @@ class OzPriceCalcTest extends WebAuthTestCase
             ->assertForbidden();
     }
 
-    public function test_subscriber_with_permission_can_access_index(): void
+    public function test_no_cabinet_shows_placeholder(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
 
@@ -54,31 +54,18 @@ class OzPriceCalcTest extends WebAuthTestCase
             ->get('/panel/oz/price-calc')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Subscriber/Oz/PriceCalc/Index')
-                ->has('cabinets'));
+                ->component('Subscriber/Oz/Shared/NoCabinet')
+                ->where('toolName', 'Ценообразование Ozon'));
     }
 
-    public function test_index_lists_owned_cabinets(): void
-    {
-        $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'Test Cabinet');
-
-        $this->actingAs($user)
-            ->get('/panel/oz/price-calc')
-            ->assertOk()
-            ->assertInertia(fn ($page) => $page
-                ->where('cabinets.0.name', 'Test Cabinet')
-                ->where('cabinets.0.id', $cabinet->id));
-    }
-
-    public function test_cabinet_show_renders_for_owner_fbo(): void
+    public function test_workspace_renders_for_selected_cabinet_fbo(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
         $cabinet = $this->createCabinet($user, 'Workspace Cabinet');
         $this->createFboRow($cabinet);
 
         $this->actingAs($user)
-            ->get("/panel/oz/price-calc/cabinets/{$cabinet->id}?mode=fbo")
+            ->get('/panel/oz/price-calc?mode=fbo')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Subscriber/Oz/PriceCalc/Cabinet/Show')
@@ -89,13 +76,13 @@ class OzPriceCalcTest extends WebAuthTestCase
                 ->has('jobStatus'));
     }
 
-    public function test_cabinet_show_renders_for_owner_fbs(): void
+    public function test_workspace_renders_for_selected_cabinet_fbs(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'FBS Cabinet');
+        $this->createCabinet($user, 'FBS Cabinet');
 
         $this->actingAs($user)
-            ->get("/panel/oz/price-calc/cabinets/{$cabinet->id}?mode=fbs")
+            ->get('/panel/oz/price-calc?mode=fbs')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Subscriber/Oz/PriceCalc/Cabinet/Show')
@@ -104,55 +91,55 @@ class OzPriceCalcTest extends WebAuthTestCase
                 ->has('columns'));
     }
 
-    public function test_cabinet_show_forbidden_for_foreign_cabinet(): void
-    {
-        $owner = $this->createSubscriberUser(withPermission: true);
-        $intruder = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($owner, 'Foreign');
-
-        $this->actingAs($intruder)
-            ->get("/panel/oz/price-calc/cabinets/{$cabinet->id}")
-            ->assertForbidden();
-    }
-
-    public function test_destroy_cabinet_redirects_with_success(): void
+    public function test_legacy_cabinet_url_redirects_to_flat_workspace(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'Delete Me');
+        $cabinet = $this->createCabinet($user, 'Legacy');
 
         $this->actingAs($user)
-            ->delete("/panel/oz/price-calc/cabinets/{$cabinet->id}")
-            ->assertRedirect('/panel/oz/price-calc')
-            ->assertSessionHas('success');
-
-        $this->assertDatabaseMissing('oz_price_calc_cabinets', ['id' => $cabinet->id]);
+            ->get("/panel/oz/price-calc/cabinets/{$cabinet->id}")
+            ->assertRedirect('/panel/oz/price-calc');
     }
 
-    public function test_index_shows_oz_price_calc_limit(): void
+    public function test_store_cabinet_via_unified_route(): void
     {
-        $user = $this->createSubscriberUser(withPermission: true, ozPriceCalcLimit: 3);
+        $user = $this->createSubscriberUser(withPermission: true, ozCabinetLimit: 2);
 
         $this->actingAs($user)
-            ->get('/panel/oz/price-calc')
-            ->assertOk()
-            ->assertInertia(fn ($page) => $page
-                ->where('limits.oz_price_calc_clients', 3));
+            ->from('/panel')
+            ->post('/panel/oz/cabinets', [
+                'name' => 'New Cabinet',
+                'client_id' => 'client-new',
+                'apikey' => 'test-key',
+            ])
+            ->assertRedirect('/panel')
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('oz_cabinets', [
+            'user_id' => $user->id,
+            'name' => 'New Cabinet',
+            'client_id' => 'client-new',
+        ]);
+
+        $user->refresh();
+        $this->assertNotNull($user->selected_oz_cabinet_id);
     }
 
     public function test_store_cabinet_rejected_when_limit_exhausted(): void
     {
-        $user = $this->createSubscriberUser(withPermission: true, ozPriceCalcLimit: 0);
+        $user = $this->createSubscriberUser(withPermission: true, ozCabinetLimit: 0);
 
         $this->actingAs($user)
-            ->post('/panel/oz/price-calc/cabinets', [
+            ->from('/panel')
+            ->post('/panel/oz/cabinets', [
                 'name' => 'Blocked Cabinet',
                 'client_id' => 'client-blocked',
                 'apikey' => 'test-key',
             ])
-            ->assertRedirect()
-            ->assertSessionHas('error');
+            ->assertRedirect('/panel')
+            ->assertSessionHasErrors('name');
 
-        $this->assertDatabaseMissing('oz_price_calc_cabinets', [
+        $this->assertDatabaseMissing('oz_cabinets', [
             'user_id' => $user->id,
             'name' => 'Blocked Cabinet',
         ]);
@@ -160,38 +147,50 @@ class OzPriceCalcTest extends WebAuthTestCase
 
     public function test_store_cabinet_decrements_limit(): void
     {
-        $user = $this->createSubscriberUser(withPermission: true, ozPriceCalcLimit: 2);
+        $user = $this->createSubscriberUser(withPermission: true, ozCabinetLimit: 2);
 
         $this->actingAs($user)
-            ->post('/panel/oz/price-calc/cabinets', [
+            ->post('/panel/oz/cabinets', [
                 'name' => 'New Cabinet',
                 'client_id' => 'client-new',
                 'apikey' => 'test-key',
             ])
-            ->assertRedirect('/panel/oz/price-calc')
             ->assertSessionHas('success');
 
         $subscription = SubscribersSubscriptions::query()
             ->where('subscribers_id', $user->subscriber->id)
             ->first();
 
-        $this->assertSame(1, (int) $subscription->limits_plan['oz_price_calc_clients']);
+        $this->assertSame(1, (int) $subscription->limits_plan['oz_cabinets']);
     }
 
-    public function test_destroy_cabinet_increments_limit(): void
+    public function test_destroy_cabinet_via_unified_route(): void
     {
-        $user = $this->createSubscriberUser(withPermission: true, ozPriceCalcLimit: 0);
-        $cabinet = $this->createCabinet($user, 'Restore Limit');
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'Delete Me');
 
         $this->actingAs($user)
-            ->delete("/panel/oz/price-calc/cabinets/{$cabinet->id}")
-            ->assertRedirect('/panel/oz/price-calc');
+            ->from('/panel')
+            ->delete("/panel/oz/cabinets/{$cabinet->id}")
+            ->assertRedirect('/panel')
+            ->assertSessionHas('success');
 
-        $subscription = SubscribersSubscriptions::query()
-            ->where('subscribers_id', $user->subscriber->id)
-            ->first();
+        $this->assertDatabaseMissing('oz_cabinets', ['id' => $cabinet->id]);
+    }
 
-        $this->assertSame(1, (int) $subscription->limits_plan['oz_price_calc_clients']);
+    public function test_select_cabinet_redirects_to_panel(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $a = $this->createCabinet($user, 'A');
+        $b = $this->createCabinet($user, 'B');
+        $user->forceFill(['selected_oz_cabinet_id' => $a->id])->save();
+
+        $this->actingAs($user)
+            ->post('/panel/oz/cabinets/select', ['cabinet_id' => $b->id])
+            ->assertRedirect(route('subscriber.panel'))
+            ->assertSessionHas('success');
+
+        $this->assertSame($b->id, (int) $user->fresh()->selected_oz_cabinet_id);
     }
 
     public function test_sync_fbo_dispatches_batch(): void
@@ -202,7 +201,7 @@ class OzPriceCalcTest extends WebAuthTestCase
         $cabinet = $this->createCabinet($user, 'Sync Cabinet');
 
         $this->actingAs($user)
-            ->post("/panel/oz/price-calc/cabinets/{$cabinet->id}/sync")
+            ->post('/panel/oz/price-calc/sync')
             ->assertRedirect()
             ->assertSessionHas('success');
 
@@ -217,14 +216,14 @@ class OzPriceCalcTest extends WebAuthTestCase
         $cabinet = $this->createCabinet($user, 'Calc Cabinet');
 
         $this->actingAs($user)
-            ->post("/panel/oz/price-calc/cabinets/{$cabinet->id}/calculate")
+            ->post('/panel/oz/price-calc/calculate')
             ->assertRedirect()
             ->assertSessionHas('success');
 
         Bus::assertBatched(fn ($batch) => $batch->name === "ozon_fbo_calc_{$cabinet->id}");
     }
 
-    private function createSubscriberUser(bool $withPermission = false, ?int $ozPriceCalcLimit = null): User
+    private function createSubscriberUser(bool $withPermission = false, ?int $ozCabinetLimit = null): User
     {
         $user = User::factory()->create([
             'email_verified_at' => now(),
@@ -242,30 +241,37 @@ class OzPriceCalcTest extends WebAuthTestCase
             'status' => 1,
         ]);
 
-        if ($ozPriceCalcLimit !== null) {
+        if ($ozCabinetLimit !== null) {
             SubscribersSubscriptions::query()->create([
                 'subscribers_id' => $subscriber->id,
                 'plan_id' => 1,
                 'status' => 1,
                 'end_date' => now()->addMonth(),
-                'limits_plan' => ['oz_price_calc_clients' => $ozPriceCalcLimit],
+                // legacy key still used on many plans; service falls back to it
+                'limits_plan' => ['oz_cabinets' => $ozCabinetLimit],
             ]);
         }
 
         return $user;
     }
 
-    private function createCabinet(User $user, string $name): OzPriceCalcCabinet
+    private function createCabinet(User $user, string $name): OzCabinet
     {
-        return OzPriceCalcCabinet::query()->create([
+        $cabinet = OzCabinet::query()->create([
             'user_id' => $user->id,
             'name' => $name,
             'client_id' => 'client-'.uniqid(),
             'apikey' => 'test-api-key',
         ]);
+
+        if (! $user->selected_oz_cabinet_id) {
+            $user->forceFill(['selected_oz_cabinet_id' => $cabinet->id])->save();
+        }
+
+        return $cabinet;
     }
 
-    private function createFboRow(OzPriceCalcCabinet $cabinet): OzPriceCalcFbo
+    private function createFboRow(OzCabinet $cabinet): OzPriceCalcFbo
     {
         return OzPriceCalcFbo::query()->create([
             'cabinet_id' => $cabinet->id,
@@ -278,8 +284,8 @@ class OzPriceCalcTest extends WebAuthTestCase
 
     private function setupOzPriceCalcSchema(): void
     {
-        if (! Schema::hasTable('oz_price_calc_cabinets')) {
-            Schema::create('oz_price_calc_cabinets', function (Blueprint $table) {
+        if (! Schema::hasTable('oz_cabinets')) {
+            Schema::create('oz_cabinets', function (Blueprint $table) {
                 $table->id();
                 $table->unsignedBigInteger('user_id')->index();
                 $table->string('name');
@@ -287,6 +293,13 @@ class OzPriceCalcTest extends WebAuthTestCase
                 $table->text('apikey')->nullable();
                 $table->text('last_sync_error')->nullable();
                 $table->timestamps();
+                $table->unique(['user_id', 'client_id']);
+            });
+        }
+
+        if (Schema::hasTable('users') && ! Schema::hasColumn('users', 'selected_oz_cabinet_id')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->unsignedBigInteger('selected_oz_cabinet_id')->nullable();
             });
         }
 

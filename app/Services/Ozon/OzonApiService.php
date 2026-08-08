@@ -28,6 +28,55 @@ class OzonApiService
     }
 
     /**
+     * Аналитика кабинета: POST /v1/analytics/data
+     *
+     * Free metrics (без Premium): revenue, ordered_units.
+     * Premium-метрики (hits_view*, hits_tocart*, session_*, conv_*, returns, cancellations,
+     * delivered_units, position_category) — не используем: недоступны стандартному продавцу.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getAnalyticsData(string $apiKey, string $clientId, array $payload): array
+    {
+        return $this->post('v1/analytics/data', $apiKey, $clientId, $payload);
+    }
+
+    /**
+     * Поисковые запросы по товарам: POST /v1/analytics/product-queries
+     * Полная аналитика — Premium; free-поля частично доступны.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getProductQueries(string $apiKey, string $clientId, array $payload): array
+    {
+        return $this->post('v1/analytics/product-queries', $apiKey, $clientId, $payload);
+    }
+
+    /**
+     * Остатки на складах Ozon: POST /v2/analytics/stock_on_warehouses
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getStocksOnWarehouses(string $apiKey, string $clientId, array $payload): array
+    {
+        return $this->post('v2/analytics/stock_on_warehouses', $apiKey, $clientId, $payload);
+    }
+
+    /**
+     * Оборачиваемость / IDC: POST /v1/analytics/turnover/stocks
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getProductTurnover(string $apiKey, string $clientId, array $payload): array
+    {
+        return $this->post('v1/analytics/turnover/stocks', $apiKey, $clientId, $payload);
+    }
+
+    /**
      * @param  string  $apiKey
      * @param  string  $clientId
      * @param  array  $payload  (filter, last_id, limit, sort_by, sort_dir)

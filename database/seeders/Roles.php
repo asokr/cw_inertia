@@ -38,8 +38,8 @@ class Roles extends Seeder
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'administrator']); //доступ к всякому на фронте, чего не сделать на ларавель
 
         /* OZON */
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz feedbacks']); //Доступы к модулю управления отзывами
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz price calc']); //Доступы к модулю расчёта цен Ozon
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz ai cabinet analyzer']); //Доступы к модулю AI Анализ кабинета Ozon
 
         // Blog admin API
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'blog.view']);

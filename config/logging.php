@@ -164,12 +164,6 @@ return [
             'days'   => 14,
         ],
 
-        'oz_feedbacks_command' => [
-            'driver' => 'daily',
-            'path' => storage_path('logs/oz_feedbacks_command.log'),
-            'level' => 'info',
-            'days'   => 14,
-        ],
     ],
 
 ];

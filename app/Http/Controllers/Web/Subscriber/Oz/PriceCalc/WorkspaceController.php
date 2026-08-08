@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Oz\PriceCalc;
 
-use App\Http\Controllers\Web\Subscriber\Concerns\EnsuresOzPriceCalcCabinetOwnership;
-use App\Services\Subscriber\Oz\OzPriceCalcFboService;
-use App\Services\Subscriber\Oz\OzPriceCalcFbsService;
+use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedOzCabinet;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\ImportOzPriceCalcExcelRequest;
-use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcCabinet;
+use App\Models\Subscribers\Oz\OzCabinet;
+use App\Services\Subscriber\Oz\OzPriceCalcFboService;
+use App\Services\Subscriber\Oz\OzPriceCalcFbsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -17,7 +17,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WorkspaceController extends SubscriberToolController
 {
-    use EnsuresOzPriceCalcCabinetOwnership;
+    use ResolvesSelectedOzCabinet;
 
     public function __construct(
         private readonly OzPriceCalcFboService $fboService,
@@ -25,9 +25,17 @@ class WorkspaceController extends SubscriberToolController
     ) {
     }
 
-    public function show(Request $request, OzPriceCalcCabinet $cabinet): Response
+    public function show(Request $request): Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedOzCabinet($request, 'Ценообразование Ozon', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Ценообразование Ozon'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var OzCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $mode = $this->resolveMode($request);
 
@@ -59,102 +67,94 @@ class WorkspaceController extends SubscriberToolController
         ]);
     }
 
-    public function syncFbo(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
+    public function syncFbo(Request $request): RedirectResponse|Response
     {
         return $this->dispatchAction(
             $request,
-            $cabinet,
-            fn () => $this->fboService->sync($request, $cabinet->id),
+            fn (OzCabinet $cabinet) => $this->fboService->sync($request, $cabinet->id),
             'Синхронизация запущена',
             'Не удалось запустить синхронизацию'
         );
     }
 
-    public function syncFbs(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
+    public function syncFbs(Request $request): RedirectResponse|Response
     {
         return $this->dispatchAction(
             $request,
-            $cabinet,
-            fn () => $this->fbsService->sync($request, $cabinet->id),
+            fn (OzCabinet $cabinet) => $this->fbsService->sync($request, $cabinet->id),
             'Синхронизация запущена',
             'Не удалось запустить синхронизацию'
         );
     }
 
-    public function calculateFbo(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
+    public function calculateFbo(Request $request): RedirectResponse|Response
     {
         return $this->dispatchAction(
             $request,
-            $cabinet,
-            fn () => $this->fboService->calculate($request, $cabinet->id),
+            fn (OzCabinet $cabinet) => $this->fboService->calculate($request, $cabinet->id),
             'Калькуляция запущена',
             'Не удалось запустить калькуляцию'
         );
     }
 
-    public function calculateFbs(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
+    public function calculateFbs(Request $request): RedirectResponse|Response
     {
         return $this->dispatchAction(
             $request,
-            $cabinet,
-            fn () => $this->fbsService->calculate($request, $cabinet->id),
+            fn (OzCabinet $cabinet) => $this->fbsService->calculate($request, $cabinet->id),
             'Калькуляция запущена',
             'Не удалось запустить калькуляцию'
         );
     }
 
-    public function importFbo(ImportOzPriceCalcExcelRequest $request, OzPriceCalcCabinet $cabinet): RedirectResponse
+    public function importFbo(ImportOzPriceCalcExcelRequest $request): RedirectResponse|Response
     {
         return $this->dispatchAction(
             $request,
-            $cabinet,
-            fn () => $this->fboService->import($request, $cabinet->id),
+            fn (OzCabinet $cabinet) => $this->fboService->import($request, $cabinet->id),
             'Импорт запущен',
             'Импорт не выполнен'
         );
     }
 
-    public function importFbs(ImportOzPriceCalcExcelRequest $request, OzPriceCalcCabinet $cabinet): RedirectResponse
+    public function importFbs(ImportOzPriceCalcExcelRequest $request): RedirectResponse|Response
     {
         return $this->dispatchAction(
             $request,
-            $cabinet,
-            fn () => $this->fbsService->import($request, $cabinet->id),
+            fn (OzCabinet $cabinet) => $this->fbsService->import($request, $cabinet->id),
             'Импорт запущен',
             'Импорт не выполнен'
         );
     }
 
-    public function exportFbo(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
+    public function exportFbo(Request $request): RedirectResponse|Response
     {
         return $this->dispatchAction(
             $request,
-            $cabinet,
-            fn () => $this->fboService->export($request, $cabinet->id),
+            fn (OzCabinet $cabinet) => $this->fboService->export($request, $cabinet->id),
             'Экспорт запущен',
             'Не удалось запустить экспорт'
         );
     }
 
-    public function exportFbs(Request $request, OzPriceCalcCabinet $cabinet): RedirectResponse
+    public function exportFbs(Request $request): RedirectResponse|Response
     {
         return $this->dispatchAction(
             $request,
-            $cabinet,
-            fn () => $this->fbsService->export($request, $cabinet->id),
+            fn (OzCabinet $cabinet) => $this->fbsService->export($request, $cabinet->id),
             'Экспорт запущен',
             'Не удалось запустить экспорт'
         );
     }
 
-    public function exportDownloadFbo(OzPriceCalcCabinet $cabinet): RedirectResponse|StreamedResponse
+    public function exportDownloadFbo(Request $request): RedirectResponse|StreamedResponse|Response
     {
-        return $this->streamExportFile($cabinet, 'fbo');
+        return $this->streamExportFile($request, 'fbo');
     }
 
-    public function exportDownloadFbs(OzPriceCalcCabinet $cabinet): RedirectResponse|StreamedResponse
+    public function exportDownloadFbs(Request $request): RedirectResponse|StreamedResponse|Response
     {
-        return $this->streamExportFile($cabinet, 'fbs');
+        return $this->streamExportFile($request, 'fbs');
     }
 
     /**
@@ -216,14 +216,21 @@ class WorkspaceController extends SubscriberToolController
 
     private function dispatchAction(
         Request $request,
-        OzPriceCalcCabinet $cabinet,
         callable $action,
         string $successFallback,
         string $errorFallback,
-    ): RedirectResponse {
-        $this->ensureCabinetOwnership($cabinet);
+    ): RedirectResponse|Response {
+        $cabinetOrResponse = $this->requireSelectedOzCabinet($request, 'Ценообразование Ozon', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Ценообразование Ozon'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var OzCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
-        $payload = $this->decodeApiResponse($action());
+        $payload = $this->decodeApiResponse($action($cabinet));
 
         if (($payload['success'] ?? false) !== true) {
             return back()->with('error', $this->apiMessage($payload, $errorFallback));
@@ -232,9 +239,17 @@ class WorkspaceController extends SubscriberToolController
         return back()->with('success', $this->apiMessage($payload, $successFallback));
     }
 
-    private function streamExportFile(OzPriceCalcCabinet $cabinet, string $mode): RedirectResponse|StreamedResponse
+    private function streamExportFile(Request $request, string $mode): RedirectResponse|StreamedResponse|Response
     {
-        $this->ensureCabinetOwnership($cabinet);
+        $cabinetOrResponse = $this->requireSelectedOzCabinet($request, 'Ценообразование Ozon', [
+            ['label' => 'Главная', 'href' => '/panel'],
+            ['label' => 'Ценообразование Ozon'],
+        ]);
+        if ($cabinetOrResponse instanceof Response) {
+            return $cabinetOrResponse;
+        }
+        /** @var OzCabinet $cabinet */
+        $cabinet = $cabinetOrResponse;
 
         $path = "ozon/price-calc/{$cabinet->id}/{$mode}.xlsx";
 
