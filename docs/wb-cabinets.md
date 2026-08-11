@@ -127,7 +127,7 @@ Prefix: `/panel/wb/cabinets` · name: `subscriber.wb.cabinets.*`
 |--------|----------------|
 | Отзывы | reviews, review statistics, templates (`client_id`), settings |
 | Ценообразование | `wb_price_calc_v3_data`, settings V2/V3, legacy data |
-| Репрайсер | settings, stocks, logs, competitors |
+| Репрайсер | settings, stocks, logs |
 | Рентабельность | reports (+ items через report) |
 | ИИ-анализ | reports (+ ai analyses через report) |
 

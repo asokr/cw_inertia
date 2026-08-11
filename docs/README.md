@@ -143,6 +143,7 @@ Ozon использует **единый** кабинет (`oz_cabinets`) — с
 
 | Документ | Описание |
 |----------|----------|
+| [queues.md](queues.md) | Все очереди и jobs проекта (обновлять при изменении/добавлении) |
 | [wb-ai-cabinet-analyzer-sales-funnel-fields.md](wb-ai-cabinet-analyzer-sales-funnel-fields.md) | Маппинг полей WB Sales Funnel |
 | [ozon-price-calculation-frontend-columns.md](ozon-price-calculation-frontend-columns.md) | Колонки таблиц Ozon Price Calc для фронта |
 | [inertia-migration-matrix.md](inertia-migration-matrix.md) | Матрица миграции на Inertia |

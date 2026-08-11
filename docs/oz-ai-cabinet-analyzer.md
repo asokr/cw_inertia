@@ -145,6 +145,8 @@ Join: analytics/ads/stocks по **SKU** → `products[].skus.all`.
 php artisan queue:work --queue=oz_ai_cabinet_analyzer --tries=3 --timeout=3600 --sleep=1
 ```
 
+`QUEUE_RETRY_AFTER` должен быть **> 3600** (по умолчанию 3700), иначе database-очередь дублирует длинные job. Подробности: [queues.md](queues.md), [wb-ai-cabinet-analyzer.md](wb-ai-cabinet-analyzer.md) (раздел про дубли запросов к ИИ).
+
 ## Связанные документы
 
 - [oz-cabinets.md](oz-cabinets.md)

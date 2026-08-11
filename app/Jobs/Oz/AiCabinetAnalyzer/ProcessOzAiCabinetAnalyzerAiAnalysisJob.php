@@ -9,6 +9,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -20,6 +21,7 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $timeout = 3600;
+
     public int $tries = 3;
 
     public function __construct(
@@ -32,15 +34,28 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
         return [20, 60, 120];
     }
 
+    /**
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping('oz_ai_cabinet_analyzer_ai:'.$this->analysisId))
+                ->expireAfter(3600)
+                ->dontRelease(),
+        ];
+    }
+
     public function handle(OzAiCabinetAnalyzerAiAnalysisService $service): void
     {
         $analysis = OzAiCabinetAnalyzerAiAnalysis::with(['report.cabinet', 'template'])->find($this->analysisId);
 
-        if (!$analysis || !$analysis->report || !$analysis->report->cabinet || !$analysis->template) {
+        if (! $analysis || ! $analysis->report || ! $analysis->report->cabinet || ! $analysis->template) {
             Log::warning('[OzAiCabinetAnalyzerAI] Анализ не найден', [
                 'analysis_id' => $this->analysisId,
                 'user_id' => $this->userId,
             ]);
+
             return;
         }
 
@@ -49,12 +64,24 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 'analysis_id' => $this->analysisId,
                 'user_id' => $this->userId,
             ]);
+
+            return;
+        }
+
+        if ((string) $analysis->status === OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE) {
+            Log::info('[OzAiCabinetAnalyzerAI] Анализ уже в статусе done, повторный запуск пропущен', [
+                'analysis_id' => $analysis->id,
+                'attempt' => $this->attempts(),
+            ]);
+
             return;
         }
 
         DB::transaction(function () use ($analysis): void {
             $analysis->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING;
-            $analysis->started_at = now();
+            $analysis->started_at = $analysis->started_at ?? now();
+            $analysis->error_message = null;
+            $analysis->finished_at = null;
             $analysis->save();
         });
 
@@ -74,14 +101,23 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 subscriberId: $subscriberId,
             );
 
+            $analysis->refresh();
+            if ((string) $analysis->status === OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE) {
+                Log::info('[OzAiCabinetAnalyzerAI] Результат уже сохранён другим процессом, пропуск записи', [
+                    'analysis_id' => $analysis->id,
+                ]);
+
+                return;
+            }
+
             $analysisText = trim((string) ($result['analysis_text'] ?? ''));
             $analysisJson = (array) ($result['analysis_json'] ?? []);
             $analysisMarkdown = trim((string) ($result['analysis_markdown'] ?? ''));
             $analysisMarkdownLength = mb_strlen($analysisMarkdown);
 
             // For markdown we accept if markdown is non-empty even if text/json empty
-            $isMarkdownResult = !empty($analysisMarkdown);
-            if (!$isMarkdownResult && $this->isEmptyAnalysis($analysisText, $analysisJson)) {
+            $isMarkdownResult = ! empty($analysisMarkdown);
+            if (! $isMarkdownResult && $this->isEmptyAnalysis($analysisText, $analysisJson)) {
                 throw new RuntimeException('AI вернул пустой анализ. Сохранение результата отменено.');
             }
 
@@ -121,18 +157,29 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
         } catch (Throwable $exception) {
             Log::error('[OzAiCabinetAnalyzerAI] Ошибка ИИ-анализа', [
                 'analysis_id' => $analysis->id,
+                'attempt' => $this->attempts(),
+                'tries' => $this->tries,
                 'message' => $exception->getMessage(),
             ]);
 
-            DB::transaction(function () use ($analysis, $exception): void {
-                $analysis->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_FAILED;
-                $analysis->error_message = mb_substr($exception->getMessage(), 0, 5000);
-                $analysis->finished_at = now();
-                $analysis->save();
-            });
+            if ($this->isFinalAttempt()) {
+                DB::transaction(function () use ($analysis, $exception): void {
+                    $analysis->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_FAILED;
+                    $analysis->error_message = mb_substr($exception->getMessage(), 0, 5000);
+                    $analysis->finished_at = now();
+                    $analysis->save();
+                });
+            }
 
             throw $exception;
         }
+    }
+
+    private function isFinalAttempt(): bool
+    {
+        $maxTries = $this->job?->maxTries() ?? $this->tries;
+
+        return $this->attempts() >= (int) $maxTries;
     }
 
     private function isEmptyAnalysis(string $analysisText, array $analysisJson): bool

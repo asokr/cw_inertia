@@ -19,7 +19,6 @@ use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
 use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
 use App\Models\Subscribers\Wb\Profitability\Report as ProfitabilityReport;
 use App\Models\Subscribers\Wb\Repricer\RepricerCabinets;
-use App\Models\Subscribers\Wb\Repricer\RepricerCompetitor;
 use App\Models\Subscribers\Wb\Repricer\RepricerLogs;
 use App\Models\Subscribers\Wb\Repricer\RepricerSettings;
 use App\Models\Subscribers\Wb\Repricer\RepricerStocks;
@@ -84,7 +83,6 @@ class WbCabinetServiceRegistry
                     ['model' => RepricerSettings::class, 'column' => 'cabinet_id'],
                     ['model' => RepricerStocks::class, 'column' => 'cabinet_id'],
                     ['model' => RepricerLogs::class, 'column' => 'cabinet_id'],
-                    ['model' => RepricerCompetitor::class, 'column' => 'cabinet_id'],
                 ],
                 settings: 'repricer',
             ),

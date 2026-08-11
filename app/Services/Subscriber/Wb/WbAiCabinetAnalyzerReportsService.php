@@ -67,9 +67,9 @@ class WbAiCabinetAnalyzerReportsService
             ]);
         });
 
-        // Очередь должна совпадать с воркером: queue:work --queue=wb_profit_analyzer
+        // Очередь должна совпадать с воркером: queue:work --queue=wb_ai_cabinet_analyzer
         ProcessAiCabinetAnalyzerReport::dispatch((int) $report->id, (int) $request->user()->id)
-            ->onQueue('wb_profit_analyzer');
+            ->onQueue('wb_ai_cabinet_analyzer');
 
         return response()->json([
             'success' => true,

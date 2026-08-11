@@ -846,11 +846,18 @@ class WorkspaceController extends SubscriberToolController
 
         $mime = $photoModel->mime ?: 'image/jpeg';
         $filename = $photoModel->original_name ?: basename((string) $photoModel->path);
+        // Безопасное имя для Content-Disposition (без кавычек/переносов).
+        $safeFilename = str_replace(['"', "\r", "\n", '\\'], '', $filename);
+        if ($safeFilename === '') {
+            $safeFilename = 'photo-'.$photoModel->id.'.jpg';
+        }
+
+        $disposition = $request->boolean('download') ? 'attachment' : 'inline';
 
         return response($binary, 200, [
             'Content-Type' => $mime,
             'Content-Length' => (string) strlen($binary),
-            'Content-Disposition' => 'inline; filename="'.addslashes($filename).'"',
+            'Content-Disposition' => $disposition.'; filename="'.$safeFilename.'"',
             'Cache-Control' => 'private, max-age=3600',
             'X-Content-Type-Options' => 'nosniff',
         ]);

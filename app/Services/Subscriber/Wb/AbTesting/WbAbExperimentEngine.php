@@ -531,6 +531,23 @@ class WbAbExperimentEngine
                 }
 
                 if ($shouldSwitch && $endReason !== null) {
+                    // Один оставшийся вариант — не крутим кольцо, копим показы до цели.
+                    if ($locked->photos->count() <= 1) {
+                        $this->applyProvisionalCycleEnds($cycle, $snapshot);
+
+                        $locked->consecutive_failures = 0;
+                        $locked->last_processed_at = now();
+                        $locked->progress = $this->computeProgress(
+                            $locked,
+                            $settings['impressions_per_photo'],
+                            $cycle,
+                            $snapshot,
+                        );
+                        $locked->save();
+
+                        return ['success' => true, 'action' => 'updated', 'messages' => []];
+                    }
+
                     $switchResult = $this->switchPhoto(
                         $locked,
                         $cycle,
@@ -724,6 +741,116 @@ class WbAbExperimentEngine
         );
 
         return ['success' => true];
+    }
+
+    /**
+     * Перед удалением фото у running-эксперимента: если оно сейчас на карточке —
+     * загрузить следующий оставшийся вариант и открыть новый цикл.
+     * Вызывать под lockForUpdate на эксперименте.
+     *
+     * @param  Collection<int, AbExperimentPhoto>  $remainingPhotos  фото после удаления (без удаляемого)
+     * @return array{success: bool, message?: string, switched: bool}
+     */
+    public function switchAwayFromRemovedPhoto(
+        AbExperiment $experiment,
+        AbExperimentPhoto $photoToRemove,
+        Collection $remainingPhotos,
+        string $apiKey,
+        int $nmId,
+    ): array {
+        $remainingPhotos = $remainingPhotos->values();
+        if ($remainingPhotos->isEmpty()) {
+            return [
+                'success' => false,
+                'message' => 'Нельзя удалить последнюю фотографию у запущенного эксперимента.',
+                'switched' => false,
+            ];
+        }
+
+        $openCycle = $experiment->resolveOpenCycle();
+        $isCurrent = $openCycle
+            && (int) $openCycle->ab_experiment_photo_id === (int) $photoToRemove->id;
+
+        if (! $isCurrent) {
+            return ['success' => true, 'switched' => false];
+        }
+
+        // Следующий вариант — следующий по sort_order после удаляемого, иначе первый.
+        $sorted = $remainingPhotos->sortBy([
+            ['sort_order', 'asc'],
+            ['id', 'asc'],
+        ])->values();
+
+        $nextPhoto = $sorted->first(
+            fn (AbExperimentPhoto $p) => (int) $p->sort_order > (int) $photoToRemove->sort_order,
+        ) ?? $sorted->first();
+
+        /** @var AbExperimentPhoto $nextPhoto */
+        $upload = $this->uploadPhotoAsMain($apiKey, $nmId, $nextPhoto);
+        if (! ($upload['success'] ?? false)) {
+            return [
+                'success' => false,
+                'message' => $upload['message'] ?? 'Не удалось установить следующую фотографию в карточке WB',
+                'switched' => false,
+            ];
+        }
+
+        // Снимок из provisional ends (без fullstats — экономим rate limit).
+        $snapshot = [
+            'views' => (int) ($openCycle->views_end ?? $openCycle->views_start ?? 0),
+            'clicks' => (int) ($openCycle->clicks_end ?? $openCycle->clicks_start ?? 0),
+            'spend' => (float) ($openCycle->spend_end ?? $openCycle->spend_start ?? 0),
+            'orders' => (int) ($openCycle->orders_end ?? $openCycle->orders_start ?? 0),
+        ];
+
+        $this->applyCycleEnd($openCycle, $snapshot, AbExperimentCycle::END_PHOTO_REMOVED);
+        $this->journal->log(
+            $experiment,
+            WbAbExperimentJournal::TYPE_CYCLE_CLOSED,
+            'Цикл №'.$openCycle->sequence.' закрыт (фото удалено).',
+            [
+                'cycle_id' => $openCycle->id,
+                'end_reason' => AbExperimentCycle::END_PHOTO_REMOVED,
+                'photo_id' => $photoToRemove->id,
+            ],
+        );
+
+        $nextSequence = (int) AbExperimentCycle::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->max('sequence') + 1;
+
+        $newCycle = AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $experiment->cabinet_id,
+            'ab_experiment_photo_id' => $nextPhoto->id,
+            'sequence' => $nextSequence,
+            'started_at' => now(),
+            'views_start' => $snapshot['views'],
+            'clicks_start' => $snapshot['clicks'],
+            'spend_start' => $snapshot['spend'],
+            'orders_start' => $snapshot['orders'],
+        ]);
+
+        $this->journal->log(
+            $experiment,
+            WbAbExperimentJournal::TYPE_PHOTO_SWITCHED,
+            'Переключение на фотографию №'.((int) $nextPhoto->sort_order + 1).' (после удаления варианта).',
+            ['photo_id' => $nextPhoto->id, 'sequence' => $nextSequence, 'removed_photo_id' => $photoToRemove->id],
+        );
+        $this->journal->log(
+            $experiment,
+            WbAbExperimentJournal::TYPE_PHOTO_SET,
+            'Фотография установлена главной в карточке WB.',
+            ['photo_id' => $nextPhoto->id],
+        );
+        $this->journal->log(
+            $experiment,
+            WbAbExperimentJournal::TYPE_CYCLE_OPENED,
+            'Открыт цикл №'.$nextSequence.'.',
+            ['cycle_id' => $newCycle->id, 'photo_id' => $nextPhoto->id],
+        );
+
+        return ['success' => true, 'switched' => true];
     }
 
     /**
@@ -1046,7 +1173,8 @@ class WbAbExperimentEngine
             ? $experiment->photos
             : $experiment->photos()->get();
 
-        if ($photos->count() < 2) {
+        // После удаления слабых вариантов может остаться 1 фото — всё равно завершаем по цели.
+        if ($photos->isEmpty()) {
             return false;
         }
 

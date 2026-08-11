@@ -94,7 +94,7 @@ class WbAiCabinetAnalyzerAiAnalysesService
             ]);
 
             ProcessAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $analysis->id, (int) $request->user()->id)
-                ->onQueue('wb_profit_analyzer');
+                ->onQueue('wb_ai_cabinet_analyzer');
 
             return response()->json([
                 'success' => true,
@@ -190,7 +190,7 @@ class WbAiCabinetAnalyzerAiAnalysesService
             $locked->save();
 
             ProcessAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $locked->id, (int) $request->user()->id)
-                ->onQueue('wb_profit_analyzer');
+                ->onQueue('wb_ai_cabinet_analyzer');
 
             return response()->json([
                 'success' => true,

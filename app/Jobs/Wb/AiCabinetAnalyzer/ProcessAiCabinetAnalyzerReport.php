@@ -8,6 +8,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -18,6 +19,7 @@ class ProcessAiCabinetAnalyzerReport implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $timeout = 3600;
+
     public int $tries = 3;
 
     public function __construct(
@@ -30,14 +32,36 @@ class ProcessAiCabinetAnalyzerReport implements ShouldQueue
         return [20, 60, 120];
     }
 
+    /**
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping('wb_ai_cabinet_analyzer_report:'.$this->reportId))
+                ->expireAfter(3600)
+                ->dontRelease(),
+        ];
+    }
+
     public function handle(AiCabinetAnalyzerService $service): void
     {
         $report = AiCabinetAnalyzerReport::with('cabinet')->find($this->reportId);
-        if (!$report || !$report->cabinet || (int) $report->cabinet->user_id !== $this->userId) {
+        if (! $report || ! $report->cabinet || (int) $report->cabinet->user_id !== $this->userId) {
             Log::warning('[AiCabinetAnalyzer] Отчёт не найден или недоступен', [
                 'report_id' => $this->reportId,
                 'user_id' => $this->userId,
             ]);
+
+            return;
+        }
+
+        if ((string) $report->status === AiCabinetAnalyzerReport::STATUS_DONE) {
+            Log::info('[AiCabinetAnalyzer] Отчёт уже done, повторный запуск пропущен', [
+                'report_id' => $report->id,
+                'attempt' => $this->attempts(),
+            ]);
+
             return;
         }
 
@@ -48,15 +72,24 @@ class ProcessAiCabinetAnalyzerReport implements ShouldQueue
 
         if ($beginDate === '' || $endDate === '') {
             $this->markFailed($report, 'Не задан период анализа.');
+
             return;
         }
 
         try {
+            if ((string) $report->status !== AiCabinetAnalyzerReport::STATUS_PROCESSING) {
+                DB::transaction(function () use ($report): void {
+                    $report->status = AiCabinetAnalyzerReport::STATUS_PROCESSING;
+                    $report->save();
+                });
+            }
+
             Log::info('[AiCabinetAnalyzer] Запуск анализа', [
                 'report_id' => $report->id,
                 'cabinet_id' => $report->cabinet_id,
                 'begin_date' => $beginDate,
                 'end_date' => $endDate,
+                'attempt' => $this->attempts(),
             ]);
 
             $snapshot = $service->collectReport(
@@ -65,6 +98,15 @@ class ProcessAiCabinetAnalyzerReport implements ShouldQueue
                 $endDate,
                 $report,
             );
+
+            $report->refresh();
+            if ((string) $report->status === AiCabinetAnalyzerReport::STATUS_DONE) {
+                Log::info('[AiCabinetAnalyzer] Отчёт уже сохранён другим процессом', [
+                    'report_id' => $report->id,
+                ]);
+
+                return;
+            }
 
             DB::transaction(function () use ($report, $snapshot): void {
                 $report->status = AiCabinetAnalyzerReport::STATUS_DONE;
@@ -78,12 +120,24 @@ class ProcessAiCabinetAnalyzerReport implements ShouldQueue
         } catch (Throwable $e) {
             Log::error('[AiCabinetAnalyzer] Ошибка анализа', [
                 'report_id' => $report->id,
+                'attempt' => $this->attempts(),
+                'tries' => $this->tries,
                 'message' => $e->getMessage(),
             ]);
 
-            $this->markFailed($report, $e->getMessage());
+            if ($this->isFinalAttempt()) {
+                $this->markFailed($report, $e->getMessage());
+            }
+
             throw $e;
         }
+    }
+
+    private function isFinalAttempt(): bool
+    {
+        $maxTries = $this->job?->maxTries() ?? $this->tries;
+
+        return $this->attempts() >= (int) $maxTries;
     }
 
     private function markFailed(AiCabinetAnalyzerReport $report, string $error): void

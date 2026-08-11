@@ -92,12 +92,12 @@ Prefix: `/panel/wb/ab-testing` · name: `subscriber.wb.ab-testing.*`
 | GET | `/campaigns/{advertId}/budget` | `campaigns.budget` | Текущий бюджет РК (`budget_total`) |
 | POST | `/campaigns/{advertId}/deposit` | `campaigns.deposit` | Пополнение `{ sum }` → `budget_total`, `deposited_sum` + toast/статус в UI |
 | DELETE | `/campaigns/{advertId}` | `campaigns.destroy` | Удалить РК на WB + из реестра |
-| GET | `/media/{photo}` | `media.show` | Auth-gated превью (private disk) |
+| GET | `/media/{photo}` | `media.show` | Auth-gated превью (private disk); `?download=1` → `Content-Disposition: attachment` |
 | GET | `/experiments/{id}/photos` | `photos.index` | Список фото (JSON) |
 | POST | `/experiments/{id}/photos` | `photos.store` | Multipart upload (`photos[]`) |
-| POST | `/experiments/{id}/photos/{photo}` | `photos.replace` | Замена файла |
-| DELETE | `/experiments/{id}/photos/{photo}` | `photos.destroy` | Удаление + compact order |
-| PATCH | `/experiments/{id}/photos/reorder` | `photos.reorder` | `{ order: [id,…] }` |
+| POST | `/experiments/{id}/photos/{photo}` | `photos.replace` | Замена файла (только editable) |
+| DELETE | `/experiments/{id}/photos/{photo}` | `photos.destroy` | Удаление + compact order; **разрешено и для `running`** |
+| PATCH | `/experiments/{id}/photos/reorder` | `photos.reorder` | `{ order: [id,…] }` (только editable) |
 
 При отсутствии выбранного кабинета — `Subscriber/Wb/Shared/NoCabinet`.
 
@@ -184,13 +184,13 @@ FK: `cabinet_id` → `wb_cabinets.id`
 
 Статусы: Не создан / Черновик / В процессе / **Завершён** / **Остановлен** / Ошибка.
 
-| Статус | Редактирование (РК/settings/фото) | Старт | Стоп |
-|--------|-----------------------------------|-------|------|
-| draft | ✅ | ✅ | — |
-| **stopped** | ✅ | ✅ (перезапуск, sequence++) | — |
-| **error** | ✅ | ✅ (перезапуск, сброс consecutive_failures) | — |
-| running | ❌ | — | ✅ |
-| completed | ❌ | ❌ | — |
+| Статус | Редактирование (РК/settings/upload/replace/reorder) | Удаление фото | Скачивание фото | Старт | Стоп |
+|--------|-----------------------------------------------------|---------------|-----------------|-------|------|
+| draft | ✅ | ✅ | ✅ | ✅ | — |
+| **stopped** | ✅ | ✅ | ✅ | ✅ (перезапуск, sequence++) | — |
+| **error** | ✅ | ✅ | ✅ | ✅ (перезапуск, сброс consecutive_failures) | — |
+| running | ❌ | ✅ (мин. 1 остаётся) | ✅ | — | ✅ |
+| completed | ❌ | ❌ | ✅ | ❌ | — |
 
 ### Эксперименты товара
 
@@ -279,11 +279,14 @@ CTR/CPM в таблице не грузятся.
 
 | Ограничение | Значение |
 |-------------|----------|
-| Минимум для «Продолжить» | 2 |
+| Минимум для «Продолжить» / старта | 2 |
+| Минимум во время `running` | 1 (удаление последнего запрещено) |
 | Максимум | 6 |
 | Форматы | JPEG, PNG, WEBP |
 | Размер файла | ≤ 10 МБ |
-| Мутации | только `status=draft` |
+| Upload / replace / reorder | `draft` / `stopped` / `error` |
+| Удаление | `draft` / `stopped` / `error` / **`running`** |
+| Скачивание | любой статус (`media.show?download=1`) |
 
 #### Таблица `wb_ab_experiment_photos`
 
@@ -299,11 +302,27 @@ CTR/CPM в таблице не грузятся.
 Хранение: `storage/app/private/wb/ab-testing/{cabinet_id}/{experiment_id}/{uuid}.ext`  
 Превью: `GET /panel/wb/ab-testing/media/{photo}` (auth + ownership, `Cache-Control: private`) — **не** публичный `/storage/`.
 
+#### Удаление фото на `running`
+
+Сценарий: убрать вариант с низким CTR, чтобы показы шли на оставшиеся.
+
+1. Проверки: статус `running`, ≥2 фото до удаления (после — ≥1), ownership.
+2. `lockForUpdate` на эксперименте (без гонки с `ProcessAbExperimentJob`).
+3. Если удаляемое = текущее (`open cycle`):
+   - upload следующего оставшегося варианта в WB (`content/v3/media/file`, photo #1);
+   - закрыть open cycle с `end_reason=photo_removed`;
+   - открыть новый cycle на следующий вариант.
+4. Удалить запись фото (CASCADE циклов этого фото) + compact `sort_order`.
+5. Пересчитать `progress` по оставшимся; journal `photo.removed`.
+6. Если остался 1 вариант — движок **не** ротирует, копится до `impressions_per_photo`, затем complete.
+
+Payload: `can_delete_photos` = editable **или** running.
+
 #### UI
 
-- `PhotosStep.vue` — карточка товара, meta, **BoundCampaignPanel** (пауза/пополнение/удаление РК), **ExperimentSettingsPanel**, empty state, upload zone, grid; sticky «Продолжить» + причины блокировки
-- `BoundCampaignPanel.vue` — управление привязанной РК на шаге 4
-- `ExperimentPhotoCard.vue` — крупное `object-contain` превью, replace/delete, DnD order, **слоты** Показы/Клики/CTR/итог (пока `null`)
+- `PhotosStep.vue` — карточка товара, meta, **BoundCampaignPanel**, **ExperimentSettingsPanel**, empty state, upload zone, grid; подсказка про удаление на running; sticky «Продолжить» + причины блокировки
+- `BoundCampaignPanel.vue` — управление привязанной РК
+- `ExperimentPhotoCard.vue` — превью `object-contain`; toolbar **Скачать → Заменить → Удалить** (иконки Download / Replace / Trash2); бейдж «Сейчас на карточке»; DnD order; слоты Показы/Клики/CTR
 - `photoResultTone.js` — provisional: green &lt;10%, yellow 10–30%, red &gt;30% (для будущего)
 - `ExperimentSettingsPanel.vue` — collapsible (default closed), summary in header, badge «Не сохранены» / «Сохранены», **save only by button** (no autosave)
 - Defaults: `100 000 на фото • 10 000 за круг • 60 мин • CPM 350 ₽` (поле `impressions_per_photo`)

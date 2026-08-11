@@ -1,6 +1,13 @@
 <script setup>
 import { computed, ref, watch } from "vue";
-import { GripVertical, ImageOff, Replace, Trash2, Trophy } from "lucide-vue-next";
+import {
+    Download,
+    GripVertical,
+    ImageOff,
+    Replace,
+    Trash2,
+    Trophy,
+} from "lucide-vue-next";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import { formatResultDelta, resultDeltaClass } from "./photoResultTone.js";
@@ -14,7 +21,18 @@ const props = defineProps({
         type: Number,
         required: true,
     },
+    /** Замена / DnD (draft, stopped, error). */
     editable: {
+        type: Boolean,
+        default: true,
+    },
+    /** Удаление варианта (в т.ч. running). */
+    canDelete: {
+        type: Boolean,
+        default: true,
+    },
+    /** Скачивание файла — почти всегда true. */
+    canDownload: {
         type: Boolean,
         default: true,
     },
@@ -31,9 +49,22 @@ const props = defineProps({
         type: String,
         default: "draft",
     },
+    /** Текущий вариант на карточке WB (running). */
+    isCurrent: {
+        type: Boolean,
+        default: false,
+    },
 });
 
-const emit = defineEmits(["replace", "delete", "drag-start", "drag-over", "drop", "drag-end"]);
+const emit = defineEmits([
+    "replace",
+    "delete",
+    "download",
+    "drag-start",
+    "drag-over",
+    "drop",
+    "drag-end",
+]);
 
 const imgBroken = ref(false);
 const replaceInput = ref(null);
@@ -58,6 +89,10 @@ const hasResultDelta = computed(
     () => isCompleted.value && stats.value?.result_delta_pct != null,
 );
 
+const showToolbar = computed(
+    () => props.canDownload || props.editable || props.canDelete,
+);
+
 const resultClass = computed(() => {
     if (isWinner.value) {
         return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
@@ -70,6 +105,9 @@ const resultLabel = computed(() => formatResultDelta(stats.value?.result_delta_p
 const cardBorderClass = computed(() => {
     if (isWinner.value) {
         return "border-emerald-500/70 ring-2 ring-emerald-500/25 shadow-sm shadow-emerald-500/10";
+    }
+    if (props.isCurrent && isRunning.value) {
+        return "border-primary/50 ring-2 ring-primary/15";
     }
     return "border-border/70";
 });
@@ -152,16 +190,30 @@ function formatInt(value) {
             </div>
 
             <div
+                v-if="isCurrent && isRunning"
+                class="absolute bottom-2 left-2 rounded-md border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] font-semibold text-primary shadow-sm backdrop-blur"
+            >
+                Сейчас на карточке
+            </div>
+
+            <div
                 v-if="isWinner"
                 class="absolute bottom-2 left-2 flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-800 shadow-sm backdrop-blur dark:text-emerald-300"
+                :class="isCurrent && isRunning ? 'left-auto right-2' : ''"
             >
                 <Trophy class="h-3.5 w-3.5" />
                 Победитель
             </div>
 
+            <!--
+                Панель действий: Download → Replace → Delete (слева направо:
+                безопасное → правки → деструктивное). Всегда на одном месте.
+            -->
             <div
-                v-if="editable"
-                class="absolute right-2 top-2 flex gap-1"
+                v-if="showToolbar"
+                class="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-border/60 bg-background/95 p-0.5 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/80"
+                role="toolbar"
+                :aria-label="`Действия с вариантом ${index + 1}`"
             >
                 <input
                     ref="replaceInput"
@@ -171,24 +223,41 @@ function formatInt(value) {
                     @change="onReplaceChange"
                 />
                 <Button
+                    v-if="canDownload"
                     type="button"
                     size="sm"
-                    variant="secondary"
-                    class="h-8 w-8 p-0"
+                    variant="ghost"
+                    class="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                    title="Скачать фото"
+                    aria-label="Скачать фото"
+                    :disabled="busy || !photo.preview_url"
+                    @click.stop="emit('download')"
+                >
+                    <Download class="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                    v-if="editable"
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    class="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
                     title="Заменить"
+                    aria-label="Заменить фото"
                     :disabled="busy"
-                    @click="openReplace"
+                    @click.stop="openReplace"
                 >
                     <Replace class="h-3.5 w-3.5" />
                 </Button>
                 <Button
+                    v-if="canDelete"
                     type="button"
                     size="sm"
-                    variant="secondary"
-                    class="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                    title="Удалить"
+                    variant="ghost"
+                    class="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    title="Удалить вариант"
+                    aria-label="Удалить вариант"
                     :disabled="busy"
-                    @click="emit('delete')"
+                    @click.stop="emit('delete')"
                 >
                     <Trash2 class="h-3.5 w-3.5" />
                 </Button>

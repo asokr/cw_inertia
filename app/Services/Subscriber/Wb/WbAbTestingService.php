@@ -789,6 +789,8 @@ SQL;
             'settings_ready' => $settingsReady,
             'can_continue_workspace' => $canContinueWorkspace,
             'can_edit' => $canEdit,
+            /** Удаление вариантов: draft/stopped/error + running (не completed). */
+            'can_delete_photos' => $canEdit || $status === WbAbTestStatus::Running,
             'can_start' => $canStart,
             'can_stop' => $canStop,
             'is_terminal' => $status->isTerminal(),
@@ -1488,6 +1490,9 @@ SQL;
     }
 
     /**
+     * Удаление варианта фото. Доступно для draft/stopped/error и running
+     * (чтобы убрать слабые варианты и перераспределить трафик).
+     *
      * @return array{success: bool, photos?: list<array<string, mixed>>, experiment?: array<string, mixed>, messages: list<string>}
      */
     public function deletePhoto(
@@ -1495,30 +1500,172 @@ SQL;
         AbExperiment $experiment,
         AbExperimentPhoto $photo,
     ): array {
-        $this->assertDraftExperimentForPhotos($experiment);
         $this->assertPhotoBelongsToExperiment($photo, $experiment, $cabinet);
+
+        $status = $experiment->status instanceof WbAbTestStatus
+            ? $experiment->status
+            : WbAbTestStatus::tryFrom((string) $experiment->status);
+
+        if ($status === null || (! $status->isEditable() && $status !== WbAbTestStatus::Running)) {
+            throw ValidationException::withMessages([
+                'experiment' => 'Удалять фотографии можно у черновика, остановленного, ошибочного или запущенного эксперимента.',
+            ]);
+        }
+
+        if ($status === WbAbTestStatus::Completed) {
+            throw ValidationException::withMessages([
+                'experiment' => 'У завершённого эксперимента нельзя удалять фотографии.',
+            ]);
+        }
 
         $disk = (string) ($photo->disk ?: self::PHOTO_DISK);
         $path = (string) $photo->path;
+        $messages = ['Фотография удалена'];
 
-        DB::transaction(function () use ($experiment, $photo): void {
-            $photo->delete();
-            $this->compactPhotoSortOrder($experiment);
-            $this->syncPhotosProgress($experiment->refresh());
-        });
+        try {
+            if ($status === WbAbTestStatus::Running) {
+                $messages = $this->deletePhotoWhileRunning($cabinet, $experiment, $photo);
+            } else {
+                DB::transaction(function () use ($experiment, $photo): void {
+                    $photo->delete();
+                    $this->compactPhotoSortOrder($experiment);
+                    $this->syncPhotosProgress($experiment->refresh());
+                });
+            }
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::error('WB A/B testing: failed to delete photo', [
+                'cabinet_id' => $cabinet->id,
+                'experiment_id' => $experiment->id,
+                'photo_id' => $photo->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return ['success' => false, 'messages' => ['Не удалось удалить фотографию.']];
+        }
 
         if ($path !== '') {
             Storage::disk($disk)->delete($path);
         }
 
-        $experiment->load('photos');
+        $experiment->refresh()->load('photos');
 
         return [
             'success' => true,
             'photos' => $this->listPhotos($experiment),
             'experiment' => $this->mapExperiment($experiment),
-            'messages' => ['Фотография удалена'],
+            'messages' => $messages,
         ];
+    }
+
+    /**
+     * Удаление фото у running: при необходимости переключаем карточку на следующий вариант.
+     *
+     * @return list<string>
+     */
+    private function deletePhotoWhileRunning(
+        WbCabinet $cabinet,
+        AbExperiment $experiment,
+        AbExperimentPhoto $photo,
+    ): array {
+        $apiKey = (string) ($cabinet->apikey ?? '');
+        if ($apiKey === '') {
+            throw ValidationException::withMessages([
+                'experiment' => 'У кабинета не указан API-ключ Wildberries.',
+            ]);
+        }
+
+        $product = $this->requireExperimentProduct($experiment);
+        $nmId = (int) $product->nm_id;
+        $switched = false;
+
+        DB::transaction(function () use ($experiment, $photo, $apiKey, $nmId, &$switched): void {
+            /** @var AbExperiment $locked */
+            $locked = AbExperiment::query()
+                ->whereKey($experiment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $status = $locked->status instanceof WbAbTestStatus
+                ? $locked->status
+                : WbAbTestStatus::tryFrom((string) $locked->status);
+
+            if ($status !== WbAbTestStatus::Running) {
+                throw ValidationException::withMessages([
+                    'experiment' => 'Эксперимент больше не запущен. Обновите страницу.',
+                ]);
+            }
+
+            $locked->load('photos');
+            $photoStillExists = $locked->photos->contains(
+                fn (AbExperimentPhoto $p) => (int) $p->id === (int) $photo->id,
+            );
+            if (! $photoStillExists) {
+                throw ValidationException::withMessages([
+                    'photo' => 'Фотография уже удалена.',
+                ]);
+            }
+
+            $remaining = $locked->photos
+                ->filter(fn (AbExperimentPhoto $p) => (int) $p->id !== (int) $photo->id)
+                ->values();
+
+            if ($remaining->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'photo' => 'Нельзя удалить последнюю фотографию у запущенного эксперимента. '
+                        .'Остановите эксперимент, если хотите завершить досрочно.',
+                ]);
+            }
+
+            $switchResult = $this->experimentEngine->switchAwayFromRemovedPhoto(
+                $locked,
+                $photo,
+                $remaining,
+                $apiKey,
+                $nmId,
+            );
+
+            if (! ($switchResult['success'] ?? false)) {
+                throw ValidationException::withMessages([
+                    'photo' => $switchResult['message'] ?? 'Не удалось переключить фотографию перед удалением.',
+                ]);
+            }
+
+            $switched = (bool) ($switchResult['switched'] ?? false);
+
+            // Циклы удалённого фото каскадно удалятся вместе с ним.
+            AbExperimentPhoto::query()->whereKey($photo->id)->delete();
+
+            $this->compactPhotoSortOrder($locked);
+
+            app(WbAbExperimentJournal::class)->log(
+                $locked,
+                WbAbExperimentJournal::TYPE_PHOTO_REMOVED,
+                'Вариант фотографии удалён из эксперимента'
+                    .($switched ? ' (трафик переведён на следующий вариант).' : '.'),
+                [
+                    'photo_id' => $photo->id,
+                    'switched' => $switched,
+                    'remaining_count' => $remaining->count(),
+                ],
+            );
+
+            $settings = $this->resolveExperimentSettings($locked);
+            $locked->refresh()->load('photos');
+            $openCycle = $locked->resolveOpenCycle();
+            $locked->progress = $this->experimentEngine->computeProgress(
+                $locked,
+                $settings['impressions_per_photo'],
+                $openCycle,
+            );
+            $locked->last_processed_at = now();
+            $locked->save();
+        });
+
+        return $switched
+            ? ['Фотография удалена. На карточке установлен следующий вариант — трафик пойдёт на оставшиеся.']
+            : ['Фотография удалена. Трафик будет распределяться между оставшимися вариантами.'];
     }
 
     /**

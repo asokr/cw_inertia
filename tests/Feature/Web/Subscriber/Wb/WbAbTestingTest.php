@@ -1551,6 +1551,330 @@ class WbAbTestingTest extends WebAuthTestCase
             ->assertJsonPath('success', false);
     }
 
+    public function test_running_experiment_can_delete_non_current_photo(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Running Delete Non-Current');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900110,
+            'vendor_code' => 'RUN-DEL-NC',
+            'title' => 'Running delete product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Running delete',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 40,
+            'wb_advert_id' => 999010,
+            'wb_advert_name' => 'Live',
+            'started_at' => now()->subHour(),
+            'impressions_per_photo' => 10000,
+            'impressions_per_round' => 1000,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/run-a.jpg', 'a');
+        Storage::disk('private')->put('wb/ab-testing/run-b.jpg', 'b');
+        Storage::disk('private')->put('wb/ab-testing/run-c.jpg', 'c');
+
+        $photoA = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/run-a.jpg',
+            'original_name' => 'a.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        $photoB = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/run-b.jpg',
+            'original_name' => 'b.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        $photoC = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 2,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/run-c.jpg',
+            'original_name' => 'c.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        // Текущее на карточке — A; удаляем B (не текущее) — upload в WB не нужен.
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photoA->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(20),
+            'views_start' => 0,
+            'clicks_start' => 0,
+            'spend_start' => 0,
+            'orders_start' => 0,
+            'views_end' => 50,
+            'clicks_end' => 2,
+        ]);
+
+        $mediaApi = Mockery::mock(\App\Services\Wb\WbContentMediaClient::class);
+        $mediaApi->shouldNotReceive('uploadMediaFile');
+        $this->app->instance(\App\Services\Wb\WbContentMediaClient::class, $mediaApi);
+
+        $this->actingAs($user)
+            ->delete("/panel/wb/ab-testing/experiments/{$experiment->id}/photos/{$photoB->id}")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.photos_count', 2)
+            ->assertJsonPath('experiment.can_delete_photos', true)
+            ->assertJsonPath('experiment.status', 'running');
+
+        $this->assertDatabaseMissing('wb_ab_experiment_photos', ['id' => $photoB->id]);
+        $this->assertDatabaseHas('wb_ab_experiment_photos', ['id' => $photoA->id]);
+        $this->assertDatabaseHas('wb_ab_experiment_photos', ['id' => $photoC->id]);
+        Storage::disk('private')->assertMissing('wb/ab-testing/run-b.jpg');
+
+        // Open cycle всё ещё на A.
+        $open = \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->whereNull('ended_at')
+            ->first();
+        $this->assertNotNull($open);
+        $this->assertSame((int) $photoA->id, (int) $open->ab_experiment_photo_id);
+    }
+
+    public function test_running_experiment_delete_current_photo_switches_to_next(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Running Delete Current');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900111,
+            'vendor_code' => 'RUN-DEL-CUR',
+            'title' => 'Running delete current',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Running delete current',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 40,
+            'wb_advert_id' => 999011,
+            'wb_advert_name' => 'Live',
+            'started_at' => now()->subHour(),
+            'impressions_per_photo' => 10000,
+            'impressions_per_round' => 1000,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/cur-a.jpg', 'a');
+        Storage::disk('private')->put('wb/ab-testing/cur-b.jpg', 'b');
+
+        $photoA = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/cur-a.jpg',
+            'original_name' => 'a.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        $photoB = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/cur-b.jpg',
+            'original_name' => 'b.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photoA->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(20),
+            'views_start' => 10,
+            'clicks_start' => 1,
+            'spend_start' => 0,
+            'orders_start' => 0,
+            'views_end' => 80,
+            'clicks_end' => 3,
+        ]);
+
+        $mediaApi = Mockery::mock(\App\Services\Wb\WbContentMediaClient::class);
+        $mediaApi->shouldReceive('uploadMediaFile')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200]);
+        $this->app->instance(\App\Services\Wb\WbContentMediaClient::class, $mediaApi);
+
+        $this->actingAs($user)
+            ->delete("/panel/wb/ab-testing/experiments/{$experiment->id}/photos/{$photoA->id}")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.photos_count', 1)
+            ->assertJsonPath('experiment.current_photo_id', $photoB->id);
+
+        $this->assertDatabaseMissing('wb_ab_experiment_photos', ['id' => $photoA->id]);
+        $this->assertDatabaseHas('wb_ab_experiment_photos', ['id' => $photoB->id]);
+
+        $open = \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()
+            ->where('ab_experiment_id', $experiment->id)
+            ->whereNull('ended_at')
+            ->first();
+        $this->assertNotNull($open);
+        $this->assertSame((int) $photoB->id, (int) $open->ab_experiment_photo_id);
+        $this->assertSame(2, (int) $open->sequence);
+    }
+
+    public function test_running_experiment_cannot_delete_last_photo(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Running Delete Last');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900112,
+            'vendor_code' => 'RUN-DEL-LAST',
+            'title' => 'Running last photo',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Running last',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 50,
+            'wb_advert_id' => 999012,
+            'started_at' => now()->subHour(),
+            'impressions_per_photo' => 10000,
+            'impressions_per_round' => 1000,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/last.jpg', 'x');
+        $photo = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/last.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(10),
+            'views_start' => 0,
+            'clicks_start' => 0,
+            'spend_start' => 0,
+            'orders_start' => 0,
+        ]);
+
+        $this->actingAs($user)
+            ->delete("/panel/wb/ab-testing/experiments/{$experiment->id}/photos/{$photo->id}")
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseHas('wb_ab_experiment_photos', ['id' => $photo->id]);
+    }
+
+    public function test_completed_experiment_cannot_delete_photos(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Completed Delete');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900113,
+            'vendor_code' => 'DONE-DEL',
+            'title' => 'Completed product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Completed',
+            'status' => WbAbTestStatus::Completed,
+            'progress' => 100,
+            'finished_at' => now(),
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/done.jpg', 'x');
+        $photo = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/done.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+
+        $this->actingAs($user)
+            ->delete("/panel/wb/ab-testing/experiments/{$experiment->id}/photos/{$photo->id}")
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_media_download_sets_attachment_disposition(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Download Media Cabinet');
+        [, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+
+        $this->actingAs($user)
+            ->post("/panel/wb/ab-testing/experiments/{$experiment->id}/photos", [
+                'photos' => [UploadedFile::fake()->image('download-me.jpg')],
+            ])
+            ->assertOk();
+
+        $photo = AbExperimentPhoto::query()->where('ab_experiment_id', $experiment->id)->firstOrFail();
+
+        $this->actingAs($user)
+            ->get("/panel/wb/ab-testing/media/{$photo->id}?download=1")
+            ->assertOk()
+            ->assertHeader('Content-Disposition', 'attachment; filename="download-me.jpg"');
+    }
+
     public function test_update_settings_persists_and_sets_progress_with_photos(): void
     {
         Storage::fake('private');

@@ -25,6 +25,8 @@ class WbAbExperimentJournal
 
     public const TYPE_PHOTO_SWITCHED = 'photo.switched';
 
+    public const TYPE_PHOTO_REMOVED = 'photo.removed';
+
     public const TYPE_CYCLE_OPENED = 'cycle.opened';
 
     public const TYPE_CYCLE_CLOSED = 'cycle.closed';

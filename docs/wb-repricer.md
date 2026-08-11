@@ -10,7 +10,7 @@
 
 Автоматическое управление ценами на Wildberries по стратегиям: по остаткам на складах и по расписанию (время). Интегрируется с [wb-promo-calculator.md](wb-promo-calculator.md) для массового добавления номенклатур.
 
-Кабинет WB — **единый** ([wb-cabinets.md](wb-cabinets.md)): API-ключ, ошибки API (`error_code` / `error_message`) живут в `wb_cabinets`. Стратегии (settings, stocks, competitors, logs) ссылаются на `cabinet_id` = `wb_cabinets.id`.
+Кабинет WB — **единый** ([wb-cabinets.md](wb-cabinets.md)): API-ключ, ошибки API (`error_code` / `error_message`) живут в `wb_cabinets`. Стратегии (settings, stocks, logs) ссылаются на `cabinet_id` = `wb_cabinets.id`.
 
 В UI нет отдельного списка кабинетов репрайсера: hub и стратегии работают для **активного** кабинета из шапки.
 
@@ -29,9 +29,7 @@
 - `app/Services/Subscriber/Wb/RepricerCabinetsService.php`
 - `app/Services/Subscriber/Wb/RepricerStocksService.php`
 - `app/Services/Subscriber/Wb/RepricerTimeSettingsService.php`
-- `app/Services/Wb/WbSearchService.php` — поиск конкурентов через Node-сервис
 - `app/Jobs/ApplyRepricerStrategyOneJob.php` — применение стратегии по расписанию
-- `app/Jobs/ProcessRepricerCompetitorJob.php` — обработка цен конкурентов
 - `app/Jobs/UpdateRepricerStocksJob.php` — обновление по остаткам (берёт `WbCabinet`)
 
 ### Модели
@@ -40,9 +38,7 @@
 - `app/Models/Subscribers/Wb/Repricer/RepricerCabinets.php` — legacy `wb_repricer_cabinets` (миграция)
 - `app/Models/Subscribers/Wb/Repricer/RepricerStocks.php`
 - `app/Models/Subscribers/Wb/Repricer/RepricerSettings.php`
-- `app/Models/Subscribers/Wb/Repricer/RepricerCompetitor.php`
 - `app/Models/Subscribers/Wb/Repricer/RepricerLogs.php`
-- `app/Models/WbSearchRequest.php`
 
 ### Admin
 
@@ -73,7 +69,7 @@ Prefix: `/panel/wb/repricer` · name: `subscriber.wb.repricer.*`
 - `/cabinets/{cabinet}/time` → `/panel/wb/repricer/time`
 - `/cabinets/{cabinet}/stocks` → `/panel/wb/repricer/stocks`
 
-Стратегия **по конкурентам** и mass-страницы (`time/mass`, `stocks/mass`) в UI v1 не вынесены на отдельный full-flow (логика/jobs могут оставаться в backend).
+Стратегия **по конкурентам** удалена (backend job, schedule, модель и таблица сняты). Mass-страницы (`time/mass`, `stocks/mass`) в UI v1 не вынесены.
 
 При отсутствии выбранного кабинета — `Subscriber/Wb/Shared/NoCabinet`.
 
@@ -86,16 +82,13 @@ Prefix: `/panel/wb/repricer` · name: `subscriber.wb.repricer.*`
 | Job | Назначение |
 |-----|------------|
 | `ApplyRepricerStrategyOneJob` | Периодическое применение цен по расписанию |
-| `ProcessRepricerCompetitorJob` | Пересчёт цен по конкурентам |
 | `UpdateRepricerStocksJob` | Обновление цен при изменении остатков |
 
 Jobs работают с `WbCabinet` (не legacy `RepricerCabinets`). Ошибки 401/403/429 пишутся в `wb_cabinets.error_*`; при фатальных — уведомление `WbCabinetAuthorizationNotification`.
 
 ## Технические детали
 
-- Поиск конкурентов делегируется внешнему Node-сервису (`WbSearchService`), результат приходит через webhook `POST /api/services/wb-search/webhook`
-- `RepricerCompetitor` хранит `nm_id`, список конкурентов, `difference` (percent/amount), `competitors_price_type` (min/average/max)
-- `cabinet_id` в settings/stocks/logs/competitors = `wb_cabinets.id`
+- `cabinet_id` в settings/stocks/logs = `wb_cabinets.id`
 - Константы skip/fatal на `WbCabinet` (и зеркально на legacy model для миграции)
 - Логи изменений цен доступны подписчику и в админке
 

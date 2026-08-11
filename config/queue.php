@@ -38,7 +38,9 @@ return [
             'driver' => 'database',
             'table' => 'jobs',
             'queue' => 'default',
-            'retry_after' => 90,
+            // Должен быть больше max timeout job (AI analyzer / price calc = 3600).
+            // Иначе database-драйвер снова выдаст ту же job другому воркеру (~каждые N сек).
+            'retry_after' => (int) env('QUEUE_RETRY_AFTER', 3700),
             'after_commit' => false,
         ],
 
@@ -46,7 +48,7 @@ return [
             'driver' => 'beanstalkd',
             'host' => 'localhost',
             'queue' => 'default',
-            'retry_after' => 90,
+            'retry_after' => (int) env('QUEUE_RETRY_AFTER', 3700),
             'block_for' => 0,
             'after_commit' => false,
         ],
@@ -66,7 +68,7 @@ return [
             'driver' => 'redis',
             'connection' => 'default',
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => 90,
+            'retry_after' => (int) env('QUEUE_RETRY_AFTER', 3700),
             'block_for' => null,
             'after_commit' => false,
         ],

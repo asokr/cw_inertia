@@ -24,10 +24,6 @@ return [
     'postmark' => [
         'token' => env('POSTMARK_TOKEN'),
     ],
-    'wb_search' => [
-        'url' => env('WB_SEARCH_BASE_URL', 'http://127.0.0.1:3001'),
-        'token' => env('WB_SEARCH_BASE_TOKEN'),
-    ],
     'proxy' => env('PROXY'),
     'gpt' => [
         'key' => env('APP_GPT_KEY'),

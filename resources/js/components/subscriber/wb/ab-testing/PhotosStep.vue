@@ -47,12 +47,28 @@ const dragFromIndex = ref(null);
 const settingsPanel = ref(null);
 
 const isEditableStatus = computed(() => !!props.experiment?.can_edit);
+const isRunning = computed(() => props.experiment?.status === "running");
 const remaining = computed(() => Math.max(0, MAX_PHOTOS - photos.value.length));
 const settingsReady = computed(() => !!props.experiment?.settings_ready);
 const canContinue = computed(
     () => photos.value.length >= MIN_PHOTOS && settingsReady.value,
 );
 const canEdit = computed(() => isEditableStatus.value && !busy.value);
+/** Удаление: draft/stopped/error + running (не completed). */
+const canDeletePhotos = computed(() => {
+    if (busy.value) {
+        return false;
+    }
+    if (props.experiment?.can_delete_photos != null) {
+        return !!props.experiment.can_delete_photos;
+    }
+    return isEditableStatus.value || isRunning.value;
+});
+/** У running нельзя снять последний вариант. */
+const minPhotosToKeep = computed(() => (isRunning.value ? 1 : 0));
+const canDeleteOneMore = computed(
+    () => photos.value.length > minPhotosToKeep.value,
+);
 
 /** Reasons why «Продолжить» is blocked (shown under the button). */
 const continueBlockers = computed(() => {
@@ -228,8 +244,50 @@ async function replacePhoto(photo, file) {
     }
 }
 
+function downloadPhoto(photo) {
+    if (!photo?.preview_url) {
+        showError("Файл фотографии недоступен");
+        return;
+    }
+
+    const separator = photo.preview_url.includes("?") ? "&" : "?";
+    const url = `${photo.preview_url}${separator}download=1`;
+    const name = photo.original_name || `ab-photo-${photo.id}.jpg`;
+
+    // Same-origin auth cookie; Content-Disposition: attachment на бэкенде.
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = name;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+}
+
 async function deletePhoto(photo) {
-    if (!props.experiment?.id || !photo?.id || !canEdit.value) {
+    if (!props.experiment?.id || !photo?.id || !canDeletePhotos.value) {
+        return;
+    }
+
+    if (!canDeleteOneMore.value) {
+        showError(
+            isRunning.value
+                ? "Нельзя удалить последнюю фотографию у запущенного эксперимента"
+                : "Нет фотографий для удаления",
+        );
+        return;
+    }
+
+    const label = photo.original_name || `вариант #${(photos.value.findIndex((p) => p.id === photo.id) + 1) || "?"}`;
+    const confirmMessage = isRunning.value
+        ? `Удалить «${label}» из запущенного эксперимента?\n\n` +
+          `Статистика этого варианта будет сброшена. Трафик пойдёт на оставшиеся фото` +
+          (photo.id === props.experiment?.current_photo_id
+              ? "; на карточке WB сразу поставим следующий вариант."
+              : ".")
+        : `Удалить «${label}»?`;
+
+    if (!window.confirm(confirmMessage)) {
         return;
     }
 
@@ -357,6 +415,13 @@ watch(
                     {{ photos.length }} / {{ MAX_PHOTOS }}
                 </span>
             </p>
+            <p
+                v-if="isRunning && canDeletePhotos"
+                class="text-xs text-muted-foreground"
+            >
+                Во время теста можно удалить слабые варианты (низкий CTR) —
+                показы пойдут на оставшиеся фото. Последний вариант удалить нельзя.
+            </p>
         </div>
 
         <SelectedProductCard v-if="product" :product="product" />
@@ -423,11 +488,15 @@ watch(
                     :photo="photo"
                     :index="index"
                     :editable="isEditableStatus"
+                    :can-delete="canDeletePhotos && canDeleteOneMore"
+                    :can-download="true"
                     :busy="busy"
                     :draggable="isEditableStatus && photos.length > 1"
                     :experiment-status="experiment?.status || 'draft'"
+                    :is-current="photo.id === experiment?.current_photo_id"
                     @replace="(file) => replacePhoto(photo, file)"
                     @delete="deletePhoto(photo)"
+                    @download="downloadPhoto(photo)"
                     @drag-start="(e) => onDragStart(index, e)"
                     @drop="() => onDrop(index)"
                     @drag-end="onDragEnd"
@@ -450,10 +519,17 @@ watch(
             </p>
 
             <p
-                v-else-if="!isEditableStatus"
+                v-else-if="isRunning && canDeletePhotos && !canDeleteOneMore"
                 class="text-center text-xs text-muted-foreground"
             >
-                Фотографии только для просмотра в текущем статусе эксперимента.
+                Остался один вариант — его нельзя удалить, пока эксперимент запущен.
+            </p>
+
+            <p
+                v-else-if="!isEditableStatus && !isRunning"
+                class="text-center text-xs text-muted-foreground"
+            >
+                Фотографии только для просмотра. Можно скачать любой вариант.
             </p>
         </template>
 

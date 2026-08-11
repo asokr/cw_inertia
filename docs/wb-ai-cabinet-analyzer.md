@@ -110,7 +110,7 @@ Prefix: `/panel/wb/ai-cabinet-analyzer` · name: `subscriber.wb.ai-cabinet-analy
   - Snapshot-отчёт по-прежнему полный; фильтрация только на этапе ИИ-анализа
   - Пустое/null → все три источника (обратная совместимость)
 - AI-анализы: `wb_ai_cabinet_analyzer_ai_analyses` (`processing|done|failed`).
-- AI: `GeminiApiClient` + fallback GPT (`APP_GPT_KEY`), очередь **`wb_profit_analyzer`** (и snapshot-report, и AI-analysis job).
+- AI: `GeminiApiClient` + fallback GPT (`APP_GPT_KEY`), очередь **`wb_ai_cabinet_analyzer`** (и snapshot-report, и AI-analysis job).
 - Модель по умолчанию: `gemini`.
 - Пустой итоговый AI-результат → `failed`, не `done`.
 - Зависшие `processing` отчёты (>70 мин) при открытии workspace помечаются `failed`.
@@ -120,13 +120,25 @@ Prefix: `/panel/wb/ai-cabinet-analyzer` · name: `subscriber.wb.ai-cabinet-analy
 
 ## Очереди
 
-Обязательная очередь: `wb_profit_analyzer`.
+Обязательная очередь: `wb_ai_cabinet_analyzer` (не `wb_profit_analyzer` — legacy-имя после rename таблиц, на проде не используется).
 
 ```bash
-php artisan queue:work --queue=wb_profit_analyzer --tries=3 --timeout=3600 --sleep=1
+php artisan queue:work --queue=wb_ai_cabinet_analyzer --tries=3 --timeout=3600 --sleep=1
 ```
 
 Без воркера отчёты остаются в `processing`.
+
+### Дубли запросов к ИИ (полный отчёт каждые ~1 мин)
+
+**Причина:** в `config/queue.php` для database-драйвера `retry_after` был **90** с, а job timeout — **3600**. Пока один воркер ждёт ответ Gemini/GPT (или гоняет несколько batch), queue снова выдаёт **ту же** job → повторный `service->run()` с полным dataset.
+
+**Исправление:**
+1. `QUEUE_RETRY_AFTER=3700` (больше max timeout) — см. [queues.md](queues.md).
+2. `WithoutOverlapping` на report/analysis job + skip если уже `done`.
+3. Статус `failed` только на последней попытке (`tries`).
+
+Ожидаемое число вызовов ИИ за один анализ: **1** (если dataset влезает в batch) или **N batch + 1 агрегация** при большом snapshot — **не** полный dataset каждую минуту.  
+Батчинг: `AiCabinetAnalyzerAiAnalysisService::MAX_BATCH_JSON_CHARS` (~140k символов JSON).
 
 ## Связанные документы
 

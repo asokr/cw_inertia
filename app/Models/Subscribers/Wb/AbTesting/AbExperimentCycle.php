@@ -18,6 +18,9 @@ class AbExperimentCycle extends Model
 
     public const END_ERROR = 'error';
 
+    /** Пользователь удалил вариант фото во время running. */
+    public const END_PHOTO_REMOVED = 'photo_removed';
+
     protected $table = 'wb_ab_experiment_cycles';
 
     protected $fillable = [

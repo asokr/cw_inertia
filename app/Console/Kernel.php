@@ -25,7 +25,6 @@ class Kernel extends ConsoleKernel
         Commands\WbRepricerBot::class,
         Commands\DispatchRepricerStocksJobCommand::class,
         Commands\DispatchRepricerStrategyOneJobCommand::class,
-        Commands\DispatchRepricerCompetitorsJobCommand::class,
         Commands\ResetStuckProfitabilityReportsCommand::class,
         Commands\AggregateAiCosts::class,
         Commands\WbAbTestingTickCommand::class,
@@ -109,9 +108,6 @@ class Kernel extends ConsoleKernel
 
         // Постановка задач изменения цен по остаткам
         $schedule->command('subscriber:dispatch-wb-price-jobs')->everyThirtyMinutes()->withoutOverlapping()->runInBackground();
-
-        // Постановка задач конкурентного репрайсера
-        $schedule->command('subscriber:dispatch-wb-competitor-jobs')->everyTenMinutes()->withoutOverlapping()->runInBackground();
 
         // Сброс зависших profitability-отчётов (порог 35 мин = timeout Job 30 мин + запас на очередь)
         $schedule->command('subscriber:fail-stuck-profitability-reports --minutes=35')->everyFiveMinutes()->withoutOverlapping()->runInBackground();
