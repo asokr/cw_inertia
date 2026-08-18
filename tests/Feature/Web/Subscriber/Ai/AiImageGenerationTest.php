@@ -4,13 +4,18 @@ namespace Tests\Feature\Web\Subscriber\Ai;
 
 use App\Models\AiImageGeneration;
 use App\Models\AiImageGenerationTask;
+use App\Models\Credits\CreditAccount;
+use App\Models\Credits\CreditLedger;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
 use App\Services\Ai\AiImageGenerationService;
 use App\Services\Ai\AiImageService;
 use App\Services\Ai\AiMediaStorageService;
+use App\Services\Gemini\GeminiApiClient;
 use App\Services\Grok\GrokImageApiClient;
+use Database\Seeders\CreditPricingSeeder;
+use Tests\Support\CreatesCreditBillingSchema;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -25,6 +30,8 @@ use Tests\Feature\Web\Auth\WebAuthTestCase;
 
 class AiImageGenerationTest extends WebAuthTestCase
 {
+    use CreatesCreditBillingSchema;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -511,10 +518,83 @@ class AiImageGenerationTest extends WebAuthTestCase
         $this->assertTrue($service->hasStoredSourceImages($withSourceGeneration->fresh()));
     }
 
+    public function test_image_generation_spends_catalog_credits_for_resolution(): void
+    {
+        Storage::fake('private');
+        $this->setupCreditBillingSchema();
+        (new CreditPricingSeeder())->run();
+
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $this->grantCredits($user, 20);
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+
+        $gemini = Mockery::mock(GeminiApiClient::class);
+        $gemini->shouldReceive('buildImageOptions')->andReturn([]);
+        $gemini->shouldReceive('generateImage')->once()->andReturn([
+            'success' => true,
+            'status' => 200,
+            'data' => [],
+        ]);
+        $gemini->shouldReceive('extractImages')->andReturn([[
+            'mime_type' => 'image/png',
+            'base64' => base64_encode($png),
+        ]]);
+        $this->app->instance(GeminiApiClient::class, $gemini);
+
+        $this->actingAs($user)
+            ->postJson('/panel/ai/image/start', [
+                'task_type' => 'generate_image',
+                'image_prompt' => 'Сделай карточку товара',
+                'resolution' => '1K',
+                'credits' => 1,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('credits_charged', 10);
+
+        $this->assertSame(10, CreditAccount::query()->where('user_id', $user->id)->first()?->available());
+        $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('service_code', 'generate_image')->count());
+    }
+
+    public function test_image_generation_without_credits_does_not_call_provider(): void
+    {
+        $this->setupCreditBillingSchema();
+        (new CreditPricingSeeder())->run();
+        $user = $this->createSubscriberUser(withAiPermission: true);
+
+        $gemini = Mockery::mock(GeminiApiClient::class);
+        $gemini->shouldNotReceive('generateImage');
+        $this->app->instance(GeminiApiClient::class, $gemini);
+
+        $response = $this->actingAs($user)
+            ->postJson('/panel/ai/image/start', [
+                'task_type' => 'generate_image',
+                'image_prompt' => 'Сделай карточку товара',
+                'resolution' => 'default',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', false);
+
+        $this->assertStringContainsString('Недостаточно кредитов', (string) $response->json('messages.0'));
+    }
+
     protected function tearDown(): void
     {
         Mockery::close();
         parent::tearDown();
+    }
+
+    private function grantCredits(User $user, int $amount): void
+    {
+        CreditAccount::query()->updateOrCreate(
+            ['user_id' => $user->id],
+            [
+                'subscription_balance' => 0,
+                'purchased_balance' => $amount,
+                'subscription_held' => 0,
+                'purchased_held' => 0,
+            ],
+        );
     }
 
     private function createSubscriberUser(bool $withAiPermission = false): User

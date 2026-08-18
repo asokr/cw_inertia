@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web\Subscriber\Wb\Feedbacks;
 
 use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
+use App\Services\Subscriber\Concerns\ChargesFeedbackAnswerCredits;
 use App\Services\Subscriber\Wb\WbFeedbacksClientsService;
 use App\Services\Subscriber\Wb\WbFeedbacksTemplatesService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
@@ -19,6 +20,7 @@ use Inertia\Response;
 
 class TemplatesController extends SubscriberToolController
 {
+    use ChargesFeedbackAnswerCredits;
     use ResolvesSelectedWbCabinet;
 
     public function __construct(
@@ -80,6 +82,7 @@ class TemplatesController extends SubscriberToolController
             'templates' => $templates,
             'templatesError' => $templatesError,
             'botStatus' => ($botPayload['success'] ?? false) ? (int) ($botPayload['data'] ?? 0) : 0,
+            'creditsCost' => $this->feedbackAnswerCreditsCost(),
         ]);
     }
 

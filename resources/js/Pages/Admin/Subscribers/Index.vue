@@ -28,7 +28,7 @@ watchEffect(() => {
 
 const search = ref(props.filters.search ?? "");
 const planId = ref(props.filters.plan_id ?? "");
-const tooltip = reactive({ visible: false, x: 0, y: 0, subscription: null });
+const tooltip = reactive({ visible: false, x: 0, y: 0, subscription: null, credits: 0, purchased: 0 });
 
 function hasLimits(obj) {
     return obj && Object.keys(obj).length > 0;
@@ -38,21 +38,23 @@ function countLimits(obj) {
     return obj ? Object.keys(obj).length : 0;
 }
 
-function limitsSummary(subscription) {
+function creditsAvailable(row) {
+    const account = row?.user?.credit_account;
+    if (!account) return 0;
+    const subscription = Number(account.subscription_balance ?? 0);
+    const purchased = Number(account.purchased_balance ?? 0);
+    const held = Number(account.subscription_held ?? 0) + Number(account.purchased_held ?? 0);
+    return Math.max(0, subscription + purchased - held);
+}
+
+function limitsSummary(row, subscription) {
     if (!subscription) return "—";
 
     const planCount = countLimits(subscription.limits_plan);
-    const monthCount = countLimits(subscription.limits_month);
-    const extraCount = countLimits(subscription.extra_limits_month);
-
-    if (!planCount && !monthCount && !extraCount) {
-        return "Нет лимитов";
-    }
-
+    const credits = creditsAvailable(row);
     const parts = [];
-    if (planCount) parts.push(`${planCount} план.`);
-    if (monthCount) parts.push(`${monthCount} мес.`);
-    if (extraCount) parts.push(`+${extraCount} доп.`);
+    if (planCount) parts.push(`${planCount} по тарифу`);
+    parts.push(`${credits} кред.`);
 
     return parts.join(" / ");
 }
@@ -72,10 +74,12 @@ function firstLimitPreview(subscription) {
     return `${formatLimitLabel(key)}: ${value}`;
 }
 
-function openTooltip(subscription, event) {
+function openTooltip(row, subscription, event) {
     const rect = event.currentTarget.getBoundingClientRect();
     tooltip.visible = true;
     tooltip.subscription = subscription;
+    tooltip.credits = creditsAvailable(row);
+    tooltip.purchased = Number(row?.user?.credit_account?.purchased_balance ?? 0);
     tooltip.x = rect.left + rect.width / 2;
     tooltip.y = rect.bottom + 8;
 }
@@ -83,6 +87,8 @@ function openTooltip(subscription, event) {
 function closeTooltip() {
     tooltip.visible = false;
     tooltip.subscription = null;
+    tooltip.credits = 0;
+    tooltip.purchased = 0;
 }
 
 const formatCurrency = (amount) => new Intl.NumberFormat("ru-RU", {
@@ -148,13 +154,13 @@ const columns = [
                 {
                     type: "button",
                     class: "text-left text-xs text-primary hover:underline",
-                    onMouseenter: (event) => openTooltip(subscription, event),
+                    onMouseenter: (event) => openTooltip(row.original, subscription, event),
                     onMouseleave: closeTooltip,
-                    onFocus: (event) => openTooltip(subscription, event),
+                    onFocus: (event) => openTooltip(row.original, subscription, event),
                     onBlur: closeTooltip,
                 },
                 [
-                    h("div", limitsSummary(subscription)),
+                    h("div", limitsSummary(row.original, subscription)),
                     preview ? h("div", { class: "text-muted-foreground" }, preview) : null,
                 ],
             );
@@ -254,27 +260,23 @@ function applyFilters() {
                 class="pointer-events-none fixed z-50 w-72 max-w-[90vw] rounded-lg border bg-card p-3 text-sm shadow-lg"
                 :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px`, transform: 'translateX(-50%)' }"
             >
-                <div class="mb-1 font-semibold">Тарифные лимиты</div>
+                <div class="mb-1 font-semibold">Лимиты тарифа</div>
                 <p class="mb-2 text-xs text-muted-foreground">остаток / по тарифу</p>
-                <div v-if="hasLimits(tooltip.subscription.limits_plan) || hasLimits(tooltip.subscription.extra_limits_plan) || hasLimits(tooltip.subscription.plan?.limits_plan)">
+                <div v-if="hasLimits(tooltip.subscription.limits_plan) || hasLimits(tooltip.subscription.plan?.limits_plan)">
                     <LimitList
                         :base="tooltip.subscription.limits_plan"
-                        :extra="tooltip.subscription.extra_limits_plan"
                         :tariff="tooltip.subscription.plan?.limits_plan"
                     />
                 </div>
-                <div v-else class="mb-2 text-muted-foreground">Нет плановых лимитов</div>
+                <div v-else class="mb-2 text-muted-foreground">Нет лимитов тарифа</div>
 
-                <div class="mb-1 font-semibold">Месячные лимиты</div>
-                <p class="mb-2 text-xs text-muted-foreground">остаток / по тарифу + доп.</p>
-                <div v-if="hasLimits(tooltip.subscription.limits_month) || hasLimits(tooltip.subscription.extra_limits_month) || hasLimits(tooltip.subscription.plan?.limits_month)">
-                    <LimitList
-                        :base="tooltip.subscription.limits_month"
-                        :extra="tooltip.subscription.extra_limits_month"
-                        :tariff="tooltip.subscription.plan?.limits_month"
-                    />
-                </div>
-                <div v-else class="text-muted-foreground">Нет месячных лимитов</div>
+                <div class="mb-1 font-semibold">Кредиты</div>
+                <p class="text-sm">
+                    Доступно: <span class="font-semibold tabular-nums">{{ tooltip.credits }}</span>
+                </p>
+                <p class="text-xs text-muted-foreground">
+                    Купленные: <span class="tabular-nums">{{ tooltip.purchased }}</span>
+                </p>
             </div>
         </Teleport>
     </AdminLayout>

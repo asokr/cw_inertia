@@ -193,6 +193,7 @@ class AiVideoGenerationService
         ?string $externalRequestId = null,
         ?string $model = null,
         ?string $errorMessage = null,
+        ?string $creditIdempotencyKey = null,
     ): AiVideoGenerationTask {
         $generation = $this->ensureGenerationForWrite($generation, $subscriberId, $userId, $prompt);
 
@@ -210,6 +211,7 @@ class AiVideoGenerationService
             'status' => $status,
             'model' => $model,
             'error_message' => $errorMessage,
+            'credit_idempotency_key' => $creditIdempotencyKey,
         ];
 
         try {

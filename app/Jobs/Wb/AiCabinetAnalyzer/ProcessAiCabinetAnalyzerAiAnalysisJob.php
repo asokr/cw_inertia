@@ -4,6 +4,7 @@ namespace App\Jobs\Wb\AiCabinetAnalyzer;
 
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerAiAnalysis;
+use App\Services\Credits\CreditBillingService;
 use App\Services\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerAiAnalysisService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -49,7 +50,7 @@ class ProcessAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
         ];
     }
 
-    public function handle(AiCabinetAnalyzerAiAnalysisService $service): void
+    public function handle(AiCabinetAnalyzerAiAnalysisService $service, CreditBillingService $credits): void
     {
         $analysis = AiCabinetAnalyzerAiAnalysis::with(['report.cabinet', 'template'])->find($this->analysisId);
 
@@ -77,6 +78,7 @@ class ProcessAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 'analysis_id' => $analysis->id,
                 'attempt' => $this->attempts(),
             ]);
+            $credits->captureOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
 
             return;
         }
@@ -111,6 +113,7 @@ class ProcessAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 Log::info('[AiCabinetAnalyzerAI] Результат уже сохранён другим процессом, пропуск записи', [
                     'analysis_id' => $analysis->id,
                 ]);
+                $credits->captureOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
 
                 return;
             }
@@ -126,7 +129,7 @@ class ProcessAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 throw new RuntimeException('AI вернул пустой анализ. Сохранение результата отменено.');
             }
 
-            DB::transaction(function () use ($analysis, $result, $analysisText, $analysisJson, $analysisMarkdown): void {
+            DB::transaction(function () use ($analysis, $result, $analysisText, $analysisJson, $analysisMarkdown, $credits): void {
                 $analysis->status = AiCabinetAnalyzerAiAnalysis::STATUS_DONE;
                 $analysis->model = (string) ($result['model'] ?? $analysis->model);
                 $analysis->analysis_text = $analysisText ?: null;
@@ -138,6 +141,8 @@ class ProcessAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 $analysis->error_message = null;
                 $analysis->finished_at = now();
                 $analysis->save();
+
+                $credits->captureOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
             });
 
             if ($analysisMarkdownLength > 0) {
@@ -170,11 +175,13 @@ class ProcessAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
             // Не помечаем failed до последней попытки: иначе UI/старт нового анализа
             // и параллельные ретраи накладываются, а в ИИ уходит полный отчёт несколько раз.
             if ($this->isFinalAttempt()) {
-                DB::transaction(function () use ($analysis, $exception): void {
+                DB::transaction(function () use ($analysis, $exception, $credits): void {
                     $analysis->status = AiCabinetAnalyzerAiAnalysis::STATUS_FAILED;
                     $analysis->error_message = mb_substr($exception->getMessage(), 0, 5000);
                     $analysis->finished_at = now();
                     $analysis->save();
+
+                    $credits->releaseOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
                 });
             }
 

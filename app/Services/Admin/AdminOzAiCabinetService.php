@@ -49,6 +49,7 @@ class AdminOzAiCabinetService
             'is_active' => (bool) ($data['is_active'] ?? true),
             'response_format' => (string) ($data['response_format'] ?? 'json'),
             'data_sources' => $this->normalizeDataSources($data['data_sources'] ?? null),
+            ...$this->creditsCostAttributes($data),
         ]);
     }
 
@@ -64,6 +65,10 @@ class AdminOzAiCabinetService
         }
         if (array_key_exists('data_sources', $data)) {
             $template->data_sources = $this->normalizeDataSources($data['data_sources']);
+        }
+        $creditsCost = $this->creditsCostAttributes($data);
+        if ($creditsCost !== []) {
+            $template->credits_cost = $creditsCost['credits_cost'];
         }
         $template->save();
 
@@ -87,6 +92,21 @@ class AdminOzAiCabinetService
         }
 
         return $resolved !== [] ? $resolved : OzAiCabinetAnalyzerTemplate::DATA_SOURCES;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{credits_cost?: int}
+     */
+    private function creditsCostAttributes(array $data): array
+    {
+        if (! array_key_exists('credits_cost', $data) || $data['credits_cost'] === null || $data['credits_cost'] === '') {
+            return [];
+        }
+
+        $cost = (int) $data['credits_cost'];
+
+        return $cost > 0 ? ['credits_cost' => $cost] : [];
     }
 
     public function deleteTemplate(OzAiCabinetAnalyzerTemplate $template): void

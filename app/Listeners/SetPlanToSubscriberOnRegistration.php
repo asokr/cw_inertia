@@ -27,16 +27,20 @@ class SetPlanToSubscriberOnRegistration
         }
 
         $endDate = Carbon::now()->addDays($model->duration);
+        $startDate = Carbon::now();
 
         $user->givePermissionTo($model->permissions);
 
-        SubscribersSubscriptions::create([
+        $subscription = SubscribersSubscriptions::create([
             'subscribers_id' => $user->subscriber->id,
             'plan_id' => $planId,
-            'limits_month' => $model->limits_month,
             'limits_plan' => $model->limits_plan,
+            'start_date' => $startDate,
             'end_date' => $endDate,
             'status' => 1,
         ]);
+
+        app(\App\Services\Credits\CreditBillingService::class)
+            ->grantPeriod($user, $subscription, $model);
     }
 }

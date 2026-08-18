@@ -10,11 +10,14 @@ use Throwable;
  * Оркестратор snapshot Ozon AI Cabinet Analyzer (этап 2).
  *
  * Источники:
- * - products (каталог)
+ * - products (каталог + индекс цен / комиссии / ошибки карточки)
  * - analytics (free: revenue, ordered_units)
- * - product_queries / search (free-поля)
- * - stocks + turnover
+ * - product_queries / search (free-поля + тексты запросов)
+ * - stocks + turnover + liquidity
  * - advertising (Performance API, optional credentials)
+ * - content (контент-рейтинг)
+ * - seller_rating (рейтинги кабинета)
+ * - promos (акции)
  *
  * Premium funnel-метрики и отзывы не собираются.
  */
@@ -30,6 +33,9 @@ class OzAiCabinetAnalyzerService
         private readonly OzAiCabinetAnalyzerProductQueriesCollector $productQueriesCollector,
         private readonly OzAiCabinetAnalyzerStocksCollector $stocksCollector,
         private readonly OzAiCabinetAnalyzerAdsCollector $adsCollector,
+        private readonly OzAiCabinetAnalyzerContentRatingCollector $contentRatingCollector,
+        private readonly OzAiCabinetAnalyzerSellerRatingCollector $sellerRatingCollector,
+        private readonly OzAiCabinetAnalyzerPromosCollector $promosCollector,
     ) {}
 
     /**
@@ -126,7 +132,37 @@ class OzAiCabinetAnalyzerService
             $sourcesCollected[] = 'advertising';
         }
 
-        // 6. Merge into products[]
+        // 6. Контент-рейтинг
+        $this->touchHeartbeat('content_rating');
+        $contentResult = $this->contentRatingCollector->collect($apiKey, $clientId, $allSkus, $onStage);
+        $warnings = array_merge($warnings, $contentResult['warnings']);
+        if ($contentResult['by_sku'] !== [] || empty(array_filter(
+            $contentResult['warnings'],
+            static fn (array $w): bool => str_contains((string) ($w['type'] ?? ''), 'failed')
+        ))) {
+            $sourcesCollected[] = 'content';
+        }
+
+        // 7. Рейтинги продавца
+        $this->touchHeartbeat('seller_rating');
+        $sellerRatingResult = $this->sellerRatingCollector->collect($apiKey, $clientId, $onStage);
+        $warnings = array_merge($warnings, $sellerRatingResult['warnings']);
+        if (is_array($sellerRatingResult['summary'])) {
+            $sourcesCollected[] = 'seller_rating';
+        }
+
+        // 8. Акции
+        $this->touchHeartbeat('promos');
+        $promosResult = $this->promosCollector->collect($apiKey, $clientId, $onStage);
+        $warnings = array_merge($warnings, $promosResult['warnings']);
+        if ($promosResult['actions'] !== [] || empty(array_filter(
+            $promosResult['warnings'],
+            static fn (array $w): bool => ($w['type'] ?? '') === 'promos_list_failed'
+        ))) {
+            $sourcesCollected[] = 'promos';
+        }
+
+        // 9. Merge into products[]
         $this->touchHeartbeat('merge');
         $productsById = [];
         foreach ($products as $product) {
@@ -183,6 +219,7 @@ class OzAiCabinetAnalyzerService
             // Stocks / turnover: sum free_to_sell; first non-empty turnover
             $stocks = OzAiCabinetAnalyzerStocksCollector::emptyStocksBlock();
             $turnover = OzAiCabinetAnalyzerStocksCollector::emptyTurnoverBlock();
+            $liquidity = OzAiCabinetAnalyzerStocksCollector::emptyLiquidityBlock();
             foreach ($skus as $sku) {
                 if (isset($stocksResult['stocks_by_sku'][$sku])) {
                     $row = $stocksResult['stocks_by_sku'][$sku];
@@ -203,9 +240,44 @@ class OzAiCabinetAnalyzerService
                 if (isset($stocksResult['turnover_by_sku'][$sku]) && ($turnover['current_stock'] ?? 0) === 0) {
                     $turnover = $stocksResult['turnover_by_sku'][$sku];
                 }
+                if (isset($stocksResult['liquidity_by_sku'][$sku])) {
+                    $liq = $stocksResult['liquidity_by_sku'][$sku];
+                    $liquidity['ads'] = max((float) $liquidity['ads'], (float) ($liq['ads'] ?? 0));
+                    $liquidity['idc'] = max((float) $liquidity['idc'], (float) ($liq['idc'] ?? 0));
+                    $liquidity['days_without_sales'] = max(
+                        (int) $liquidity['days_without_sales'],
+                        (int) ($liq['days_without_sales'] ?? 0),
+                    );
+                    $liquidity['available_stock_count'] += (int) ($liq['available_stock_count'] ?? 0);
+                    $liquidity['transit_stock_count'] += (int) ($liq['transit_stock_count'] ?? 0);
+                    $liquidity['stock_defect_stock_count'] += (int) ($liq['stock_defect_stock_count'] ?? 0);
+                    $liquidity['expiring_stock_count'] += (int) ($liq['expiring_stock_count'] ?? 0);
+                    if (! empty($liq['turnover_grade'])) {
+                        $liquidity['turnover_grade'] = (string) $liq['turnover_grade'];
+                    }
+                    $liquidity['item_tags'] = array_values(array_unique(array_merge(
+                        $liquidity['item_tags'],
+                        (array) ($liq['item_tags'] ?? []),
+                    )));
+                    $liquidity['clusters'] = array_merge(
+                        $liquidity['clusters'],
+                        (array) ($liq['clusters'] ?? []),
+                    );
+                }
             }
             $product['stocks'] = $stocks;
             $product['turnover'] = $turnover;
+            $product['liquidity'] = $liquidity;
+
+            $content = OzAiCabinetAnalyzerContentRatingCollector::emptyBlock();
+            foreach ($skus as $sku) {
+                if (isset($contentResult['by_sku'][$sku])) {
+                    $content = $contentResult['by_sku'][$sku];
+                    break;
+                }
+            }
+            $product['content_rating'] = $content;
+            $product['promos'] = $promosResult['by_product_id'][$productId] ?? [];
 
             // Advertising
             $ads = OzAiCabinetAnalyzerAdsCollector::emptyAdvertisingBlock();
@@ -282,13 +354,19 @@ class OzAiCabinetAnalyzerService
             + $this->analyticsCollector->requestCount()
             + $this->productQueriesCollector->requestCount()
             + $this->stocksCollector->requestCount()
-            + $this->adsCollector->requestCount();
+            + $this->adsCollector->requestCount()
+            + $this->contentRatingCollector->requestCount()
+            + $this->sellerRatingCollector->requestCount()
+            + $this->promosCollector->requestCount();
 
         $retryCount = $this->productsCollector->retryCount()
             + $this->analyticsCollector->retryCount()
             + $this->productQueriesCollector->retryCount()
             + $this->stocksCollector->retryCount()
-            + $this->adsCollector->retryCount();
+            + $this->adsCollector->retryCount()
+            + $this->contentRatingCollector->retryCount()
+            + $this->sellerRatingCollector->retryCount()
+            + $this->promosCollector->retryCount();
 
         return [
             'meta' => [
@@ -309,6 +387,9 @@ class OzAiCabinetAnalyzerService
                 'product_queries_skus_with_data' => count($queriesResult['by_sku']),
                 'advertising_status' => (string) $adsResult['status'],
                 'campaigns_count' => count($adsResult['campaigns']),
+                'seller_rating' => $sellerRatingResult['summary'],
+                'actions' => $promosResult['actions'],
+                'actions_count' => count($promosResult['actions']),
                 'warnings' => $warnings,
                 'api' => [
                     'request_count' => $requestCount,
@@ -324,8 +405,14 @@ class OzAiCabinetAnalyzerService
                         'attributes' => 'POST /v4/product/info/attributes',
                         'analytics' => 'POST /v1/analytics/data',
                         'product_queries' => 'POST /v1/analytics/product-queries',
+                        'product_queries_details' => 'POST /v1/analytics/product-queries/details',
                         'stocks' => 'POST /v2/analytics/stock_on_warehouses',
                         'turnover' => 'POST /v1/analytics/turnover/stocks',
+                        'analytics_stocks' => 'POST /v1/analytics/stocks',
+                        'content_rating' => 'POST /v1/product/rating-by-sku',
+                        'seller_rating' => 'POST /v1/rating/summary',
+                        'actions' => 'GET /v1/actions',
+                        'action_products' => 'POST /v1/actions/products',
                         'performance_token' => 'POST https://api-performance.ozon.ru/api/client/token',
                         'performance_campaigns' => 'GET https://api-performance.ozon.ru/api/client/campaign',
                         'performance_product_stats' => 'GET https://api-performance.ozon.ru/api/client/statistics/campaign/product',

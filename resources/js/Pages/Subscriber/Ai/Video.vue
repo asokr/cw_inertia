@@ -15,12 +15,13 @@ import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { normalizeVideoItem, toAiMediaUrl } from "@/composables/useAiMediaUrl";
 import { useFlashToast } from "@/composables/useFlashToast";
 import { useMarketplaceAi } from "@/composables/useMarketplaceAi";
+import { formatCredits } from "@/utils/credits";
 import { urlToDataUrl } from "@/utils/imageDataUrl";
 
 const props = defineProps({
-    limits: {
+    pricing: {
         type: Object,
-        default: () => ({ text: 0, image: 0, video: 0 }),
+        default: () => ({ video: { amounts: {} } }),
     },
     generationUuid: {
         type: String,
@@ -44,7 +45,7 @@ const { showError, showSuccess } = useFlashToast();
 const {
     loading,
     limitsLoading,
-    videoLimit,
+    creditsAvailable,
     videoHistory,
     savedGenerations,
     activeGenerationUuid,
@@ -58,7 +59,7 @@ const {
     runSceneVideoTask,
     rememberActiveGeneration,
     stopVideoPolling,
-} = useMarketplaceAi(props.limits, {
+} = useMarketplaceAi({}, {
     limitsMode: "video",
     onVideoError: (message) => showError(message),
     onVideoDone: async () => {
@@ -473,12 +474,11 @@ function buildPendingPreviewUrl(snapshot) {
 
 async function handleVideoSubmit(payload) {
     const duration = Number(payload?.duration || 5);
-    const resMultiplier = payload?.resolution === "720p" ? 2 : 1;
-    const totalCost = duration * resMultiplier;
-    const currentLimit = Number(videoLimit.value ?? 0);
+    const totalCost = Number(props.pricing?.video?.amounts?.[payload?.resolution]?.[String(duration)] ?? 0);
+    const available = Number(creditsAvailable.value ?? 0);
 
-    if (!hasVideoLimit.value || currentLimit < totalCost) {
-        showError(`Недостаточно лимитов AI_VIDEO_QUERY (нужно ${totalCost}, доступно ${currentLimit})`);
+    if (!hasVideoLimit.value || available < totalCost) {
+        showError(`Недостаточно кредитов. Нужно ${formatCredits(totalCost)}, доступно ${formatCredits(available)}.`);
         return;
     }
 
@@ -632,7 +632,7 @@ watch(
                         <History class="h-3.5 w-3.5" />
                         История
                     </Button>
-                    <AiLimitsBadge mode="video" :loading="limitsLoading" :video-limit="videoLimit" />
+                    <AiLimitsBadge :loading="limitsLoading" :available="creditsAvailable" />
                 </template>
             </ToolPageHeader>
 
@@ -686,6 +686,7 @@ watch(
                         class="shrink-0"
                         :loading="loading || seedingForm || sessionLoading"
                         :disabled="!hasVideoLimit || sessionLoading"
+                        :pricing="pricing"
                         @submit="handleVideoSubmit"
                         @error="showError"
                     />

@@ -2,16 +2,18 @@
 
 namespace App\Http\Controllers\Web\Subscriber\Wb\Feedbacks;
 
+use App\Exceptions\Credits\CreditPriceNotFoundException;
+use App\Exceptions\Credits\InsufficientCreditsException;
+use App\Exceptions\Credits\InvalidCreditOperationException;
 use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedWbCabinet;
 use App\Services\Subscriber\Ai\SubscriberAiTextService;
+use App\Services\Subscriber\Concerns\ChargesFeedbackAnswerCredits;
 use App\Services\Subscriber\Wb\WbFeedbacksClientsService;
 use App\Services\Subscriber\Wb\WbFeedbacksService;
 use App\Services\Subscriber\Wb\WbFeedbacksStatsService;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\SendFeedbackRequest;
 use App\Http\Requests\Web\Subscriber\UpdateAiDataRequest;
-use App\Models\Subscribers\SubscribersSubscriptions;
-use App\Support\ToolLimits;
 use App\Models\Subscribers\Wb\WbCabinet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -21,6 +23,7 @@ use Inertia\Response;
 
 class FeedbacksController extends SubscriberToolController
 {
+    use ChargesFeedbackAnswerCredits;
     use ResolvesSelectedWbCabinet;
 
     public function __construct(
@@ -50,11 +53,6 @@ class FeedbacksController extends SubscriberToolController
                 $this->apiRequestWith($request, ['client_id' => $client->id])
             )
         );
-
-        $subscription = SubscribersSubscriptions::query()
-            ->where('subscribers_id', $request->user()->subscriber?->id)
-            ->where('status', 1)
-            ->first();
 
         $allFeedbacks = $feedbacksPayload['feedbacks'];
         $total = count($allFeedbacks);
@@ -104,7 +102,7 @@ class FeedbacksController extends SubscriberToolController
                 'per_page' => $perPage,
             ],
             'aiSettings' => ($aiPayload['success'] ?? false) ? ($aiPayload['data'] ?? null) : null,
-            'aiLimit' => ToolLimits::monthLimitValue($request->user(), $subscription, 'feedbacks_gpt_query'),
+            'creditsCost' => $this->feedbackAnswerCreditsCost(),
             'ratingType' => ($aiPayload['data']['review_type'] ?? null),
         ]);
     }
@@ -268,8 +266,41 @@ class FeedbacksController extends SubscriberToolController
             ]);
         }
 
+        $reviewId = $validated['feedback']['id'] ?? null;
+        $user = $request->user();
+
+        try {
+            $quote = $this->quoteFeedbackAnswer();
+        } catch (CreditPriceNotFoundException) {
+            return response()->json([
+                'success' => false,
+                'messages' => ['Не удалось определить стоимость ответа ИИ. Попробуйте позже.'],
+            ], 200);
+        }
+
+        if (! $this->feedbackAnswerBilling()->hasEnough($user, $quote->amount)) {
+            $available = $this->feedbackAnswerBilling()->getBalance($user)->available();
+
+            return response()->json([
+                'success' => false,
+                'messages' => [(new InsufficientCreditsException($quote->amount, $available))->userMessage()],
+            ], 200);
+        }
+
         $response = $this->aiTextService->ask($aiRequest);
         $payload = $this->decodeApiResponse($response);
+
+        if (($payload['success'] ?? false) === true) {
+            try {
+                $this->spendFeedbackAnswerCredits($user, [
+                    'mode' => 'manual',
+                    'cabinet_id' => $client->id,
+                    'review_id' => is_scalar($reviewId) ? (string) $reviewId : null,
+                ]);
+            } catch (CreditPriceNotFoundException|InvalidCreditOperationException $exception) {
+                report($exception);
+            }
+        }
 
         return response()->json($payload, 200);
     }

@@ -55,9 +55,11 @@ Legacy API-роуты `/subscriber/*` для инструментов сняты
 
 Паттерн: `app/Http/Controllers/Web/Admin/*` → `app/Services/Admin/*` → `resources/js/Pages/Admin/*`.
 
+В шапке и в группе «Обзор» бокового меню есть ссылка на панель подписчика (`/panel`). В панели подписчика у администратора в шапке есть обратная ссылка «Админка» (`/cw-page`).
+
 Ключевые маршруты:
 
-- `/cw-page/subscribers`, `/cw-page/plans`, `/cw-page/coupons` — управление подписчиками
+- `/cw-page/subscribers`, `/cw-page/plans`, `/cw-page/credit-pricing`, `/cw-page/coupons` — подписчики, тарифы, стоимость кредитов
 - `/cw-page/services/feedbacks/*` — отзывы WB
 - `/cw-page/services/repricer/*` — репрайсер
 - `/cw-page/services/ai-cabinet/*` — ИИ-анализ кабинета
@@ -143,6 +145,7 @@ Ozon использует **единый** кабинет (`oz_cabinets`) — с
 
 | Документ | Описание |
 |----------|----------|
+| [credits-billing.md](credits-billing.md) | Единый баланс кредитов; AI-анализ кабинета, ответы на отзывы WB и AI Инструменты списывают кредиты |
 | [queues.md](queues.md) | Все очереди и jobs проекта (обновлять при изменении/добавлении) |
 | [wb-ai-cabinet-analyzer-sales-funnel-fields.md](wb-ai-cabinet-analyzer-sales-funnel-fields.md) | Маппинг полей WB Sales Funnel |
 | [ozon-price-calculation-frontend-columns.md](ozon-price-calculation-frontend-columns.md) | Колонки таблиц Ozon Price Calc для фронта |
@@ -151,9 +154,10 @@ Ozon использует **единый** кабинет (`oz_cabinets`) — с
 
 ## Платформенные модули (без отдельной документации)
 
-- **Подписки и лимиты** — `SubscribersSubscriptions`, `limits_plan`, `limits_month`, `extra_limits_*` (JSON). Кабинеты: `wb_cabinets`, `oz_cabinets` (см. [wb-cabinets.md](wb-cabinets.md), [oz-cabinets.md](oz-cabinets.md))
+- **Подписки и лимиты** — `SubscribersSubscriptions`, `limits_plan` (кабинеты WB/Ozon, репрайсер). AI-услуги тарифицируются кредитами.
+- **Кредиты** — единый баланс и стоимость AI (`credit_accounts`, `credit_ledger`, `credit_services`). Админка, покупка, AI-анализ кабинета, ответы на отзывы WB и AI Инструменты на кредитах: [credits-billing.md](credits-billing.md)
 - **Платежи** — YooKassa (`/payments/yoo/*`)
-- **Баланс** — пополнение/списание через wallet, лог `balance`
+- **Баланс** — пополнение/списание через wallet, лог `balance`. В шапке панели рядом с рублями показывается остаток кредитов; модалка «Пополнить» умеет и пополнить счёт, и купить кредиты.
 - **Админка подписчиков** — управление планами, купонами, ролями (Super-Admin)
 
 ## Ключевые файлы проекта

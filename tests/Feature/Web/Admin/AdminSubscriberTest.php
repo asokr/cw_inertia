@@ -38,7 +38,7 @@ class AdminSubscriberTest extends WebAuthTestCase
 
         $this->actingAs($user)
             ->get('/cw-page/subscribers')
-            ->assertForbidden();
+            ->assertNotFound();
     }
 
     public function test_super_admin_can_open_subscribers_page(): void
@@ -144,7 +144,6 @@ class AdminSubscriberTest extends WebAuthTestCase
                 'price' => 1000,
                 'duration' => 30,
                 'limits_plan' => ['feedbacks_clients' => 3],
-                'limits_month' => ['ai_text_query' => 100],
                 'permissions' => ['subscriber'],
                 'status' => 1,
                 'hidden' => 0,
@@ -166,8 +165,6 @@ class AdminSubscriberTest extends WebAuthTestCase
             'status' => 1,
             'end_date' => Carbon::now()->addDays(10),
             'limits_plan' => ['feedbacks_clients' => 2],
-            'limits_month' => ['ai_text_query' => 50],
-            'extra_limits_month' => ['ai_text_query' => 5],
         ]);
 
         $admin = User::factory()->create([
@@ -189,13 +186,6 @@ class AdminSubscriberTest extends WebAuthTestCase
                             'feedbacks_clients' => 4,
                             'repricer_nmid' => -3,
                         ],
-                        'limits_month' => [
-                            'ai_text_query' => 75,
-                        ],
-                        'extra_limits_month' => [
-                            'ai_text_query' => 10,
-                            'ai_image_query' => 2,
-                        ],
                     ],
                 ],
             ])
@@ -205,8 +195,6 @@ class AdminSubscriberTest extends WebAuthTestCase
         $subscription->refresh();
 
         $this->assertSame(['feedbacks_clients' => 4, 'repricer_nmid' => 0], $subscription->limits_plan);
-        $this->assertSame(['ai_text_query' => 75], $subscription->limits_month);
-        $this->assertSame(['ai_text_query' => 10, 'ai_image_query' => 2], $subscription->extra_limits_month);
     }
 
     public function test_super_admin_edit_page_includes_limit_keys(): void

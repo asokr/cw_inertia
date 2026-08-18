@@ -4,6 +4,7 @@ namespace App\Services\Subscriber\Ai;
 
 use App\Enums\AiTaskType;
 use App\Models\Subscribers\SubscribersSubscriptions;
+use App\Models\User;
 use App\Services\Ai\AiImageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -98,7 +99,7 @@ class SubscriberAiImageService
         $userId = (int) ($user?->id ?? 0);
         $subscriberId = (int) data_get($user, 'subscriber.id');
 
-        if ($userId <= 0 || $subscriberId <= 0) {
+        if (! $user instanceof User || $userId <= 0 || $subscriberId <= 0) {
             return response()->json([
                 'success' => false,
                 'messages' => ['Пользователь не авторизован'],
@@ -118,13 +119,6 @@ class SubscriberAiImageService
             ], 200);
         }
 
-        if (! $this->aiImageService->hasEnoughImageLimit($subscription, $request)) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Недостаточно лимита AI_IMAGE_QUERY'],
-            ], 402);
-        }
-
-        return $this->aiImageService->start($request, $subscription, $userId, $subscriberId);
+        return $this->aiImageService->start($request, $user, $subscriberId);
     }
 }

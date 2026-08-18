@@ -8,19 +8,21 @@ use App\Enums\AiTaskType;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Models\AiVideoGenerationTask;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Services\Grok\GrokVideoApiClient;
 use App\Services\Ai\AiMediaStorageService;
 use App\Services\Ai\AiVideoGenerationService;
 use App\Models\Subscribers\SubscribersSubscriptions;
-use App\Support\ToolLimits;
+use App\Models\User;
+use App\Services\Subscriber\Concerns\ChargesMarketplaceAiCredits;
 
 class SubscriberAiVideoService
 {
+    use ChargesMarketplaceAiCredits;
+
     private const PUBLIC_ERROR_MESSAGE = 'Ошибка при работе. Попробуйте позже.';
     private const HIGH_DEMAND_PUBLIC_ERROR_MESSAGE = 'ИИ временно перегружен, попробуйте позже.';
-    private const MODERATION_PUBLIC_ERROR_MESSAGE = 'Видео не прошло модерацию. Измените запрос и попробуйте снова. При ограничении по контенту лимиты списываются, будьте аккуратнее.';
+    private const MODERATION_PUBLIC_ERROR_MESSAGE = 'Видео не прошло модерацию. Измените запрос и попробуйте снова.';
     private const MAX_INPUT_IMAGE_BYTES = 10485760;
 
     public function __construct(
@@ -91,7 +93,7 @@ class SubscriberAiVideoService
         $userId = (int) ($user?->id ?? 0);
         $subscriberId = (int) data_get($user, 'subscriber.id');
 
-        if ($userId <= 0) {
+        if (! $user instanceof User || $userId <= 0) {
             return response()->json([
                 'success' => false,
                 'messages' => ['Пользователь не авторизован'],
@@ -117,14 +119,11 @@ class SubscriberAiVideoService
             ? $this->resolveAspectRatio($this->getRequestedAspectRatio($request))
             : null;
         $duration = (int) ($request->input('duration') ?? 1);
-        $requiredVideoLimit = $this->resolveVideoLimitCost($duration, $resolution);
-
-        if (! $this->hasEnoughLimit($subscription, 'ai_video_query', $requiredVideoLimit)) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Недостаточно лимита AI_VIDEO_QUERY. Требуется: ' . $requiredVideoLimit],
-            ], 402);
+        $charge = $this->beginMarketplaceVideoReserve($user, $resolution, $duration);
+        if ($charge instanceof JsonResponse) {
+            return $charge;
         }
+        $creditKey = (string) $charge['key'];
 
         $prompt = trim((string) $request->input('prompt', ''));
         $sourceImageMeta = null;
@@ -143,6 +142,8 @@ class SubscriberAiVideoService
                     throw new RuntimeException('Изображение не передано');
                 }
             } catch (Throwable $exception) {
+                $this->releaseMarketplaceCredits($creditKey);
+
                 return response()->json([
                     'success' => false,
                     'messages' => [$exception->getMessage()],
@@ -198,26 +199,21 @@ class SubscriberAiVideoService
                     errorMessage: $message,
                 );
 
-                if ($isModerationError) {
-                    $this->consumeVideoLimitOnce($taskRecord, $subscription);
-
-                    return response()->json([
-                        'success' => false,
-                        'messages' => [$publicMessage],
-                        'meta' => [
-                            'limits' => $this->getLimits($subscription->fresh()),
-                        ],
-                    ], 200);
-                }
+                $this->releaseMarketplaceCredits($creditKey);
 
                 return response()->json([
                     'success' => false,
                     'messages' => [$publicMessage],
+                    'meta' => [
+                        'credits' => $this->marketplaceCreditsPayload($user),
+                    ],
                 ], 200);
             }
 
             $requestId = trim((string) data_get($response, 'data.request_id', ''));
             if ($requestId === '') {
+                $this->releaseMarketplaceCredits($creditKey);
+
                 return response()->json([
                     'success' => false,
                     'messages' => ['Grok API не вернул request_id'],
@@ -237,6 +233,7 @@ class SubscriberAiVideoService
                 status: AiVideoGenerationTask::STATUS_PENDING,
                 externalRequestId: $requestId,
                 model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
+                creditIdempotencyKey: $creditKey,
             );
 
             return response()->json([
@@ -248,8 +245,12 @@ class SubscriberAiVideoService
                     'generation_uuid' => $generation->uuid,
                     'generation_id' => $generation->id,
                 ],
+                'credits' => $this->marketplaceCreditsPayload($user),
+                'credits_cost' => $charge['quote']->amount,
             ], 200);
         } catch (Throwable $exception) {
+            $this->releaseMarketplaceCredits($creditKey);
+
             return response()->json([
                 'success' => false,
                 'messages' => [$this->resolvePublicErrorMessage($exception->getMessage(), 500)],
@@ -317,7 +318,7 @@ class SubscriberAiVideoService
         $userId = (int) ($user?->id ?? 0);
         $subscriberId = (int) data_get($user, 'subscriber.id');
 
-        if ($userId <= 0) {
+        if (! $user instanceof User || $userId <= 0) {
             return response()->json([
                 'success' => false,
                 'messages' => ['Пользователь не авторизован'],
@@ -341,14 +342,11 @@ class SubscriberAiVideoService
         $providerTaskType = AiTaskType::GENERATE_VIDEO_FROM_IMAGE->value;
         $resolution = $this->resolveResolution((string) $request->input('resolution', '480p'));
         $duration = (int) ($request->input('duration') ?? 1);
-        $requiredVideoLimit = $this->resolveVideoLimitCost($duration, $resolution);
-
-        if (! $this->hasEnoughLimit($subscription, 'ai_video_query', $requiredVideoLimit)) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Недостаточно лимита AI_VIDEO_QUERY. Требуется: ' . $requiredVideoLimit],
-            ], 402);
+        $charge = $this->beginMarketplaceVideoReserve($user, $resolution, $duration);
+        if ($charge instanceof JsonResponse) {
+            return $charge;
         }
+        $creditKey = (string) $charge['key'];
 
         $prompt = trim((string) $request->input('prompt', ''));
         $generation = $this->aiVideoGenerationService->resolveForStart(
@@ -365,6 +363,8 @@ class SubscriberAiVideoService
                 $sourceImagesMeta[] = $this->aiMediaStorageService->storeImageAndGetSignedUrl($imageInput, $userId);
             }
         } catch (Throwable $exception) {
+            $this->releaseMarketplaceCredits($creditKey);
+
             return response()->json([
                 'success' => false,
                 'messages' => [$exception->getMessage()],
@@ -408,26 +408,21 @@ class SubscriberAiVideoService
                     errorMessage: $message,
                 );
 
-                if ($isModerationError) {
-                    $this->consumeVideoLimitOnce($taskRecord, $subscription);
-
-                    return response()->json([
-                        'success' => false,
-                        'messages' => [$publicMessage],
-                        'meta' => [
-                            'limits' => $this->getLimits($subscription->fresh()),
-                        ],
-                    ], 200);
-                }
+                $this->releaseMarketplaceCredits($creditKey);
 
                 return response()->json([
                     'success' => false,
                     'messages' => [$publicMessage],
+                    'meta' => [
+                        'credits' => $this->marketplaceCreditsPayload($user),
+                    ],
                 ], 200);
             }
 
             $requestId = trim((string) data_get($response, 'data.request_id', ''));
             if ($requestId === '') {
+                $this->releaseMarketplaceCredits($creditKey);
+
                 return response()->json([
                     'success' => false,
                     'messages' => ['Grok API не вернул request_id'],
@@ -447,6 +442,7 @@ class SubscriberAiVideoService
                 status: AiVideoGenerationTask::STATUS_PENDING,
                 externalRequestId: $requestId,
                 model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
+                creditIdempotencyKey: $creditKey,
             );
 
             return response()->json([
@@ -458,8 +454,12 @@ class SubscriberAiVideoService
                     'generation_uuid' => $generation->uuid,
                     'generation_id' => $generation->id,
                 ],
+                'credits' => $this->marketplaceCreditsPayload($user),
+                'credits_cost' => $charge['quote']->amount,
             ], 200);
         } catch (Throwable $exception) {
+            $this->releaseMarketplaceCredits($creditKey);
+
             return response()->json([
                 'success' => false,
                 'messages' => [$this->resolvePublicErrorMessage($exception->getMessage(), 500)],
@@ -473,7 +473,7 @@ class SubscriberAiVideoService
         $userId = (int) ($user?->id ?? 0);
         $subscriberId = (int) data_get($user, 'subscriber.id');
 
-        if ($userId <= 0) {
+        if (! $user instanceof User || $userId <= 0) {
             return response()->json([
                 'success' => false,
                 'messages' => ['Пользователь не авторизован'],
@@ -504,11 +504,11 @@ class SubscriberAiVideoService
 
         if ($taskRecord->isTerminal()) {
             if ($taskRecord->status === AiVideoGenerationTask::STATUS_DONE) {
-                $limits = $this->getLimits($subscription->fresh());
+                $this->captureMarketplaceCredits((string) ($taskRecord->credit_idempotency_key ?? ''));
 
                 return response()->json(array_merge(
                     $this->aiVideoGenerationService->buildDoneStatusResponse($taskRecord),
-                    ['meta' => ['limits' => $limits]],
+                    ['meta' => ['credits' => $this->marketplaceCreditsPayload($user)]],
                 ), 200);
             }
 
@@ -545,10 +545,9 @@ class SubscriberAiVideoService
                 'error_message' => $message,
             ]);
             $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
+            $this->releaseMarketplaceCredits((string) ($taskRecord->credit_idempotency_key ?? ''));
 
             if ($isModerationError) {
-                $this->consumeVideoLimitOnce($taskRecord, $subscription);
-
                 return response()->json([
                     'success' => false,
                     'messages' => [$this->resolvePublicErrorMessage($message, $statusCode)],
@@ -558,7 +557,7 @@ class SubscriberAiVideoService
                         'generation_id' => $taskRecord->video_generation_id,
                     ],
                     'meta' => [
-                        'limits' => $this->getLimits($subscription->fresh()),
+                        'credits' => $this->marketplaceCreditsPayload($user),
                     ],
                 ], 200);
             }
@@ -596,6 +595,7 @@ class SubscriberAiVideoService
                 'error_message' => 'Срок ожидания генерации видео истёк',
             ]);
             $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
+            $this->releaseMarketplaceCredits((string) ($taskRecord->credit_idempotency_key ?? ''));
 
             return response()->json([
                 'success' => false,
@@ -628,18 +628,12 @@ class SubscriberAiVideoService
                 'error_message' => 'Grok API не вернул ссылку на видео',
             ]);
             $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
+            $this->releaseMarketplaceCredits((string) ($taskRecord->credit_idempotency_key ?? ''));
 
             return response()->json([
                 'success' => false,
                 'messages' => ['Grok API не вернул ссылку на видео'],
             ], 200);
-        }
-
-        if (! $this->consumeVideoLimitOnce($taskRecord, $subscription)) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Не удалось списать лимит AI_VIDEO_QUERY'],
-            ], 402);
         }
 
         $providerVideoUrl = (string) ($video['url'] ?? '');
@@ -656,6 +650,7 @@ class SubscriberAiVideoService
                 'error_message' => 'Не удалось сохранить видео в хранилище: ' . $exception->getMessage(),
             ]);
             $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
+            $this->releaseMarketplaceCredits((string) ($taskRecord->credit_idempotency_key ?? ''));
 
             return response()->json([
                 'success' => false,
@@ -682,8 +677,7 @@ class SubscriberAiVideoService
             'error_message' => null,
         ]);
         $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
-
-        $limits = $this->getLimits($subscription->fresh());
+        $this->captureMarketplaceCredits((string) ($taskRecord->credit_idempotency_key ?? ''));
 
         return response()->json([
             'success' => true,
@@ -698,107 +692,9 @@ class SubscriberAiVideoService
                 'generation_id' => $taskRecord->video_generation_id,
             ],
             'meta' => [
-                'limits' => $limits,
+                'credits' => $this->marketplaceCreditsPayload($user),
             ],
         ], 200);
-    }
-
-    private function hasEnoughLimit(SubscribersSubscriptions $subscription, string $limitKey, int $required): bool
-    {
-        if ($required <= 0) {
-            return true;
-        }
-
-        $current = (int) ($subscription->getMonthLimit($limitKey) ?: 0);
-
-        return $current >= $required;
-    }
-
-    private function consumeVideoLimitOnce(AiVideoGenerationTask $taskRecord, SubscribersSubscriptions $subscription): bool
-    {
-        return DB::transaction(function () use ($taskRecord, $subscription) {
-            /** @var AiVideoGenerationTask|null $lockedTask */
-            $lockedTask = AiVideoGenerationTask::lockForUpdate()->find($taskRecord->id);
-            if (! $lockedTask) {
-                return false;
-            }
-
-            if ($lockedTask->limit_consumed_at !== null) {
-                return true;
-            }
-
-            $freshSubscription = SubscribersSubscriptions::lockForUpdate()->find($subscription->id);
-            if (! $freshSubscription) {
-                return false;
-            }
-
-            $requiredVideoLimit = $this->resolveVideoLimitCost($lockedTask->duration, $lockedTask->resolution);
-
-            $available = (int) ($freshSubscription->getMonthLimit('ai_video_query') ?: 0);
-            if ($available < $requiredVideoLimit) {
-                return false;
-            }
-
-            for ($i = 0; $i < $requiredVideoLimit; $i++) {
-                if (! $freshSubscription->minusMonthLimit('ai_video_query')) {
-                    return false;
-                }
-            }
-
-            $lockedTask->update([
-                'limit_consumed_at' => now(),
-            ]);
-
-            return true;
-        });
-    }
-
-    private function getLimits(SubscribersSubscriptions $subscription): array
-    {
-        if (ToolLimits::bypassesFor(auth()->user())) {
-            return ToolLimits::unlimitedAiLimits(includeVideo: true);
-        }
-
-        $textBase = $this->getRawMonthLimitValue($subscription, 'ai_text_query');
-        $textExtra = $this->getRawExtraMonthLimitValue($subscription, 'ai_text_query');
-        $imageBase = $this->getRawMonthLimitValue($subscription, 'ai_image_query');
-        $imageExtra = $this->getRawExtraMonthLimitValue($subscription, 'ai_image_query');
-        $videoBase = $this->getRawMonthLimitValue($subscription, 'ai_video_query');
-        $videoExtra = $this->getRawExtraMonthLimitValue($subscription, 'ai_video_query');
-
-        return [
-            'AI_TEXT_QUERY' => $textBase,
-            'AI_IMAGE_QUERY' => $imageBase,
-            'AI_VIDEO_QUERY' => $videoBase,
-            'AI_TEXT_QUERY_EXTRA' => $textExtra,
-            'AI_IMAGE_QUERY_EXTRA' => $imageExtra,
-            'AI_VIDEO_QUERY_EXTRA' => $videoExtra,
-            'AI_TEXT_QUERY_TOTAL' => $textBase + $textExtra,
-            'AI_IMAGE_QUERY_TOTAL' => $imageBase + $imageExtra,
-            'AI_VIDEO_QUERY_TOTAL' => $videoBase + $videoExtra,
-        ];
-    }
-
-    private function getRawMonthLimitValue(SubscribersSubscriptions $subscription, string $limitKey): int
-    {
-        $limits = $subscription->limits_month;
-
-        if (! is_array($limits)) {
-            return 0;
-        }
-
-        return max(0, (int) ($limits[$limitKey] ?? 0));
-    }
-
-    private function getRawExtraMonthLimitValue(SubscribersSubscriptions $subscription, string $limitKey): int
-    {
-        $extraLimits = $subscription->extra_limits_month;
-
-        if (! is_array($extraLimits)) {
-            return 0;
-        }
-
-        return max(0, (int) ($extraLimits[$limitKey] ?? 0));
     }
 
     private function resolveResolution(string $resolution): string
@@ -822,14 +718,6 @@ class SubscriberAiVideoService
         $normalized = trim($aspectRatio);
 
         return $normalized !== '' ? $normalized : '16:9';
-    }
-
-    private function resolveVideoLimitCost(?int $duration, string $resolution): int
-    {
-        $seconds = max(1, (int) ($duration ?? 1));
-        $qualityMultiplier = $resolution === '720p' ? 2 : 1;
-
-        return $seconds * $qualityMultiplier;
     }
 
     private function resolvePublicErrorMessage(?string $providerMessage, ?int $statusCode = null): string

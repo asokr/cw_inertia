@@ -15,12 +15,13 @@ import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { toAiMediaUrl } from "@/composables/useAiMediaUrl";
 import { useFlashToast } from "@/composables/useFlashToast";
 import { useMarketplaceAi } from "@/composables/useMarketplaceAi";
+import { formatCredits } from "@/utils/credits";
 import { resolveImageForForm } from "@/utils/imageDataUrl";
 
 const props = defineProps({
-    limits: {
+    pricing: {
         type: Object,
-        default: () => ({ text: 0, image: 0, video: 0 }),
+        default: () => ({ image: { amounts: {} } }),
     },
     generationUuid: {
         type: String,
@@ -44,7 +45,7 @@ const { showError, showSuccess } = useFlashToast();
 const {
     loading,
     limitsLoading,
-    imageLimit,
+    creditsAvailable,
     imageHistory,
     savedGenerations,
     activeGenerationUuid,
@@ -56,7 +57,7 @@ const {
     refreshLimits,
     runImageTask,
     rememberActiveGeneration,
-} = useMarketplaceAi(props.limits, { limitsMode: "image" });
+} = useMarketplaceAi({}, { limitsMode: "image" });
 
 const SESSION_VISIT_OPTIONS = {
     preserveState: true,
@@ -426,12 +427,11 @@ function buildPendingPreviewUrl(snapshot, fallbackUrl = "") {
 }
 
 async function handleImageSubmit(payload) {
-    const resolutionCostMap = { default: 1, "1K": 2, "2K": 3, "4K": 3 };
-    const totalCost = resolutionCostMap[payload?.resolution] || 1;
-    const currentLimit = Number(imageLimit.value ?? 0);
+    const totalCost = Number(props.pricing?.image?.amounts?.[payload?.resolution] ?? 0);
+    const available = Number(creditsAvailable.value ?? 0);
 
-    if (!hasImageLimit.value || currentLimit < totalCost) {
-        showError(`Недостаточно лимитов AI_IMAGE_QUERY (нужно ${totalCost}, доступно ${currentLimit})`);
+    if (!hasImageLimit.value || available < totalCost) {
+        showError(`Недостаточно кредитов. Нужно ${formatCredits(totalCost)}, доступно ${formatCredits(available)}.`);
         return;
     }
 
@@ -572,7 +572,7 @@ watch(
                         <History class="h-3.5 w-3.5" />
                         История
                     </Button>
-                    <AiLimitsBadge mode="image" :loading="limitsLoading" :image-limit="imageLimit" />
+                    <AiLimitsBadge :loading="limitsLoading" :available="creditsAvailable" />
                 </template>
             </ToolPageHeader>
 
@@ -626,6 +626,7 @@ watch(
                         class="shrink-0"
                         :loading="loading || seedingForm || sessionLoading"
                         :disabled="!hasImageLimit || sessionLoading"
+                        :pricing="pricing"
                         @submit="handleImageSubmit"
                         @error="showError"
                     />

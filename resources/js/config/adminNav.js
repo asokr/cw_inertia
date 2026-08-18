@@ -2,6 +2,7 @@ import {
     Activity,
     BookOpen,
     CreditCard,
+    Home,
     KeyRound,
     LayoutDashboard,
     Mail,
@@ -19,6 +20,7 @@ export function getAdminNav({ can, hasRole }) {
             label: "Обзор",
             items: [
                 { label: "Главная", href: "/cw-page", icon: LayoutDashboard },
+                { label: "Панель подписчика", href: "/panel", icon: Home },
             ],
         },
     ];
@@ -40,7 +42,7 @@ export function getAdminNav({ can, hasRole }) {
             items: [
                 { label: "Список", href: "/cw-page/subscribers", icon: Users },
                 { label: "Планы", href: "/cw-page/plans", icon: CreditCard },
-                { label: "Экстра-лимиты", href: "/cw-page/extra-limits", icon: CreditCard },
+                { label: "Стоимость кредитов", href: "/cw-page/credit-pricing", icon: CreditCard },
                 { label: "Оплаты", href: "/cw-page/payments", icon: CreditCard },
             ],
         });

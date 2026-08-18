@@ -3,10 +3,12 @@ import { AlertTriangle, Clock, Wallet } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import DepositDialog from "@/components/subscriber/DepositDialog.vue";
 import { useSubscriberContext } from "@/composables/useSubscriberContext";
+import { formatCredits } from "@/utils/credits";
 
-const { balance, daysIndicator } = useSubscriberContext();
+const { balance, daysIndicator, credits } = useSubscriberContext();
 
 const depositOpen = ref(false);
+const depositTab = ref("deposit");
 
 const formattedBalance = computed(() => {
     const value = Number(balance.value ?? 0);
@@ -15,6 +17,21 @@ const formattedBalance = computed(() => {
         currency: "RUB",
         maximumFractionDigits: 0,
     }).format(value);
+});
+
+const availableCredits = computed(() => Number(credits.value?.available ?? 0));
+const heldCredits = computed(() => Number(credits.value?.held ?? 0));
+
+const formattedCreditsShort = computed(() => {
+    return `${availableCredits.value.toLocaleString("ru-RU")} кр.`;
+});
+
+const creditsTitle = computed(() => {
+    const available = formatCredits(availableCredits.value);
+    if (heldCredits.value > 0) {
+        return `${available} доступно, ${formatCredits(heldCredits.value)} зарезервировано`;
+    }
+    return available;
 });
 
 const indicator = computed(() => {
@@ -70,7 +87,8 @@ const daysTitle = computed(() => {
     return `Осталось ${days} ${pluralizeDays(days)} по тарифу`;
 });
 
-function openDeposit() {
+function openDeposit(tab = "deposit") {
+    depositTab.value = tab;
     depositOpen.value = true;
 }
 
@@ -92,7 +110,7 @@ function pluralizeDays(n) {
 
 <template>
     <div
-        class="flex items-center gap-2 rounded-md border px-3 py-1.5 transition-colors"
+        class="flex h-9 items-center gap-1.5 rounded-md border px-2 transition-colors"
         :class="
             isUrgent
                 ? 'border-amber-500/40 bg-amber-500/10 dark:bg-amber-500/15'
@@ -100,15 +118,30 @@ function pluralizeDays(n) {
         "
     >
         <Wallet
-            class="h-4 w-4 shrink-0"
+            class="h-3.5 w-3.5 shrink-0"
             :class="isUrgent ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'"
         />
-        <span
-            class="text-sm font-medium tabular-nums"
-            :class="isUrgent ? 'text-amber-950 dark:text-amber-100' : ''"
-        >
-            {{ formattedBalance }}
-        </span>
+        <div class="flex min-w-0 flex-col justify-center leading-none">
+            <span
+                class="whitespace-nowrap text-[11px] font-medium tabular-nums"
+                :class="isUrgent ? 'text-amber-950 dark:text-amber-100' : ''"
+            >
+                {{ formattedBalance }}
+            </span>
+            <button
+                type="button"
+                class="w-0 min-w-full truncate text-left text-[10px] tabular-nums hover:underline"
+                :class="
+                    heldCredits > 0
+                        ? 'text-amber-700 dark:text-amber-300'
+                        : 'text-muted-foreground'
+                "
+                :title="creditsTitle"
+                @click="openDeposit('credits')"
+            >
+                {{ formattedCreditsShort }}
+            </button>
+        </div>
 
         <template v-if="indicator">
             <span
@@ -117,7 +150,7 @@ function pluralizeDays(n) {
                 aria-hidden="true"
             />
             <span
-                class="inline-flex items-center gap-1 text-xs font-medium tabular-nums sm:text-sm"
+                class="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
                 :class="
                     isUrgent
                         ? 'text-amber-800 dark:text-amber-200'
@@ -127,7 +160,7 @@ function pluralizeDays(n) {
             >
                 <component
                     :is="isUrgent ? AlertTriangle : Clock"
-                    class="h-3.5 w-3.5 shrink-0"
+                    class="h-3 w-3 shrink-0"
                     :class="isUrgent ? 'text-amber-600 dark:text-amber-400' : ''"
                     aria-hidden="true"
                 />
@@ -143,17 +176,21 @@ function pluralizeDays(n) {
 
         <button
             type="button"
-            class="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium transition-colors"
+            class="inline-flex h-6 items-center rounded-md px-1.5 text-[11px] font-medium transition-colors"
             :class="
                 isUrgent
                     ? 'bg-amber-600 text-white hover:bg-amber-600/90 dark:bg-amber-500 dark:hover:bg-amber-500/90'
                     : 'border border-input bg-background hover:bg-accent hover:text-accent-foreground'
             "
-            @click="openDeposit"
+            @click="openDeposit('deposit')"
         >
             Пополнить
         </button>
 
-        <DepositDialog v-model:open="depositOpen" :initial-amount="shortfall" />
+        <DepositDialog
+            v-model:open="depositOpen"
+            :initial-amount="shortfall"
+            :initial-tab="depositTab"
+        />
     </div>
 </template>

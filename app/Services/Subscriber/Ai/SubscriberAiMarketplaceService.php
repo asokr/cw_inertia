@@ -7,7 +7,6 @@ use App\Enums\AiTaskType;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Models\AiRequestLog;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
@@ -15,10 +14,14 @@ use App\Services\Gemini\GeminiApiClient;
 use App\Services\Ai\AiMediaStorageService;
 use App\Services\OpenAi\OpenAiTextFallbackClient;
 use App\Models\Subscribers\SubscribersSubscriptions;
-use App\Support\ToolLimits;
+use App\Services\Credits\CreditQuote;
+use App\Services\Subscriber\Concerns\ChargesMarketplaceAiCredits;
+use App\Models\User;
 
 class SubscriberAiMarketplaceService
 {
+    use ChargesMarketplaceAiCredits;
+
     private const PUBLIC_ERROR_MESSAGE = 'Ошибка при работе. Попробуйте позже.';
     private const HIGH_DEMAND_PUBLIC_ERROR_MESSAGE = 'ИИ сейчас занят большим объёмом задач. Попробуйте чуть позже — всё обязательно будет работать.';
     private const MAX_INPUT_IMAGE_BYTES = 10485760;
@@ -112,17 +115,27 @@ class SubscriberAiMarketplaceService
         }
 
         $taskType = (string) $request->input('task_type');
-        $requiredTextLimit = $this->requiresTextLimit($taskType) ? 1 : 0;
 
-        if (! $this->hasEnoughLimit($subscription, 'ai_text_query', $requiredTextLimit)) {
+        if (! $user instanceof User) {
             return response()->json([
                 'success' => false,
-                'messages' => ['Недостаточно лимита AI_TEXT_QUERY'],
-            ], 402);
+                'messages' => ['Пользователь не авторизован'],
+            ], 401);
+        }
+
+        $charge = $this->beginMarketplaceTextCharge($user);
+        if ($charge instanceof JsonResponse) {
+            return $charge;
         }
 
         try {
-            return $this->handleTextTask($request, $subscription, $user?->id, $subscriberId);
+            return $this->handleTextTask(
+                $request,
+                $user,
+                $subscriberId,
+                $charge['quote'],
+                $charge['key'],
+            );
         } catch (Throwable $exception) {
             $publicMessage = $this->resolvePublicErrorMessage($exception->getMessage(), 500);
 
@@ -147,8 +160,14 @@ class SubscriberAiMarketplaceService
         }
     }
 
-    private function handleTextTask(Request $request, SubscribersSubscriptions $subscription, ?int $userId, int $subscriberId): JsonResponse
-    {
+    private function handleTextTask(
+        Request $request,
+        User $user,
+        int $subscriberId,
+        CreditQuote $quote,
+        string $creditKey,
+    ): JsonResponse {
+        $userId = $user->id;
         $taskType = (string) $request->input('task_type');
         $marketplace = $request->input('marketplace');
         $provider = 'gemini';
@@ -232,14 +251,10 @@ class SubscriberAiMarketplaceService
             ], 200);
         }
 
-        if (! $this->consumeLimit($subscription, 'ai_text_query', 1)) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Не удалось списать лимит AI_TEXT_QUERY'],
-            ], 200);
-        }
-
-        $limits = $this->getLimits($subscription->fresh());
+        $this->spendMarketplaceCredits($user, $quote, $creditKey, [
+            'task_type' => $taskType,
+            'marketplace' => $marketplace,
+        ]);
 
         $this->logRequest(
             userId: $userId,
@@ -261,7 +276,8 @@ class SubscriberAiMarketplaceService
             'success' => true,
             'type' => 'text',
             'content' => $content,
-            'limits' => $limits,
+            'credits' => $this->marketplaceCreditsPayload($user),
+            'credits_charged' => $quote->amount,
         ], 200);
     }
 
@@ -333,103 +349,6 @@ class SubscriberAiMarketplaceService
         $normalized = preg_replace($cutPattern, '', $normalized) ?? $normalized;
 
         return trim($normalized);
-    }
-
-    private function requiresTextLimit(string $taskType): bool
-    {
-        return in_array($taskType, [
-            AiTaskType::GENERATE_DESCRIPTION->value,
-            AiTaskType::REWRITE_TEXT->value,
-            AiTaskType::REWRITE_OZON->value,
-            AiTaskType::REWRITE_WB->value,
-            AiTaskType::ADAPT_WB->value,
-            AiTaskType::ADAPT_OZON->value,
-            AiTaskType::GENERATE_OZON_RICH->value,
-            AiTaskType::RICH_DESCRIPTION->value,
-        ], true);
-    }
-
-    private function hasEnoughLimit(SubscribersSubscriptions $subscription, string $limitKey, int $required): bool
-    {
-        if ($required <= 0) {
-            return true;
-        }
-
-        $current = (int) ($subscription->getMonthLimit($limitKey) ?: 0);
-
-        return $current >= $required;
-    }
-
-    private function consumeLimit(SubscribersSubscriptions $subscription, string $limitKey, int $count): bool
-    {
-        if ($count <= 0) {
-            return true;
-        }
-
-        return DB::transaction(function () use ($subscription, $limitKey, $count) {
-            $freshSubscription = SubscribersSubscriptions::lockForUpdate()->find($subscription->id);
-            if (! $freshSubscription) {
-                return false;
-            }
-
-            $available = (int) ($freshSubscription->getMonthLimit($limitKey) ?: 0);
-            if ($available < $count) {
-                return false;
-            }
-
-            for ($i = 0; $i < $count; $i++) {
-                if (! $freshSubscription->minusMonthLimit($limitKey)) {
-                    return false;
-                }
-
-                $freshSubscription->refresh();
-            }
-
-            return true;
-        });
-    }
-
-    private function getLimits(SubscribersSubscriptions $subscription): array
-    {
-        if (ToolLimits::bypassesFor(auth()->user())) {
-            return ToolLimits::unlimitedAiLimits();
-        }
-
-        $textBase = $this->getRawMonthLimitValue($subscription, 'ai_text_query');
-        $textExtra = $this->getRawExtraMonthLimitValue($subscription, 'ai_text_query');
-        $imageBase = $this->getRawMonthLimitValue($subscription, 'ai_image_query');
-        $imageExtra = $this->getRawExtraMonthLimitValue($subscription, 'ai_image_query');
-
-        return [
-            'AI_TEXT_QUERY' => $textBase,
-            'AI_IMAGE_QUERY' => $imageBase,
-            'AI_TEXT_QUERY_EXTRA' => $textExtra,
-            'AI_IMAGE_QUERY_EXTRA' => $imageExtra,
-            'AI_TEXT_QUERY_TOTAL' => $textBase + $textExtra,
-            'AI_IMAGE_QUERY_TOTAL' => $imageBase + $imageExtra,
-        ];
-    }
-
-    private function getRawMonthLimitValue(SubscribersSubscriptions $subscription, string $limitKey): int
-    {
-        $limits = $subscription->limits_month;
-
-        if (! is_array($limits)) {
-            return 0;
-        }
-
-        return max(0, (int) ($limits[$limitKey] ?? 0));
-    }
-
-    private function getRawExtraMonthLimitValue(SubscribersSubscriptions $subscription, string $limitKey): int
-    {
-        $extraLimits = $subscription->extra_limits_month;
-
-        if (! is_array($extraLimits)) {
-            return 0;
-        }
-
-        return max(0, (int) ($extraLimits[$limitKey] ?? 0));
     }
 
     private function sanitizePayload(array $payload): array

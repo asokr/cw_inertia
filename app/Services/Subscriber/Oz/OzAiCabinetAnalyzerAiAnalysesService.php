@@ -1,17 +1,34 @@
 <?php
 
 namespace App\Services\Subscriber\Oz;
+
+use App\Exceptions\Credits\InsufficientCreditsException;
+use App\Exceptions\Credits\InvalidCreditOperationException;
 use App\Jobs\Oz\AiCabinetAnalyzer\ProcessOzAiCabinetAnalyzerAiAnalysisJob;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerTemplate;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerReport;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysis;
+use App\Services\Credits\CreditBillingService;
 use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerPdfGenerator;
+use App\Services\Subscriber\Concerns\ChargesAiCabinetAnalyzerCredits;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class OzAiCabinetAnalyzerAiAnalysesService
 {
+    use ChargesAiCabinetAnalyzerCredits;
+
+    public function __construct(
+        private readonly CreditBillingService $creditBilling,
+    ) {
+    }
+
+    protected function creditBilling(): CreditBillingService
+    {
+        return $this->creditBilling;
+    }
+
     public function start(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -54,54 +71,74 @@ class OzAiCabinetAnalyzerAiAnalysesService
         $templateId = (int) $template->id;
 
         // One in-flight analysis per report+template (same data sample + same analysis type).
-        return DB::transaction(function () use ($request, $reportId, $templateId) {
-            $existingForPair = OzAiCabinetAnalyzerAiAnalysis::query()
-                ->where('report_id', $reportId)
-                ->where('template_id', $templateId)
-                ->orderByDesc('id')
-                ->lockForUpdate()
-                ->get();
+        try {
+            return DB::transaction(function () use ($request, $report, $template, $reportId, $templateId) {
+                $existingForPair = OzAiCabinetAnalyzerAiAnalysis::query()
+                    ->where('report_id', $reportId)
+                    ->where('template_id', $templateId)
+                    ->orderByDesc('id')
+                    ->lockForUpdate()
+                    ->get();
 
-            $processing = $existingForPair->first(
-                static fn (OzAiCabinetAnalyzerAiAnalysis $row): bool => (string) $row->status === OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING
-            );
+                $processing = $existingForPair->first(
+                    static fn (OzAiCabinetAnalyzerAiAnalysis $row): bool => (string) $row->status === OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING
+                );
 
-            if ($processing) {
-                return response()->json([
-                    'success' => false,
-                    'messages' => ['Этот анализ уже выполняется для текущей выборки данных. Дождитесь завершения.'],
-                    'data' => $this->analysisPayload($processing->load('template')),
-                ], 200);
-            }
+                if ($processing) {
+                    return response()->json([
+                        'success' => false,
+                        'messages' => ['Этот анализ уже выполняется для текущей выборки данных. Дождитесь завершения.'],
+                        'data' => $this->analysisPayload($processing->load('template')),
+                    ], 200);
+                }
 
-            $existingDone = $existingForPair->first(
-                static fn (OzAiCabinetAnalyzerAiAnalysis $row): bool => (string) $row->status === OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE
-            );
+                $existingDone = $existingForPair->first(
+                    static fn (OzAiCabinetAnalyzerAiAnalysis $row): bool => (string) $row->status === OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE
+                );
 
-            if ($existingDone) {
+                if ($existingDone) {
+                    return response()->json([
+                        'success' => true,
+                        'messages' => ['Возвращён ранее сформированный ИИ-анализ'],
+                        'data' => $this->analysisPayload($existingDone->load('template')),
+                    ], 200);
+                }
+
+                $analysis = OzAiCabinetAnalyzerAiAnalysis::create([
+                    'report_id' => $reportId,
+                    'template_id' => $templateId,
+                    'status' => OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING,
+                    'model' => (string) ($request->input('model') ?: 'gemini'),
+                ]);
+
+                $this->reserveTemplateCredits(
+                    $request->user(),
+                    $template,
+                    $analysis,
+                    'ozon',
+                    (int) $report->id,
+                );
+
+                ProcessOzAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $analysis->id, (int) $request->user()->id)
+                    ->onQueue('oz_ai_cabinet_analyzer');
+
                 return response()->json([
                     'success' => true,
-                    'messages' => ['Возвращён ранее сформированный ИИ-анализ'],
-                    'data' => $this->analysisPayload($existingDone->load('template')),
+                    'messages' => ['ИИ-анализ запущен'],
+                    'data' => $this->analysisPayload($analysis->load('template')),
                 ], 200);
-            }
-
-            $analysis = OzAiCabinetAnalyzerAiAnalysis::create([
-                'report_id' => $reportId,
-                'template_id' => $templateId,
-                'status' => OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING,
-                'model' => (string) ($request->input('model') ?: 'gemini'),
-            ]);
-
-            ProcessOzAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $analysis->id, (int) $request->user()->id)
-                ->onQueue('oz_ai_cabinet_analyzer');
-
+            });
+        } catch (InsufficientCreditsException $exception) {
             return response()->json([
-                'success' => true,
-                'messages' => ['ИИ-анализ запущен'],
-                'data' => $this->analysisPayload($analysis->load('template')),
+                'success' => false,
+                'messages' => [$exception->userMessage()],
             ], 200);
-        });
+        } catch (InvalidCreditOperationException $exception) {
+            return response()->json([
+                'success' => false,
+                'messages' => [$exception->getMessage()],
+            ], 200);
+        }
     }
 
     public function regenerate(Request $request, string $analysis)
@@ -141,65 +178,83 @@ class OzAiCabinetAnalyzerAiAnalysesService
             ], 200);
         }
 
-        $result = DB::transaction(function () use ($entry, $request) {
-            $locked = OzAiCabinetAnalyzerAiAnalysis::query()
-                ->whereKey($entry->id)
-                ->lockForUpdate()
-                ->first();
+        try {
+            return DB::transaction(function () use ($entry, $template, $request) {
+                $locked = OzAiCabinetAnalyzerAiAnalysis::query()
+                    ->whereKey($entry->id)
+                    ->lockForUpdate()
+                    ->first();
 
-            if (!$locked) {
+                if (!$locked) {
+                    return response()->json([
+                        'success' => false,
+                        'messages' => ['ИИ-анализ не найден'],
+                    ], 200);
+                }
+
+                if ((string) $locked->status === OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING) {
+                    return response()->json([
+                        'success' => false,
+                        'messages' => ['ИИ-анализ уже выполняется'],
+                    ], 200);
+                }
+
+                $siblingProcessing = OzAiCabinetAnalyzerAiAnalysis::query()
+                    ->where('report_id', (int) $locked->report_id)
+                    ->where('template_id', (int) $locked->template_id)
+                    ->where('status', OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING)
+                    ->where('id', '!=', (int) $locked->id)
+                    ->lockForUpdate()
+                    ->exists();
+
+                if ($siblingProcessing) {
+                    return response()->json([
+                        'success' => false,
+                        'messages' => ['Этот анализ уже выполняется для текущей выборки данных. Дождитесь завершения.'],
+                    ], 200);
+                }
+
+                $locked->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING;
+                $locked->model = (string) ($request->input('model') ?: $locked->model ?: 'gemini');
+                $locked->analysis_json = null;
+                $locked->analysis_text = null;
+                $locked->analysis_markdown = null;
+                $locked->input_tokens = 0;
+                $locked->output_tokens = 0;
+                $locked->total_tokens = 0;
+                $locked->error_message = null;
+                $locked->started_at = null;
+                $locked->finished_at = null;
+                $locked->save();
+
+                $this->reserveTemplateCredits(
+                    $request->user(),
+                    $template,
+                    $locked,
+                    'ozon',
+                    (int) $locked->report_id,
+                );
+
+                ProcessOzAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $locked->id, (int) $request->user()->id)
+                    ->onQueue('oz_ai_cabinet_analyzer');
+
                 return response()->json([
-                    'success' => false,
-                    'messages' => ['ИИ-анализ не найден'],
+                    'success' => true,
+                    'messages' => ['ИИ-анализ перезапущен'],
+                    'data' => $this->analysisPayload($locked->load('template')),
                 ], 200);
-            }
-
-            if ((string) $locked->status === OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING) {
-                return response()->json([
-                    'success' => false,
-                    'messages' => ['ИИ-анализ уже выполняется'],
-                ], 200);
-            }
-
-            $siblingProcessing = OzAiCabinetAnalyzerAiAnalysis::query()
-                ->where('report_id', (int) $locked->report_id)
-                ->where('template_id', (int) $locked->template_id)
-                ->where('status', OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING)
-                ->where('id', '!=', (int) $locked->id)
-                ->lockForUpdate()
-                ->exists();
-
-            if ($siblingProcessing) {
-                return response()->json([
-                    'success' => false,
-                    'messages' => ['Этот анализ уже выполняется для текущей выборки данных. Дождитесь завершения.'],
-                ], 200);
-            }
-
-            $locked->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING;
-            $locked->model = (string) ($request->input('model') ?: $locked->model ?: 'gemini');
-            $locked->analysis_json = null;
-            $locked->analysis_text = null;
-            $locked->analysis_markdown = null;
-            $locked->input_tokens = 0;
-            $locked->output_tokens = 0;
-            $locked->total_tokens = 0;
-            $locked->error_message = null;
-            $locked->started_at = null;
-            $locked->finished_at = null;
-            $locked->save();
-
-            ProcessOzAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $locked->id, (int) $request->user()->id)
-                ->onQueue('oz_ai_cabinet_analyzer');
-
+            });
+        } catch (InsufficientCreditsException $exception) {
             return response()->json([
-                'success' => true,
-                'messages' => ['ИИ-анализ перезапущен'],
-                'data' => $this->analysisPayload($locked->load('template')),
+                'success' => false,
+                'messages' => [$exception->userMessage()],
             ], 200);
-        });
-
-        return $result;
+        } catch (InvalidCreditOperationException $exception) {
+            return response()->json([
+                'success' => false,
+                'messages' => [$exception->getMessage()],
+            ], 200);
+        }
     }
 
     public function indexByReport(Request $request, string $report)
@@ -273,7 +328,7 @@ class OzAiCabinetAnalyzerAiAnalysesService
             ->where('is_active', true)
             ->orderBy('sort_order')
             ->orderBy('id')
-            ->get(['id', 'name', 'description', 'sort_order', 'is_active', 'response_format', 'data_sources', 'created_at', 'updated_at'])
+            ->get()
             ->map(static function (OzAiCabinetAnalyzerTemplate $template): array {
                 return [
                     'id' => (int) $template->id,
@@ -283,6 +338,7 @@ class OzAiCabinetAnalyzerAiAnalysesService
                     'is_active' => (bool) $template->is_active,
                     'response_format' => (string) ($template->response_format ?? 'json'),
                     'data_sources' => $template->resolvedDataSources(),
+                    'credits_cost' => $template->creditsCost(),
                     'created_at' => $template->created_at,
                     'updated_at' => $template->updated_at,
                 ];
@@ -299,6 +355,8 @@ class OzAiCabinetAnalyzerAiAnalysesService
 
     private function analysisPayload(OzAiCabinetAnalyzerAiAnalysis $analysis): array
     {
+        $this->captureDeliveredAnalysisCredits($analysis);
+
         $template = $analysis->template;
         $responseFormat = $template?->response_format ?? 'json';
 
@@ -310,6 +368,7 @@ class OzAiCabinetAnalyzerAiAnalysesService
                 'id' => (int) $template->id,
                 'name' => (string) $template->name,
                 'description' => (string) ($template->description ?? ''),
+                'credits_cost' => $template->creditsCost(),
             ] : null,
             'status' => (string) $analysis->status,
             'response_format' => (string) $responseFormat,

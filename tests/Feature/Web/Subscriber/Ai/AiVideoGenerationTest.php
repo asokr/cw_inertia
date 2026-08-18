@@ -4,9 +4,17 @@ namespace Tests\Feature\Web\Subscriber\Ai;
 
 use App\Models\AiVideoGeneration;
 use App\Models\AiVideoGenerationTask;
+use App\Models\Credits\CreditAccount;
+use App\Models\Credits\CreditHold;
+use App\Models\Credits\CreditLedger;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
+use App\Services\Ai\AiMediaStorageService;
+use App\Services\Grok\GrokVideoApiClient;
+use Database\Seeders\CreditPricingSeeder;
+use Mockery;
+use Tests\Support\CreatesCreditBillingSchema;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -17,6 +25,8 @@ use Tests\Feature\Web\Auth\WebAuthTestCase;
 
 class AiVideoGenerationTest extends WebAuthTestCase
 {
+    use CreatesCreditBillingSchema;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -255,6 +265,123 @@ class AiVideoGenerationTest extends WebAuthTestCase
             ->assertNotFound();
     }
 
+    public function test_video_start_reserves_credits_and_status_captures_once(): void
+    {
+        $this->setupCreditBillingSchema();
+        (new CreditPricingSeeder())->run();
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $this->grantCredits($user, 40);
+
+        $grok = Mockery::mock(GrokVideoApiClient::class);
+        $grok->shouldReceive('startGeneration')->once()->andReturn([
+            'success' => true,
+            'status' => 200,
+            'data' => [
+                'request_id' => 'req-credits',
+                'model' => 'grok-video',
+            ],
+        ]);
+        $grok->shouldReceive('getGeneration')->once()->andReturn([
+            'success' => true,
+            'status' => 200,
+            'data' => [
+                'status' => 'done',
+                'model' => 'grok-video',
+                'video' => [
+                    'url' => 'https://example.test/video.mp4',
+                    'duration' => 5,
+                ],
+            ],
+        ]);
+        $this->app->instance(GrokVideoApiClient::class, $grok);
+
+        $storage = Mockery::mock(AiMediaStorageService::class);
+        $storage->shouldReceive('storeVideoByUrlAndGetSignedUrl')->once()->andReturn([
+            'path' => 'ai/generated-videos/user-'.$user->id.'/2026/demo.mp4',
+            'signed_url' => '/panel/ai/media/generated-videos/user-'.$user->id.'/2026/demo.mp4',
+        ]);
+        $storage->shouldReceive('resolvePanelMediaUrl')->andReturn(
+            '/panel/ai/media/generated-videos/user-'.$user->id.'/2026/demo.mp4'
+        );
+        $this->app->instance(AiMediaStorageService::class, $storage);
+
+        $this->actingAs($user)
+            ->postJson('/panel/ai/video/start', [
+                'task_type' => 'generate_video',
+                'prompt' => 'Короткое видео товара',
+                'duration' => 5,
+                'resolution' => '480p',
+                'credits' => 1,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.request_id', 'req-credits');
+
+        $account = CreditAccount::query()->where('user_id', $user->id)->first();
+        $this->assertSame(20, $account?->available());
+        $this->assertSame(1, CreditHold::query()->where('user_id', $user->id)->where('status', 'held')->count());
+
+        $this->actingAs($user)
+            ->getJson('/panel/ai/video/status/req-credits')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.status', 'done');
+
+        $account->refresh();
+        $this->assertSame(20, $account->available());
+        $this->assertSame(0, CreditHold::query()->where('user_id', $user->id)->where('status', 'held')->count());
+        $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('type', 'capture')->count());
+
+        $this->actingAs($user)
+            ->getJson('/panel/ai/video/status/req-credits')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'done');
+
+        $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('type', 'capture')->count());
+    }
+
+    public function test_video_start_without_credits_does_not_call_provider(): void
+    {
+        $this->setupCreditBillingSchema();
+        (new CreditPricingSeeder())->run();
+        $user = $this->createSubscriberUser(withAiPermission: true);
+
+        $grok = Mockery::mock(GrokVideoApiClient::class);
+        $grok->shouldNotReceive('startGeneration');
+        $this->app->instance(GrokVideoApiClient::class, $grok);
+
+        $response = $this->actingAs($user)
+            ->postJson('/panel/ai/video/start', [
+                'task_type' => 'generate_video',
+                'prompt' => 'Короткое видео товара',
+                'duration' => 5,
+                'resolution' => '720p',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', false);
+
+        $this->assertStringContainsString('Недостаточно кредитов', (string) $response->json('messages.0'));
+    }
+
+    protected function tearDown(): void
+    {
+        Mockery::close();
+        parent::tearDown();
+    }
+
+    private function grantCredits(User $user, int $amount): void
+    {
+        CreditAccount::query()->updateOrCreate(
+            ['user_id' => $user->id],
+            [
+                'subscription_balance' => 0,
+                'purchased_balance' => $amount,
+                'subscription_held' => 0,
+                'purchased_held' => 0,
+            ],
+        );
+    }
+
     private function createSubscriberUser(bool $withAiPermission = false): User
     {
         $user = User::factory()->create([
@@ -362,7 +489,12 @@ class AiVideoGenerationTest extends WebAuthTestCase
                 $table->text('error_message')->nullable();
                 $table->string('model', 128)->nullable();
                 $table->timestamp('limit_consumed_at')->nullable();
+                $table->string('credit_idempotency_key')->nullable();
                 $table->timestamps();
+            });
+        } elseif (! Schema::hasColumn('ai_video_generation_tasks', 'credit_idempotency_key')) {
+            Schema::table('ai_video_generation_tasks', function (Blueprint $table) {
+                $table->string('credit_idempotency_key')->nullable();
             });
         }
     }

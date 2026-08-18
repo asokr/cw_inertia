@@ -69,6 +69,11 @@ class Kernel extends ConsoleKernel
         // Проверим подписки
         $schedule->command('subscriber:check')->everyTenMinutes();
 
+        // Возврат просроченных резервов кредитов
+        $schedule->command('credits:release-expired-holds')
+            ->everyFiveMinutes()
+            ->withoutOverlapping();
+
         // Отправим уведомления связанные с подпиской
         $schedule->command('subscriber:notify')->dailyAt('13:00');
 

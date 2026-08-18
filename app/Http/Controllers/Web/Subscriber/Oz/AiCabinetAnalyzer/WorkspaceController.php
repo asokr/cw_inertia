@@ -6,6 +6,7 @@ use App\Http\Controllers\Web\Subscriber\Concerns\ResolvesSelectedOzCabinet;
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
 use App\Http\Requests\Web\Subscriber\StartAiCabinetAnalyzerReportRequest;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerReport;
+use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerTemplate;
 use App\Models\Subscribers\Oz\OzCabinet;
 use App\Services\Subscriber\Oz\OzAiCabinetAnalyzerAiAnalysesService;
 use App\Services\Subscriber\Oz\OzAiCabinetAnalyzerReportsService;
@@ -317,9 +318,14 @@ class WorkspaceController extends SubscriberToolController
                 'id' => $row['id'],
                 'name' => $row['name'],
                 'description' => $row['description'] ?? '',
+                'credits_cost' => (int) ($row['credits_cost'] ?? 0),
                 'data_sources' => array_values(array_filter(
-                    (array) ($row['data_sources'] ?? ['products']),
-                    static fn ($source) => in_array((string) $source, ['products'], true)
+                    (array) ($row['data_sources'] ?? OzAiCabinetAnalyzerTemplate::DATA_SOURCES),
+                    static fn ($source) => in_array(
+                        (string) $source,
+                        OzAiCabinetAnalyzerTemplate::DATA_SOURCES,
+                        true
+                    )
                 )),
             ];
         }, $payload['data'] ?? []));

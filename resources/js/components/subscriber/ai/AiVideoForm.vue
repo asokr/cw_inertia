@@ -6,10 +6,12 @@ import Button from "@/components/ui/Button.vue";
 import Label from "@/components/ui/Label.vue";
 import Textarea from "@/components/ui/Textarea.vue";
 import { toAiMediaUrl } from "@/composables/useAiMediaUrl";
+import { creditsWord } from "@/utils/credits";
 
 const props = defineProps({
     loading: { type: Boolean, default: false },
     disabled: { type: Boolean, default: false },
+    pricing: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(["submit", "error"]);
@@ -47,8 +49,8 @@ const aspectRatios = [
 ];
 
 const resolutions = [
-    { value: "480p", label: "480p", multiplier: 1 },
-    { value: "720p", label: "720p", multiplier: 2 },
+    { value: "480p", label: "480p" },
+    { value: "720p", label: "720p" },
 ];
 
 const maxDuration = computed(() => (
@@ -94,12 +96,11 @@ const inputPlaceholder = computed(() => {
         : "Опишите, что создать...";
 });
 
-const resolutionMultiplier = computed(() => {
-    const found = resolutions.find((r) => r.value === form.resolution);
-    return found ? found.multiplier : 1;
-});
+const totalCost = computed(() => {
+    const byResolution = props.pricing?.video?.amounts?.[form.resolution] ?? {};
 
-const totalCost = computed(() => form.duration * resolutionMultiplier.value);
+    return Number(byResolution[String(form.duration)] ?? 0);
+});
 
 function resolvePreviewUrl(value) {
     if (!value) {
@@ -138,9 +139,7 @@ const canGenerate = computed(() => {
 });
 
 function pluralCredits(n) {
-    if (n % 10 === 1 && n % 100 !== 11) return "лимит";
-    if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return "лимита";
-    return "лимитов";
+    return creditsWord(n);
 }
 
 function insertSourcePrompt() {

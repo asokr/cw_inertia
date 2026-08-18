@@ -8,11 +8,11 @@ use App\Enums\AiTaskType;
 use App\Models\AiImageGeneration;
 use App\Models\AiImageGenerationTask;
 use App\Models\AiRequestLog;
-use App\Models\Subscribers\SubscribersSubscriptions;
-use App\Support\ToolLimits;
+use App\Models\User;
+use App\Services\Credits\CreditQuote;
+use App\Services\Subscriber\Concerns\ChargesMarketplaceAiCredits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use App\Services\Gemini\GeminiApiClient;
@@ -20,6 +20,8 @@ use App\Services\Grok\GrokImageApiClient;
 
 class AiImageService
 {
+    use ChargesMarketplaceAiCredits;
+
     private const PUBLIC_ERROR_MESSAGE = 'Ошибка при работе. Попробуйте позже.';
     private const HIGH_DEMAND_PUBLIC_ERROR_MESSAGE = 'ИИ сейчас занят большим объёмом задач. Попробуйте чуть позже — всё обязательно будет работать.';
     private const MODERATION_PUBLIC_ERROR_MESSAGE = 'Запрос отклонён модерацией. Попробуйте изменить описание.';
@@ -32,14 +34,22 @@ class AiImageService
         private readonly AiImageGenerationService $aiImageGenerationService,
     ) {}
 
-    public function start(Request $request, SubscribersSubscriptions $subscription, int $userId, int $subscriberId): JsonResponse
+    public function start(Request $request, User $user, int $subscriberId): JsonResponse
     {
+        $userId = (int) $user->id;
         $taskType = (string) $request->input('task_type');
         $provider = 'gemini';
         $variants = 1;
         $rawResolution = trim((string) $request->input('resolution', 'default'));
         $resolution = $this->resolveResolution($rawResolution);
-        $resolutionLimitCost = $this->resolveImageLimitCost($resolution);
+        $charge = $this->beginMarketplaceImageCharge($user, $taskType, $resolution);
+        if ($charge instanceof JsonResponse) {
+            return $charge;
+        }
+
+        /** @var CreditQuote $quote */
+        $quote = $charge['quote'];
+        $creditKey = (string) $charge['key'];
         $geminiImageSize = $this->resolveGeminiImageSize($resolution);
         $aspectRatio = $this->resolveAspectRatio($request->input('aspectRatio'));
         $prompt = $this->resolveImagePrompt($request);
@@ -213,16 +223,12 @@ class AiImageService
         }
 
         $generatedCount = count($storedImages);
-        $consumptionCount = $generatedCount * $resolutionLimitCost;
 
-        if (! $this->consumeLimit($subscription, 'ai_image_query', $consumptionCount)) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Не удалось списать лимит AI_IMAGE_QUERY'],
-            ], 200);
-        }
-
-        $limits = $this->getLimits($subscription->fresh());
+        $this->spendMarketplaceCredits($user, $quote, $creditKey, [
+            'task_type' => $taskType,
+            'resolution' => $resolution,
+            'images_count' => $generatedCount,
+        ]);
 
         $this->logRequest(
             userId: $userId,
@@ -270,7 +276,8 @@ class AiImageService
             'success' => true,
             'type' => 'image',
             'images' => $imageUrls,
-            'limits' => $limits,
+            'credits' => $this->marketplaceCreditsPayload($user),
+            'credits_charged' => $quote->amount,
             'data' => [
                 'generation_id' => $generation->id,
                 'generation_uuid' => $generation->uuid,
@@ -380,104 +387,6 @@ class AiImageService
         return 'Gemini не вернул изображения';
     }
 
-    private function hasEnoughLimit(SubscribersSubscriptions $subscription, string $limitKey, int $required): bool
-    {
-        if ($required <= 0) {
-            return true;
-        }
-
-        $current = (int) ($subscription->getMonthLimit($limitKey) ?: 0);
-
-        return $current >= $required;
-    }
-
-    public function requiredImageLimit(Request $request): int
-    {
-        $resolution = $this->resolveResolution((string) $request->input('resolution', 'default'));
-
-        return $this->resolveImageLimitCost($resolution);
-    }
-
-    public function hasEnoughImageLimit(SubscribersSubscriptions $subscription, Request $request): bool
-    {
-        return $this->hasEnoughLimit($subscription, 'ai_image_query', $this->requiredImageLimit($request));
-    }
-
-    private function consumeLimit(SubscribersSubscriptions $subscription, string $limitKey, int $count): bool
-    {
-        if ($count <= 0) {
-            return true;
-        }
-
-        return DB::transaction(function () use ($subscription, $limitKey, $count) {
-            $freshSubscription = SubscribersSubscriptions::lockForUpdate()->find($subscription->id);
-            if (! $freshSubscription) {
-                return false;
-            }
-
-            $available = (int) ($freshSubscription->getMonthLimit($limitKey) ?: 0);
-            if ($available < $count) {
-                return false;
-            }
-
-            for ($i = 0; $i < $count; $i++) {
-                if (! $freshSubscription->minusMonthLimit($limitKey)) {
-                    return false;
-                }
-
-                $freshSubscription->refresh();
-            }
-
-            return true;
-        });
-    }
-
-    /**
-     * @return array<string, int>
-     */
-    private function getLimits(SubscribersSubscriptions $subscription): array
-    {
-        if (ToolLimits::bypassesFor(auth()->user())) {
-            return ToolLimits::unlimitedAiLimits();
-        }
-
-        $textBase = $this->getRawMonthLimitValue($subscription, 'ai_text_query');
-        $textExtra = $this->getRawExtraMonthLimitValue($subscription, 'ai_text_query');
-        $imageBase = $this->getRawMonthLimitValue($subscription, 'ai_image_query');
-        $imageExtra = $this->getRawExtraMonthLimitValue($subscription, 'ai_image_query');
-
-        return [
-            'AI_TEXT_QUERY' => $textBase,
-            'AI_IMAGE_QUERY' => $imageBase,
-            'AI_TEXT_QUERY_EXTRA' => $textExtra,
-            'AI_IMAGE_QUERY_EXTRA' => $imageExtra,
-            'AI_TEXT_QUERY_TOTAL' => $textBase + $textExtra,
-            'AI_IMAGE_QUERY_TOTAL' => $imageBase + $imageExtra,
-        ];
-    }
-
-    private function getRawMonthLimitValue(SubscribersSubscriptions $subscription, string $limitKey): int
-    {
-        $limits = $subscription->limits_month;
-
-        if (! is_array($limits)) {
-            return 0;
-        }
-
-        return max(0, (int) ($limits[$limitKey] ?? 0));
-    }
-
-    private function getRawExtraMonthLimitValue(SubscribersSubscriptions $subscription, string $limitKey): int
-    {
-        $extraLimits = $subscription->extra_limits_month;
-
-        if (! is_array($extraLimits)) {
-            return 0;
-        }
-
-        return max(0, (int) ($extraLimits[$limitKey] ?? 0));
-    }
-
     private function resolveResolution(string $resolution): string
     {
         $normalized = mb_strtolower(trim($resolution));
@@ -488,15 +397,6 @@ class AiImageService
             '2k' => '2k',
             '4k' => '4k',
             default => $normalized,
-        };
-    }
-
-    private function resolveImageLimitCost(string $resolution): int
-    {
-        return match ($resolution) {
-            '1k' => 2,
-            '2k', '4k' => 3,
-            default => 1,
         };
     }
 

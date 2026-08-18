@@ -4,16 +4,14 @@ import { buildNormalizedLimitItems, formatLimitLabel } from "@/utils/limitLabels
 
 const props = defineProps({
     base: { type: Object, default: () => ({}) },
-    extra: { type: Object, default: () => ({}) },
     tariff: { type: Object, default: () => ({}) },
     labeled: { type: Boolean, default: true },
     showTariff: { type: Boolean, default: true },
-    /** Optional map slug → name (from server / extra_limits). */
     labelsMap: { type: Object, default: null },
 });
 
 const items = computed(() =>
-    buildNormalizedLimitItems(props.base, props.extra, props.tariff).map((item) => ({
+    buildNormalizedLimitItems(props.base, props.tariff).map((item) => ({
         ...item,
         label: props.labeled ? formatLimitLabel(item.name, props.labelsMap) : item.name,
     }))
@@ -32,7 +30,6 @@ const items = computed(() =>
                 >
                     / {{ item.tariff }}
                 </span>
-                <span v-if="item.extra > 0" class="text-primary">+{{ item.extra }}</span>
             </span>
         </div>
     </div>

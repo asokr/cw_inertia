@@ -26,7 +26,7 @@ const props = defineProps({
     homeUrl: { type: String, default: "/login" },
     cabinetLabel: { type: String, default: "В кабинет" },
     isSubscriber: { type: Boolean, default: false },
-    /** From DB: unified WB cabinets + labels by extra_limits.slug */
+    /** Карточки тарифов: кабинеты и кредиты. */
     pricingPlans: { type: Array, default: () => [] },
 });
 
@@ -349,7 +349,7 @@ const heroImage = {
                                                 />
                                                 <span
                                                     role="tooltip"
-                                                    class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-52 -translate-x-1/2 rounded-md border border-border/70 bg-popover px-2.5 py-1.5 text-center text-xs font-normal leading-snug text-popover-foreground opacity-0 shadow-md transition-opacity group-hover/hint:opacity-100 group-focus-within/hint:opacity-100"
+                                                    class="pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-1.5 w-52 -translate-x-1/2 rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-center text-xs font-normal leading-snug text-neutral-900 opacity-0 shadow-md transition-opacity group-hover/hint:visible group-hover/hint:opacity-100 group-focus-within/hint:visible group-focus-within/hint:opacity-100"
                                                 >
                                                     {{ item.hint }}
                                                 </span>
@@ -368,15 +368,6 @@ const heroImage = {
                                     <li v-for="limit in plan.limits" :key="limit" class="flex gap-2">
                                         <Check class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                                         {{ limit }}
-                                    </li>
-                                </ul>
-                            </div>
-                            <div>
-                                <p class="mb-2 font-medium text-foreground">Обновляемые лимиты</p>
-                                <ul class="space-y-1.5 text-muted-foreground">
-                                    <li v-for="item in plan.monthly" :key="item" class="flex gap-2">
-                                        <Check class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                        {{ item }}
                                     </li>
                                 </ul>
                             </div>

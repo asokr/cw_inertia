@@ -180,16 +180,20 @@ onMounted(fetchData);
                 class="fixed z-50 w-72 max-w-[90vw] rounded-lg border bg-card p-3 text-sm shadow-lg"
                 :style="{ left: `${state.tooltip.x}px`, top: `${state.tooltip.y}px`, transform: 'translateX(-50%)' }"
             >
-                <div class="mb-2 font-semibold">Тарифные лимиты</div>
-                <div v-if="hasLimits(state.tooltip.item?.limits_plan) || hasLimits(state.tooltip.item?.extra_limits_plan)">
-                    <LimitList :base="state.tooltip.item?.limits_plan" :extra="state.tooltip.item?.extra_limits_plan" />
+                <div class="mb-2 font-semibold">Лимиты тарифа</div>
+                <div v-if="hasLimits(state.tooltip.item?.limits_plan)">
+                    <LimitList :base="state.tooltip.item?.limits_plan" />
                 </div>
-                <div v-else class="mb-2 text-muted-foreground">Нет плановых лимитов</div>
-                <div class="mb-2 font-semibold">Месячные лимиты</div>
-                <div v-if="hasLimits(state.tooltip.item?.limits_month) || hasLimits(state.tooltip.item?.extra_limits_month)">
-                    <LimitList :base="state.tooltip.item?.limits_month" :extra="state.tooltip.item?.extra_limits_month" />
-                </div>
-                <div v-else class="text-muted-foreground">Нет месячных лимитов</div>
+                <div v-else class="mb-2 text-muted-foreground">Нет лимитов тарифа</div>
+                <div class="mb-2 font-semibold">Кредиты</div>
+                <p class="text-sm">
+                    Доступно:
+                    <span class="font-semibold tabular-nums">{{ state.tooltip.item?.credits?.available ?? 0 }}</span>
+                </p>
+                <p class="text-xs text-muted-foreground">
+                    Купленные:
+                    <span class="tabular-nums">{{ state.tooltip.item?.credits?.purchased ?? 0 }}</span>
+                </p>
             </div>
         </Teleport>
     </Card>

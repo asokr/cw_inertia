@@ -4,6 +4,7 @@ import { router } from "@inertiajs/vue3";
 import Button from "@/components/ui/Button.vue";
 import Textarea from "@/components/ui/Textarea.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
+import { formatCredits } from "@/utils/credits";
 
 const props = defineProps({
     clientId: { type: [Number, String], required: true },
@@ -11,6 +12,7 @@ const props = defineProps({
     ratingType: { type: [String, Array], default: null },
     sendUrl: { type: String, required: true },
     generateUrl: { type: String, required: true },
+    creditsCost: { type: Number, default: 0 },
 });
 
 const open = ref(false);
@@ -85,6 +87,9 @@ function send() {
                     {{ generating ? "Генерация…" : "Сгенерировать ИИ" }}
                 </Button>
             </div>
+            <p class="text-xs text-muted-foreground">
+                За генерацию будет списано {{ formatCredits(creditsCost) }}
+            </p>
         </div>
     </div>
 </template>

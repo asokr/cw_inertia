@@ -178,6 +178,13 @@ class OzAiCabinetAnalyzerAiAnalysisService
             'products_count' => (int) data_get($dataset, 'meta.products_count', 0),
             'sources_collected' => array_values((array) data_get($dataset, 'meta.sources_collected', ['products'])),
         ];
+        if (is_array(data_get($dataset, 'meta.seller_rating'))) {
+            $meta['seller_rating'] = data_get($dataset, 'meta.seller_rating');
+        }
+        if (is_array(data_get($dataset, 'meta.actions'))) {
+            $meta['actions'] = array_values((array) data_get($dataset, 'meta.actions'));
+            $meta['actions_count'] = (int) data_get($dataset, 'meta.actions_count', count($meta['actions']));
+        }
 
         $products = [];
         foreach ((array) ($dataset['products'] ?? []) as $item) {
@@ -206,6 +213,11 @@ class OzAiCabinetAnalyzerAiAnalysisService
                 'price' => $item['price'] ?? null,
                 'old_price' => $item['old_price'] ?? null,
                 'marketing_price' => $item['marketing_price'] ?? null,
+                'price_indexes' => $item['price_indexes'] ?? null,
+                'commissions' => $item['commissions'] ?? null,
+                'promotions' => $item['promotions'] ?? null,
+                'errors' => $item['errors'] ?? null,
+                'availability' => $item['availability'] ?? null,
                 'currency_code' => $item['currency_code'] ?? null,
                 'created_at' => $item['created_at'] ?? null,
                 'updated_at' => $item['updated_at'] ?? null,
@@ -229,6 +241,19 @@ class OzAiCabinetAnalyzerAiAnalysisService
             }
             if (isset($item['turnover']) && is_array($item['turnover'])) {
                 $row['turnover'] = $item['turnover'];
+            }
+            if (isset($item['liquidity']) && is_array($item['liquidity'])) {
+                $liquidity = $item['liquidity'];
+                if (isset($liquidity['clusters']) && is_array($liquidity['clusters'])) {
+                    $liquidity['clusters'] = array_slice($liquidity['clusters'], 0, 8);
+                }
+                $row['liquidity'] = $liquidity;
+            }
+            if (isset($item['content_rating']) && is_array($item['content_rating'])) {
+                $row['content_rating'] = $item['content_rating'];
+            }
+            if (isset($item['promos']) && is_array($item['promos'])) {
+                $row['promos'] = $item['promos'];
             }
             if (isset($item['advertising']) && is_array($item['advertising'])) {
                 $row['advertising'] = $item['advertising'];
@@ -266,10 +291,17 @@ class OzAiCabinetAnalyzerAiAnalysisService
         $includeSearch = in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_SEARCH, $sources, true);
         $includeStocks = in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_STOCKS, $sources, true);
         $includeAds = in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_ADVERTISING, $sources, true);
+        $includeContent = in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_CONTENT, $sources, true);
+        $includeSellerRating = in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_SELLER_RATING, $sources, true);
+        $includePromos = in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_PROMOS, $sources, true);
 
-        if (! $includeProducts && ! $includeAnalytics && ! $includeSearch && ! $includeStocks && ! $includeAds) {
+        $hasAny = $includeProducts || $includeAnalytics || $includeSearch || $includeStocks
+            || $includeAds || $includeContent || $includeSellerRating || $includePromos;
+
+        if (! $hasAny) {
             $dataset['products'] = [];
             unset($dataset['campaigns']);
+            $this->stripMetaSources($dataset, false, false);
 
             return $dataset;
         }
@@ -277,6 +309,7 @@ class OzAiCabinetAnalyzerAiAnalysisService
         if (! $includeAds) {
             unset($dataset['campaigns']);
         }
+        $this->stripMetaSources($dataset, $includeSellerRating, $includePromos);
 
         $products = [];
         foreach ((array) ($dataset['products'] ?? []) as $product) {
@@ -316,14 +349,29 @@ class OzAiCabinetAnalyzerAiAnalysisService
                 if (isset($product['turnover'])) {
                     $filtered['turnover'] = $product['turnover'];
                 }
+                if (isset($product['liquidity'])) {
+                    $filtered['liquidity'] = $product['liquidity'];
+                }
             } else {
-                unset($filtered['stocks'], $filtered['turnover']);
+                unset($filtered['stocks'], $filtered['turnover'], $filtered['liquidity']);
             }
 
             if ($includeAds && isset($product['advertising'])) {
                 $filtered['advertising'] = $product['advertising'];
             } else {
                 unset($filtered['advertising']);
+            }
+
+            if ($includeContent && isset($product['content_rating'])) {
+                $filtered['content_rating'] = $product['content_rating'];
+            } else {
+                unset($filtered['content_rating']);
+            }
+
+            if ($includePromos && isset($product['promos'])) {
+                $filtered['promos'] = $product['promos'];
+            } else {
+                unset($filtered['promos']);
             }
 
             // ads_vs_analytics только при обоих источниках.
@@ -339,6 +387,23 @@ class OzAiCabinetAnalyzerAiAnalysisService
         $dataset['products'] = $products;
 
         return $dataset;
+    }
+
+    /**
+     * Убирает кабинетные блоки meta, которые не выбраны в шаблоне.
+     *
+     * @param  array<string, mixed>  $dataset
+     */
+    private function stripMetaSources(array &$dataset, bool $includeSellerRating, bool $includePromos): void
+    {
+        $meta = is_array($dataset['meta'] ?? null) ? $dataset['meta'] : [];
+        if (! $includeSellerRating) {
+            unset($meta['seller_rating']);
+        }
+        if (! $includePromos) {
+            unset($meta['actions'], $meta['actions_count']);
+        }
+        $dataset['meta'] = $meta;
     }
 
     /**
@@ -1252,10 +1317,38 @@ class OzAiCabinetAnalyzerAiAnalysisService
             $sources = OzAiCabinetAnalyzerTemplate::DATA_SOURCES;
         }
 
-        $includeProducts = in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_PRODUCTS, $sources, true);
-        $labels = $includeProducts
-            ? (array) config('oz_ai_cabinet_analyzer.product_field_labels', [])
-            : [];
+        $labelMaps = [];
+        if (in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_PRODUCTS, $sources, true)) {
+            $labelMaps[] = (array) config('oz_ai_cabinet_analyzer.product_field_labels', []);
+        }
+        if (in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_ANALYTICS, $sources, true)) {
+            $labelMaps[] = (array) config('oz_ai_cabinet_analyzer.analytics_field_labels', []);
+        }
+        if (in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_SEARCH, $sources, true)) {
+            $labelMaps[] = (array) config('oz_ai_cabinet_analyzer.search_field_labels', []);
+        }
+        if (in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_STOCKS, $sources, true)) {
+            $labelMaps[] = (array) config('oz_ai_cabinet_analyzer.stocks_field_labels', []);
+        }
+        if (in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_ADVERTISING, $sources, true)) {
+            $labelMaps[] = (array) config('oz_ai_cabinet_analyzer.advertising_field_labels', []);
+        }
+        if (in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_CONTENT, $sources, true)) {
+            $labelMaps[] = (array) config('oz_ai_cabinet_analyzer.content_field_labels', []);
+        }
+        if (in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_SELLER_RATING, $sources, true)) {
+            $labelMaps[] = (array) config('oz_ai_cabinet_analyzer.seller_rating_field_labels', []);
+        }
+        if (in_array(OzAiCabinetAnalyzerTemplate::DATA_SOURCE_PROMOS, $sources, true)) {
+            $labelMaps[] = (array) config('oz_ai_cabinet_analyzer.promos_field_labels', []);
+        }
+
+        $labels = [];
+        foreach ($labelMaps as $map) {
+            foreach ($map as $key => $label) {
+                $labels[(string) $key] = (string) $label;
+            }
+        }
 
         if ($labels === []) {
             return "Всегда отвечай строго на русском языке.\n";
@@ -1272,7 +1365,7 @@ class OzAiCabinetAnalyzerAiAnalysisService
             "ПРАВИЛА ПО НАЗВАНИЯМ ПОЛЕЙ (ОБЯЗАТЕЛЬНО СОБЛЮДАЙ):",
             "- Всегда отвечай строго на русском языке.",
             "- Никогда не используй в ответе технические названия колонок без пояснения.",
-            "- Анализируй каталог товаров Ozon (блок products).",
+            "- Анализируй только блоки snapshot, которые есть в DATASET.",
             "- Для метрик/полей из dataset используй человекопонятные названия из этого списка:",
             '',
             $fieldList,

@@ -57,7 +57,7 @@ class StorePlanRequest extends FormRequest
             'duration' => 'required|integer|min:1',
             'description' => 'nullable|string',
             'limits_plan' => 'nullable',
-            'limits_month' => 'nullable',
+            'credits_per_period' => 'nullable|integer|min:0',
             'permissions' => 'required|array|min:1',
             'permissions.*' => [
                 'required',

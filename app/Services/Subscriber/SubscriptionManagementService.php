@@ -10,6 +10,7 @@ use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\SubscribersSubscriptionsControl;
 use App\Models\User;
+use App\Services\Credits\CreditBillingService;
 use Carbon\Carbon;
 
 class SubscriptionManagementService
@@ -33,8 +34,6 @@ class SubscriptionManagementService
             'plan_id',
             'status',
             'limits_plan',
-            'limits_month',
-            'extra_limits_month',
             'start_date',
             'end_date',
         ])
@@ -54,7 +53,6 @@ class SubscriptionManagementService
             'description',
             'name',
             'limits_plan',
-            'limits_month',
         ])
             ->where('id', $subscription->plan_id)
             ->first();
@@ -65,17 +63,13 @@ class SubscriptionManagementService
             ->toArray();
 
         $limitsPlan = is_array($subscription->limits_plan) ? $subscription->limits_plan : [];
-        $limitsMonth = is_array($subscription->limits_month) ? $subscription->limits_month : [];
-        $extraMonth = is_array($subscription->extra_limits_month) ? $subscription->extra_limits_month : [];
 
         return [
             'subscription' => $subscription,
             'plan' => $plan,
             'next' => $next,
             'display_limits' => [
-                'plan' => PlanLimitPresenter::displayEntries($limitsPlan, null),
-                'month' => PlanLimitPresenter::displayEntries(null, $limitsMonth),
-                'extra' => PlanLimitPresenter::displayEntries(null, $extraMonth),
+                'plan' => PlanLimitPresenter::displayEntries($limitsPlan),
             ],
         ];
     }
@@ -221,8 +215,8 @@ class SubscriptionManagementService
         $subscription = SubscribersSubscriptions::create([
             'subscribers_id' => $user->subscriber->id,
             'plan_id' => $plan->id,
-            'limits_month' => $plan->limits_month,
             'limits_plan' => $plan->limits_plan,
+            'start_date' => Carbon::now(),
             'end_date' => $endDate,
             'status' => 1,
         ]);
@@ -234,6 +228,8 @@ class SubscriptionManagementService
         foreach ($plan->limits_plan as $limitName => $limitCount) {
             $this->syncLimits($user->subscriber->id, $limitName);
         }
+
+        app(CreditBillingService::class)->grantPeriod($user, $subscription, $plan);
 
         charge($plan->price, 'RUB')->from($user)->commit();
 
@@ -254,8 +250,8 @@ class SubscriptionManagementService
 
         $status = $subscription->update([
             'plan_id' => $plan->id,
-            'limits_month' => $plan->limits_month,
             'limits_plan' => $plan->limits_plan,
+            'start_date' => Carbon::now(),
             'end_date' => $endDate,
             'status' => 1,
         ]);
@@ -267,6 +263,8 @@ class SubscriptionManagementService
         foreach ($plan->limits_plan as $limitName => $limitCount) {
             $this->syncLimits($user->subscriber->id, $limitName);
         }
+
+        app(CreditBillingService::class)->grantPeriod($user, $subscription->fresh(), $plan);
 
         charge($plan->price, 'RUB')->from($user)->meta([
             'description' => "Активация подписки с тарифом {$plan->name}",
@@ -301,13 +299,6 @@ class SubscriptionManagementService
         $oldRemainingValue = $remainingDays * $oldDayCost;
         $addDaysToPlan = round($oldRemainingValue / $newDayCost);
 
-        $remainingMonthLimits = [];
-        foreach ($plan->limits_month as $key => $value) {
-            $remainingMonthLimits[$key] = isset($subscription->limits_month[$key])
-                ? (int) $value + (int) $subscription->limits_month[$key]
-                : (int) $value;
-        }
-
         [$remainingPlanLimits, $limitViolations] = $this->resolveRemainingPlanLimits(
             $user->subscriber->id,
             $plan->limits_plan,
@@ -323,10 +314,11 @@ class SubscriptionManagementService
 
         $subscription->plan_id = $plan->id;
         $subscription->limits_plan = $remainingPlanLimits;
-        $subscription->limits_month = $remainingMonthLimits;
         $subscription->start_date = Carbon::now();
         $subscription->end_date = Carbon::now()->addDays($plan->duration + $addDaysToPlan);
         $subscription->save();
+
+        app(CreditBillingService::class)->grantUpgrade($user, $subscription, $plan);
 
         $user->syncPermissions($plan->permissions);
         charge($plan->price, 'RUB')->from($user)->commit();

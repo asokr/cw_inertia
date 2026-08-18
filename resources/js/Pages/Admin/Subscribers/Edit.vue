@@ -17,12 +17,24 @@ import TabsContent from "@/components/ui/TabsContent.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import Badge from "@/components/ui/Badge.vue";
 import SubscriberLimitsEditor from "@/components/admin/SubscriberLimitsEditor.vue";
+import SubscriberCreditHistory from "@/components/admin/SubscriberCreditHistory.vue";
 import { setLimitLabels } from "@/utils/limitLabels";
 
 const props = defineProps({
     subscriber: { type: Object, required: true },
     payments: { type: Array, default: () => [] },
     totalDeposits: { type: Number, default: 0 },
+    credits: {
+        type: Object,
+        default: () => ({
+            available: 0,
+            subscription: 0,
+            purchased: 0,
+            held: 0,
+            plan_per_period: 0,
+        }),
+    },
+    creditHistory: { type: Array, default: () => [] },
     plans: { type: Array, default: () => [] },
     limitKeys: { type: Array, default: () => [] },
     limitLabels: { type: Object, default: () => ({}) },
@@ -48,14 +60,17 @@ const form = useForm({
     subscriptions: (props.subscriber.subscriptions ?? []).map((s) => ({
         id: s.id,
         limits_plan: { ...(s.limits_plan ?? {}) },
-        limits_month: { ...(s.limits_month ?? {}) },
-        extra_limits_month: { ...(s.extra_limits_month ?? {}) },
     })),
 });
 
 const depositForm = useForm({ amount: "" });
 const withdrawForm = useForm({ amount: "", comment: "" });
 const reverseForm = useForm({ comment: "" });
+const creditsForm = useForm({
+    subscription_delta: 0,
+    purchased_delta: 0,
+    reason: "",
+});
 
 const formatCurrency = (value) => new Intl.NumberFormat("ru-RU", {
     style: "currency",
@@ -77,6 +92,8 @@ const activeSubscriptionForm = computed(() => {
     return form.subscriptions.find((s) => s.id === activeSubscription.value.id) ?? null;
 });
 
+const creditSpends = computed(() => (props.creditHistory ?? []).filter((entry) => entry.direction === "debit"));
+
 function saveProfile() {
     form.put(`/cw-page/subscribers/${props.subscriber.id}`);
 }
@@ -85,6 +102,13 @@ function submitDeposit() {
     depositForm.post(`/cw-page/subscribers/${props.subscriber.id}/deposit`, {
         preserveScroll: true,
         onSuccess: () => depositForm.reset(),
+    });
+}
+
+function submitCreditsAdjust() {
+    creditsForm.post(`/cw-page/subscribers/${props.subscriber.id}/credits/adjust`, {
+        preserveScroll: true,
+        onSuccess: () => creditsForm.reset(),
     });
 }
 
@@ -138,6 +162,7 @@ const paymentStatusLabel = (status) => ({
         <Tabs v-model="activeTab" default-value="profile">
             <TabsList class="mb-4">
                 <TabsTrigger value="profile">Профиль</TabsTrigger>
+                <TabsTrigger value="credits">Кредиты</TabsTrigger>
                 <TabsTrigger value="payments">Платежи и баланс</TabsTrigger>
             </TabsList>
 
@@ -163,13 +188,15 @@ const paymentStatusLabel = (status) => ({
                         </div>
 
                         <div v-if="activeSubscriptionForm" class="rounded-md border p-4">
-                            <p class="mb-3 text-sm font-medium">Лимиты подписки</p>
+                            <p class="mb-3 text-sm font-medium">Лимиты тарифа</p>
+                            <p class="mb-3 text-xs text-muted-foreground">
+                                Количество кабинетов Wildberries, Ozon и номенклатур репрайсера.
+                            </p>
                             <SubscriberLimitsEditor
                                 v-model="activeSubscriptionForm"
                                 :limit-keys="limitKeys"
                                 :plan-limits="{
                                     limits_plan: activeSubscription?.plan?.limits_plan ?? {},
-                                    limits_month: activeSubscription?.plan?.limits_month ?? {},
                                 }"
                                 editable
                             />
@@ -195,6 +222,63 @@ const paymentStatusLabel = (status) => ({
                         <Button type="submit" :disabled="form.processing">Сохранить</Button>
                     </form>
                 </Card>
+            </TabsContent>
+
+            <TabsContent value="credits">
+                <div class="grid gap-4 lg:grid-cols-2">
+                    <Card class="p-4">
+                        <p class="mb-3 text-sm font-medium">Баланс кредитов</p>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between gap-3">
+                                <span class="text-muted-foreground">Кредиты по тарифу</span>
+                                <span class="font-semibold tabular-nums">{{ credits.plan_per_period ?? 0 }}</span>
+                            </div>
+                            <div class="flex justify-between gap-3">
+                                <span class="text-muted-foreground">Остаток кредитов по тарифу</span>
+                                <span class="font-semibold tabular-nums">{{ credits.subscription ?? 0 }}</span>
+                            </div>
+                            <div class="flex justify-between gap-3">
+                                <span class="text-muted-foreground">Купленные дополнительные кредиты</span>
+                                <span class="font-semibold tabular-nums">{{ credits.purchased ?? 0 }}</span>
+                            </div>
+                            <div class="flex justify-between gap-3">
+                                <span class="text-muted-foreground">В резерве</span>
+                                <span class="tabular-nums">{{ credits.held ?? 0 }}</span>
+                            </div>
+                            <div class="flex justify-between gap-3 border-t pt-2">
+                                <span>Общий доступный баланс</span>
+                                <span class="text-lg font-semibold tabular-nums">{{ credits.available ?? 0 }}</span>
+                            </div>
+                        </div>
+
+                        <form class="mt-6 space-y-3" @submit.prevent="submitCreditsAdjust">
+                            <p class="text-sm font-medium">Корректировка</p>
+                            <div>
+                                <label class="mb-1 block text-xs text-muted-foreground">Кредиты подписки (+/−)</label>
+                                <Input v-model.number="creditsForm.subscription_delta" type="number" step="1" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs text-muted-foreground">Купленные кредиты (+/−)</label>
+                                <Input v-model.number="creditsForm.purchased_delta" type="number" step="1" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs text-muted-foreground">Причина</label>
+                                <Textarea v-model="creditsForm.reason" rows="2" />
+                            </div>
+                            <Button
+                                type="submit"
+                                size="sm"
+                                :disabled="creditsForm.processing || !creditsForm.reason"
+                            >
+                                Сохранить корректировку
+                            </Button>
+                        </form>
+                    </Card>
+
+                    <Card class="p-4">
+                        <SubscriberCreditHistory :entries="creditHistory" />
+                    </Card>
+                </div>
             </TabsContent>
 
             <TabsContent value="payments">
@@ -248,6 +332,14 @@ const paymentStatusLabel = (status) => ({
                             </div>
                             <p v-if="!payments.length" class="text-sm text-muted-foreground">Нет операций</p>
                         </div>
+                    </Card>
+
+                    <Card class="p-4 lg:col-span-2">
+                        <SubscriberCreditHistory
+                            title="История списания кредитов"
+                            empty-text="Списаний кредитов пока нет."
+                            :entries="creditSpends"
+                        />
                     </Card>
                 </div>
             </TabsContent>

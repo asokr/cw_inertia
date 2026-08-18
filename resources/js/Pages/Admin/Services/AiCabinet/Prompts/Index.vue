@@ -37,6 +37,7 @@ const form = useForm({
     is_active: true,
     response_format: "json",
     data_sources: defaultDataSources(),
+    credits_cost: 10,
 });
 
 const formatLabel = (value) => props.responseFormats.find((f) => f.value === value)?.label ?? value;
@@ -68,6 +69,11 @@ const columns = [
         accessorKey: "is_active",
         header: "Активен",
         cell: ({ row }) => (row.original.is_active ? "Да" : "Нет"),
+    },
+    {
+        accessorKey: "credits_cost",
+        header: "Стоимость",
+        cell: ({ row }) => `${row.original.credits_cost ?? "—"} кредитов`,
     },
     {
         accessorKey: "response_format",
@@ -105,6 +111,7 @@ function openCreate() {
     form.is_active = true;
     form.response_format = "json";
     form.data_sources = defaultDataSources();
+    form.credits_cost = 10;
     dialogOpen.value = true;
 }
 
@@ -119,6 +126,7 @@ function openEdit(template) {
     form.data_sources = Array.isArray(template.data_sources) && template.data_sources.length
         ? [...template.data_sources]
         : defaultDataSources();
+    form.credits_cost = template.credits_cost ?? 10;
     dialogOpen.value = true;
 }
 
@@ -221,6 +229,19 @@ function destroyTemplate() {
                         <Switch id="is_active" v-model="form.is_active" />
                         <label for="is_active" class="text-sm">Активен</label>
                     </div>
+                </div>
+                <div>
+                    <label class="mb-1 block text-sm font-medium">Стоимость отчёта, кредитов</label>
+                    <Input
+                        v-model.number="form.credits_cost"
+                        type="number"
+                        min="1"
+                        step="1"
+                        :error="!!form.errors.credits_cost"
+                    />
+                    <p v-if="form.errors.credits_cost" class="mt-1 text-xs text-destructive">
+                        {{ form.errors.credits_cost }}
+                    </p>
                 </div>
                 <div>
                     <label class="mb-1 block text-sm font-medium">Формат ответа</label>

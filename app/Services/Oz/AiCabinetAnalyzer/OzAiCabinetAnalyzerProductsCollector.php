@@ -373,6 +373,11 @@ class OzAiCabinetAnalyzerProductsCollector
             'old_price' => isset($detail['old_price']) ? (string) $detail['old_price'] : null,
             'marketing_price' => isset($detail['marketing_price']) ? (string) $detail['marketing_price'] : null,
             'min_price' => isset($detail['min_price']) ? (string) $detail['min_price'] : null,
+            'price_indexes' => $this->normalizePriceIndexes($detail['price_indexes'] ?? null),
+            'commissions' => $this->normalizeCommissions($detail['commissions'] ?? null),
+            'promotions' => $this->normalizePromotions($detail['promotions'] ?? null),
+            'errors' => $this->normalizeCardErrors($detail['errors'] ?? null),
+            'availability' => $this->normalizeAvailability($detail),
             'currency_code' => isset($detail['currency_code']) ? (string) $detail['currency_code'] : null,
             'created_at' => isset($detail['created_at']) ? (string) $detail['created_at'] : null,
             'updated_at' => isset($detail['updated_at']) ? (string) $detail['updated_at'] : null,
@@ -431,5 +436,154 @@ class OzAiCabinetAnalyzerProductsCollector
         }
 
         return null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function normalizePriceIndexes(mixed $indexes): ?array
+    {
+        if (! is_array($indexes) || $indexes === []) {
+            return null;
+        }
+
+        $compactIndex = static function (mixed $block): ?array {
+            if (! is_array($block)) {
+                return null;
+            }
+            $minPrice = $block['minimal_price'] ?? $block['min_price'] ?? null;
+            $currency = $block['minimal_price_currency'] ?? $block['min_price_currency'] ?? null;
+            $value = $block['price_index_value'] ?? $block['price_index'] ?? null;
+
+            if ($minPrice === null && $value === null) {
+                return null;
+            }
+
+            return [
+                'min_price' => $minPrice !== null ? (string) $minPrice : null,
+                'currency' => $currency !== null ? (string) $currency : null,
+                'value' => is_numeric($value) ? (float) $value : null,
+            ];
+        };
+
+        return [
+            'color_index' => isset($indexes['color_index']) ? (string) $indexes['color_index'] : null,
+            'ozon' => $compactIndex($indexes['ozon_index_data'] ?? null),
+            'external' => $compactIndex($indexes['external_index_data'] ?? null),
+            'self_marketplaces' => $compactIndex($indexes['self_marketplaces_index_data'] ?? null),
+        ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>|null
+     */
+    private function normalizeCommissions(mixed $commissions): ?array
+    {
+        if (! is_array($commissions) || $commissions === []) {
+            return null;
+        }
+
+        $rows = [];
+        foreach ($commissions as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $rows[] = [
+                'sale_schema' => isset($row['sale_schema']) ? (string) $row['sale_schema'] : null,
+                'percent' => is_numeric($row['percent'] ?? null) ? (float) $row['percent'] : null,
+                'value' => is_numeric($row['value'] ?? null) ? (float) $row['value'] : null,
+                'delivery_amount' => is_numeric($row['delivery_amount'] ?? null) ? (float) $row['delivery_amount'] : null,
+                'return_amount' => is_numeric($row['return_amount'] ?? null) ? (float) $row['return_amount'] : null,
+            ];
+        }
+
+        return $rows !== [] ? $rows : null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>|null
+     */
+    private function normalizePromotions(mixed $promotions): ?array
+    {
+        if (! is_array($promotions) || $promotions === []) {
+            return null;
+        }
+
+        $rows = [];
+        foreach ($promotions as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $rows[] = [
+                'type' => isset($row['type']) ? (string) $row['type'] : null,
+                'is_enabled' => array_key_exists('is_enabled', $row) ? (bool) $row['is_enabled'] : null,
+            ];
+        }
+
+        return $rows !== [] ? $rows : null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>|null
+     */
+    private function normalizeCardErrors(mixed $errors): ?array
+    {
+        if (! is_array($errors) || $errors === []) {
+            return null;
+        }
+
+        $rows = [];
+        foreach ($errors as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $texts = is_array($row['texts'] ?? null) ? $row['texts'] : [];
+            $rows[] = [
+                'code' => isset($row['code']) ? (string) $row['code'] : null,
+                'field' => isset($row['field']) ? (string) $row['field'] : null,
+                'level' => isset($row['level']) ? (string) $row['level'] : null,
+                'message' => isset($texts['message'])
+                    ? (string) $texts['message']
+                    : (isset($texts['short_description']) ? (string) $texts['short_description'] : null),
+            ];
+        }
+
+        return $rows !== [] ? $rows : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $detail
+     * @return array<string, mixed>|null
+     */
+    private function normalizeAvailability(array $detail): ?array
+    {
+        $stocks = is_array($detail['stocks'] ?? null) ? $detail['stocks'] : [];
+        $hasStock = array_key_exists('has_stock', $stocks) ? (bool) $stocks['has_stock'] : null;
+
+        $reasons = [];
+        foreach ((array) ($detail['availabilities'] ?? []) as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            foreach ((array) ($item['reasons'] ?? []) as $reason) {
+                if (! is_array($reason)) {
+                    continue;
+                }
+                $text = data_get($reason, 'human_text.text', $reason['human_text'] ?? null);
+                if (is_string($text) && trim($text) !== '') {
+                    $reasons[] = trim($text);
+                }
+            }
+        }
+        $reasons = array_values(array_unique($reasons));
+
+        if ($hasStock === null && $reasons === []) {
+            return null;
+        }
+
+        return [
+            'has_stock' => $hasStock,
+            'reasons' => $reasons,
+        ];
     }
 }

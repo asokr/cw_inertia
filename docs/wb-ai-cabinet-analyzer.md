@@ -79,6 +79,7 @@ Prefix: `/panel/wb/ai-cabinet-analyzer` · name: `subscriber.wb.ai-cabinet-analy
 ## Admin (web)
 
 - `/cw-page/services/ai-cabinet/*` — кабинеты, шаблоны промптов
+- У шаблона поле `credits_cost` (default **10** кредитов) — стоимость одной AI-генерации. Редактируется в форме промпта, не на `/cw-page/credit-pricing`. Резерв при запуске, списание когда job ставит анализ в `done`.
 
 ## Технические детали
 
@@ -102,6 +103,8 @@ Prefix: `/panel/wb/ai-cabinet-analyzer` · name: `subscriber.wb.ai-cabinet-analy
 - `cabinet_id` в reports = `wb_cabinets.id` (после миграции; legacy FK на analyzer-cabinets снят/переписан).
 - AI-анализ только по snapshot в `result_json` (без повторных WB-запросов).
 - Шаблоны: `wb_ai_cabinet_analyzer_templates`.
+- У шаблона поле `credits_cost` (unsigned int, default 10) — сколько кредитов списывается за генерацию. Snapshot не тарифицируется.
+- При старте/перегенерации: `CreditBillingService::reserve` на сумму шаблона. Как только job получил ответ ИИ и поставил `done` — `captureOpenHold`. При failed job — `releaseOpenHold`.
 - У шаблона поле `data_sources` (JSON-массив): `ads` | `reviews` | `funnel` — какие блоки snapshot отдавать ИИ.
   - `ads` — `campaigns[]` и рекламные метрики в `items[]`
   - `funnel` — `items[].funnel`

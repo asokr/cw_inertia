@@ -336,6 +336,6 @@ Route::prefix('ai')
         Route::delete('/video/generations/{uuid}', [AiMarketplaceController::class, 'videoGenerationsDestroy'])
             ->whereUuid('uuid')
             ->name('video.generations.destroy');
-        Route::post('/limits', [AiMarketplaceController::class, 'refreshLimits'])->name('limits');
+        Route::post('/quote', [AiMarketplaceController::class, 'quote'])->name('quote');
         });
     });

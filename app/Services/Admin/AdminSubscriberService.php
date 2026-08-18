@@ -7,10 +7,12 @@ use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
+use App\Services\Credits\CreditBillingService;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use O21\LaravelWallet\Models\Transaction;
 use O21\Numeric\Numeric as NumericValue;
 
@@ -28,19 +30,21 @@ class AdminSubscriberService
             ->with([
                 'user' => function ($query) {
                     $query->select(['id', 'name', 'email', 'phone', 'vk_id', 'yandex_id'])
-                        ->with(['balances' => function ($query) {
-                            $query->select(['payable_id', 'value', 'value_pending', 'value_on_hold']);
-                        }]);
+                        ->with(array_filter([
+                            'balances' => function ($query) {
+                                $query->select(['payable_id', 'value', 'value_pending', 'value_on_hold']);
+                            },
+                            Schema::hasTable('credit_accounts') ? 'creditAccount' : null,
+                        ]));
                 },
             ])
             ->with([
                 'subscriptions' => function ($query) {
                     $query->select([
-                        'subscribers_id', 'plan_id', 'limits_plan', 'limits_month',
-                        'extra_limits_plan', 'extra_limits_month', 'start_date', 'end_date', 'status',
+                        'subscribers_id', 'plan_id', 'limits_plan', 'start_date', 'end_date', 'status',
                     ])
                         ->with(['plan' => function ($query) {
-                            $query->select(['id', 'name', 'limits_plan', 'limits_month']);
+                            $query->select(['id', 'name', 'limits_plan']);
                         }])
                         ->where('status', 1);
                 },
@@ -71,19 +75,21 @@ class AdminSubscriberService
             ->with([
                 'user' => function ($query) {
                     $query->select(['id', 'name', 'email', 'phone', 'vk_id', 'yandex_id'])
-                        ->with(['balances' => function ($query) {
-                            $query->select(['payable_id', 'value', 'value_pending', 'value_on_hold']);
-                        }]);
+                        ->with(array_filter([
+                            'balances' => function ($query) {
+                                $query->select(['payable_id', 'value', 'value_pending', 'value_on_hold']);
+                            },
+                            Schema::hasTable('credit_accounts') ? 'creditAccount' : null,
+                        ]));
                 },
             ])
             ->with([
                 'subscriptions' => function ($query) {
                     $query->select([
-                        'subscribers_id', 'plan_id', 'limits_plan', 'limits_month',
-                        'extra_limits_plan', 'extra_limits_month', 'start_date', 'end_date', 'status',
+                        'subscribers_id', 'plan_id', 'limits_plan', 'start_date', 'end_date', 'status',
                     ])
                         ->with(['plan' => function ($query) {
-                            $query->select(['id', 'name', 'limits_plan', 'limits_month']);
+                            $query->select(['id', 'name', 'limits_plan']);
                         }])
                         ->where('status', 1);
                 },
@@ -107,11 +113,15 @@ class AdminSubscriberService
             },
             'subscriptions' => function ($query) {
                 $query->select([
-                    'id', 'subscribers_id', 'plan_id', 'limits_plan', 'extra_limits_plan',
-                    'limits_month', 'extra_limits_month', 'start_date', 'end_date', 'status',
+                    'id', 'subscribers_id', 'plan_id', 'limits_plan',
+                    'start_date', 'end_date', 'status',
                 ])
                     ->with(['plan' => function ($query) {
-                        $query->select(['id', 'name', 'price', 'duration', 'limits_plan', 'limits_month']);
+                        $columns = ['id', 'name', 'price', 'duration', 'limits_plan'];
+                        if (Schema::hasColumn('subscribers_plans', 'credits_per_period')) {
+                            $columns[] = 'credits_per_period';
+                        }
+                        $query->select($columns);
                     }]);
             },
         ]);
@@ -150,10 +160,18 @@ class AdminSubscriberService
             ->where('currency', 'RUB')
             ->sum('received');
 
+        $credits = $user
+            ? app(CreditBillingService::class)->getBalance($user)
+            : null;
+
         return [
             'subscriber' => $subscriber,
             'payments' => $transactions,
             'total_deposits' => $this->normalizeNumeric($totalDepositsRaw),
+            'credits' => $credits?->toFrontendArray(),
+            'credit_history' => $user
+                ? app(CreditBillingService::class)->historyForFrontend($user, 100)
+                : [],
         ];
     }
 
@@ -195,22 +213,6 @@ class AdminSubscriberService
                     $normalized = $this->normalizeLimitMap(data_get($subscriptionPayload, 'limits_plan'));
                     if (($subscription->limits_plan ?? []) !== $normalized) {
                         $subscription->limits_plan = $normalized;
-                        $hasChanges = true;
-                    }
-                }
-
-                if (is_array(data_get($subscriptionPayload, 'limits_month'))) {
-                    $normalized = $this->normalizeLimitMap(data_get($subscriptionPayload, 'limits_month'));
-                    if (($subscription->limits_month ?? []) !== $normalized) {
-                        $subscription->limits_month = $normalized;
-                        $hasChanges = true;
-                    }
-                }
-
-                if (is_array(data_get($subscriptionPayload, 'extra_limits_month'))) {
-                    $normalized = $this->normalizeLimitMap(data_get($subscriptionPayload, 'extra_limits_month'));
-                    if (($subscription->extra_limits_month ?? []) !== $normalized) {
-                        $subscription->extra_limits_month = $normalized;
                         $hasChanges = true;
                     }
                 }
@@ -382,11 +384,11 @@ class AdminSubscriberService
             $permissions = array_merge($plan->permissions, ['subscriber']);
             $user->syncPermissions($permissions);
 
-            SubscribersSubscriptions::create([
+            $created = SubscribersSubscriptions::create([
                 'subscribers_id' => $subscriber->id,
                 'plan_id' => $planId,
-                'limits_month' => $plan->limits_month,
                 'limits_plan' => $plan->limits_plan,
+                'start_date' => Carbon::now(),
                 'end_date' => $endDate,
                 'status' => 1,
             ]);
@@ -394,6 +396,8 @@ class AdminSubscriberService
             foreach ($plan->limits_plan as $limitName => $limitCount) {
                 $this->syncLimits($subscriber->id, $limitName);
             }
+
+            app(CreditBillingService::class)->grantPeriod($user, $created, $plan);
 
             return;
         }
@@ -415,11 +419,6 @@ class AdminSubscriberService
         $oldRemainingValue = $remainingDays * $oldDayCost;
         $addDaysToPlan = (int) round($oldRemainingValue / $newDayCost);
 
-        $remainingMonthLimits = [];
-        foreach ($plan->limits_month as $key => $value) {
-            $remainingMonthLimits[$key] = (int) $value + (int) ($subscription->limits_month[$key] ?? 0);
-        }
-
         $remainingPlanLimits = [];
         foreach ($plan->limits_plan as $key => $value) {
             $planCount = $this->getUsedLimits($subscriber->id, $key);
@@ -435,10 +434,11 @@ class AdminSubscriberService
 
         $subscription->plan_id = $plan->id;
         $subscription->limits_plan = $remainingPlanLimits;
-        $subscription->limits_month = $remainingMonthLimits;
         $subscription->start_date = Carbon::now();
         $subscription->end_date = Carbon::now()->addDays($plan->duration + $addDaysToPlan);
         $subscription->save();
+
+        app(CreditBillingService::class)->grantUpgrade($user, $subscription, $plan);
     }
 
     /**

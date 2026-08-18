@@ -29,6 +29,7 @@ class OzAiCabinetAnalyzerAiAnalysis extends Model
         'started_at',
         'finished_at',
         'error_message',
+        'credit_idempotency_key',
     ];
 
     protected $casts = [

@@ -18,7 +18,7 @@ class SubscribersPlans extends Model
         'duration',
         'description',
         'limits_plan',
-        'limits_month',
+        'credits_per_period',
         'permissions',
         'status',
         'hidden'
@@ -26,6 +26,7 @@ class SubscribersPlans extends Model
 
     protected $casts = [
         'price' => 'float',
+        'credits_per_period' => 'integer',
         'permissions' => 'json'
     ];
 
@@ -34,14 +35,6 @@ class SubscribersPlans extends Model
         return Carbon::parse($value)->setTimezone('Europe/Moscow')->format('d.m.Y H:i');
     }
     protected function limitsPlan(): Attribute
-    {
-        return new Attribute(
-            get: fn($value) => json_decode($value, true),
-            set: fn($value) => json_encode($value, JSON_UNESCAPED_UNICODE),
-        );
-    }
-
-    protected function limitsMonth(): Attribute
     {
         return new Attribute(
             get: fn($value) => json_decode($value, true),

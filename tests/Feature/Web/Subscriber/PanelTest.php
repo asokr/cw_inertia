@@ -66,7 +66,6 @@ class PanelTest extends WebAuthTestCase
             'status' => 1,
             'hidden' => 0,
             'limits_plan' => json_encode(['feedbacks_clients' => 2], JSON_UNESCAPED_UNICODE),
-            'limits_month' => json_encode(['ai_text_query' => 10], JSON_UNESCAPED_UNICODE),
         ]);
 
         SubscribersSubscriptions::query()->create([
@@ -74,8 +73,6 @@ class PanelTest extends WebAuthTestCase
             'plan_id' => $plan->id,
             'status' => 1,
             'limits_plan' => ['feedbacks_clients' => 1],
-            'limits_month' => ['ai_text_query' => 7],
-            'extra_limits_month' => ['ai_text_query' => 3],
             'end_date' => now()->addDays(10),
         ]);
 
@@ -108,7 +105,7 @@ class PanelTest extends WebAuthTestCase
                 ->component('Subscriber/Panel/Index')
                 ->where('dashboard.subscription.plan_name', 'Бизнес')
                 ->where('dashboard.subscription.status', 1)
-                ->where('dashboard.subscription.remaining_limits.ai_text_query', 10)
+                ->missing('dashboard.subscription.remaining_limits.ai_text_query')
                 ->where('dashboard.subscription.remaining_limits.wb_cabinets', 1)
                 ->missing('dashboard.subscription.remaining_limits.feedbacks_clients')
                 ->has('dashboard.subscription.remaining_limits_display')

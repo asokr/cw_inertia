@@ -11,6 +11,7 @@ use Throwable;
  * Остатки и оборачиваемость (free Seller API, без Premium-оговорок в доке).
  * - POST /v2/analytics/stock_on_warehouses
  * - POST /v1/analytics/turnover/stocks
+ * - POST /v1/analytics/stocks (ликвидность / кластеры)
  */
 class OzAiCabinetAnalyzerStocksCollector
 {
@@ -45,6 +46,7 @@ class OzAiCabinetAnalyzerStocksCollector
      * @return array{
      *   stocks_by_sku: array<int, array<string, mixed>>,
      *   turnover_by_sku: array<int, array<string, mixed>>,
+     *   liquidity_by_sku: array<int, array<string, mixed>>,
      *   warnings: list<array<string, mixed>>
      * }
      */
@@ -57,6 +59,7 @@ class OzAiCabinetAnalyzerStocksCollector
         $warnings = [];
         $stocksBySku = [];
         $turnoverBySku = [];
+        $liquidityBySku = [];
 
         $onStage && $onStage('stocks_on_warehouses');
         try {
@@ -79,11 +82,22 @@ class OzAiCabinetAnalyzerStocksCollector
                     'message' => $e->getMessage(),
                 ];
             }
+
+            $onStage && $onStage('analytics_stocks');
+            try {
+                $liquidityBySku = $this->fetchAnalyticsStocks($apiKey, $clientId, $skus, $onStage);
+            } catch (Throwable $e) {
+                $warnings[] = [
+                    'type' => 'analytics_stocks_fetch_failed',
+                    'message' => $e->getMessage(),
+                ];
+            }
         }
 
         return [
             'stocks_by_sku' => $stocksBySku,
             'turnover_by_sku' => $turnoverBySku,
+            'liquidity_by_sku' => $liquidityBySku,
             'warnings' => $warnings,
         ];
     }
@@ -201,6 +215,8 @@ class OzAiCabinetAnalyzerStocksCollector
                     'current_stock' => (int) ($item['current_stock'] ?? 0),
                     'idc' => is_numeric($item['idc'] ?? null) ? (float) $item['idc'] : 0.0,
                     'idc_grade' => isset($item['idc_grade']) ? (string) $item['idc_grade'] : null,
+                    'turnover' => is_numeric($item['turnover'] ?? null) ? (float) $item['turnover'] : null,
+                    'turnover_grade' => isset($item['turnover_grade']) ? (string) $item['turnover_grade'] : null,
                 ];
             }
         }
@@ -233,6 +249,106 @@ class OzAiCabinetAnalyzerStocksCollector
             'current_stock' => 0,
             'idc' => 0.0,
             'idc_grade' => null,
+            'turnover' => null,
+            'turnover_grade' => null,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function emptyLiquidityBlock(): array
+    {
+        return [
+            'turnover_grade' => null,
+            'days_without_sales' => 0,
+            'ads' => 0.0,
+            'idc' => 0.0,
+            'available_stock_count' => 0,
+            'transit_stock_count' => 0,
+            'stock_defect_stock_count' => 0,
+            'expiring_stock_count' => 0,
+            'item_tags' => [],
+            'clusters' => [],
+        ];
+    }
+
+    /**
+     * POST /v1/analytics/stocks — ликвидность и разрез по кластерам (до 100 SKU).
+     *
+     * @param  list<int>  $skus
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchAnalyticsStocks(string $apiKey, string $clientId, array $skus, ?callable $onStage): array
+    {
+        $bySku = [];
+
+        foreach (array_chunk($skus, 100) as $batchIndex => $batch) {
+            $onStage && $onStage(sprintf('analytics_stocks_batch_%d', $batchIndex + 1));
+
+            $payload = [
+                'skus' => array_map('strval', $batch),
+            ];
+
+            $response = $this->guard->requestWithRetry(
+                fn () => $this->ozonApiService->getAnalyticsStocks($apiKey, $clientId, $payload),
+                'analytics/stocks',
+            );
+
+            $items = (array) Arr::get($response, 'data.items', []);
+            foreach ($items as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $sku = (int) ($item['sku'] ?? 0);
+                if ($sku <= 0) {
+                    continue;
+                }
+
+                if (! isset($bySku[$sku])) {
+                    $bySku[$sku] = self::emptyLiquidityBlock();
+                }
+
+                $bySku[$sku]['ads'] = is_numeric($item['ads'] ?? null)
+                    ? (float) $item['ads']
+                    : $bySku[$sku]['ads'];
+                $bySku[$sku]['idc'] = is_numeric($item['idc'] ?? null)
+                    ? (float) $item['idc']
+                    : $bySku[$sku]['idc'];
+                $bySku[$sku]['days_without_sales'] = max(
+                    (int) $bySku[$sku]['days_without_sales'],
+                    (int) ($item['days_without_sales'] ?? 0),
+                );
+                $bySku[$sku]['available_stock_count'] += (int) ($item['available_stock_count'] ?? 0);
+                $bySku[$sku]['transit_stock_count'] += (int) ($item['transit_stock_count'] ?? 0);
+                $bySku[$sku]['stock_defect_stock_count'] += (int) ($item['stock_defect_stock_count'] ?? 0);
+                $bySku[$sku]['expiring_stock_count'] += (int) ($item['expiring_stock_count'] ?? 0);
+
+                $grade = isset($item['turnover_grade']) ? (string) $item['turnover_grade'] : null;
+                if ($grade !== null && $grade !== '' && $grade !== 'UNSPECIFIED') {
+                    $bySku[$sku]['turnover_grade'] = $grade;
+                }
+
+                $tags = array_values(array_filter(array_map('strval', (array) ($item['item_tags'] ?? []))));
+                $bySku[$sku]['item_tags'] = array_values(array_unique(array_merge(
+                    $bySku[$sku]['item_tags'],
+                    $tags,
+                )));
+
+                $clusterName = isset($item['cluster_name']) ? (string) $item['cluster_name'] : null;
+                if ($clusterName !== null && $clusterName !== '') {
+                    $bySku[$sku]['clusters'][] = [
+                        'name' => $clusterName,
+                        'turnover_grade' => isset($item['turnover_grade_cluster'])
+                            ? (string) $item['turnover_grade_cluster']
+                            : $grade,
+                        'available_stock_count' => (int) ($item['available_stock_count'] ?? 0),
+                        'days_without_sales' => (int) ($item['days_without_sales_cluster'] ?? 0),
+                    ];
+                }
+            }
+        }
+
+        return $bySku;
     }
 }

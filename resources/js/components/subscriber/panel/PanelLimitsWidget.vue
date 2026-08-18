@@ -1,12 +1,14 @@
 <script setup>
 import { computed } from "vue";
 import Card from "@/components/ui/Card.vue";
+import { formatCreditsRemaining } from "@/utils/credits";
 import { formatLimitLabel } from "@/utils/limitLabels";
 
 const props = defineProps({
     remainingLimits: { type: Object, default: () => ({}) },
     /** Server-prepared entries: { key, label, value, hint? }[] */
     remainingLimitsDisplay: { type: Array, default: null },
+    creditsAvailable: { type: Number, default: 0 },
 });
 
 const entries = computed(() => {
@@ -33,6 +35,7 @@ const entries = computed(() => {
 <template>
     <Card class="subscriber-card--static border-border/70 bg-card/80 p-6 backdrop-blur dark:bg-card/95 dark:backdrop-blur-none">
         <h2 class="mb-4 text-base font-semibold tracking-tight">Остатки лимитов</h2>
+        <p class="mb-4 text-sm font-medium tabular-nums">{{ formatCreditsRemaining(creditsAvailable) }}</p>
         <ul v-if="entries.length" class="divide-y divide-border/60">
             <li
                 v-for="item in entries"

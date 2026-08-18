@@ -31,13 +31,26 @@ class AiCabinetAnalyzerTemplate extends Model
         'is_active',
         'response_format',
         'data_sources',
+        'credits_cost',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'response_format' => 'string',
         'data_sources' => 'array',
+        'credits_cost' => 'integer',
     ];
+
+    /**
+     * Стоимость генерации отчёта по этому шаблону.
+     * Берётся из колонки БД; 0/пустое не допускаем как цену.
+     */
+    public function creditsCost(): int
+    {
+        $value = (int) ($this->credits_cost ?? 0);
+
+        return $value > 0 ? $value : 1;
+    }
 
     public function analyses(): HasMany
     {

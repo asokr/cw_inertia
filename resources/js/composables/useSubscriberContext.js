@@ -10,6 +10,14 @@ export function useSubscriberContext() {
     const subscription = computed(() => subscriber.value?.subscription ?? null);
     const daysIndicator = computed(() => subscriber.value?.days_indicator ?? null);
     const hasSeenTour = computed(() => subscriber.value?.has_seen_tour ?? false);
+    const credits = computed(() => subscriber.value?.credits ?? {
+        available: 0,
+        subscription: 0,
+        purchased: 0,
+        held: 0,
+        plan_per_period: 0,
+    });
+    const rublesPerCredit = computed(() => subscriber.value?.rubles_per_credit ?? 2);
 
     return {
         subscriber,
@@ -18,5 +26,7 @@ export function useSubscriberContext() {
         subscription,
         daysIndicator,
         hasSeenTour,
+        credits,
+        rublesPerCredit,
     };
 }

@@ -1,6 +1,7 @@
 <?php
 
-use App\Http\Controllers\Web\Subscriber\ExtraLimitController;
+use App\Http\Controllers\Web\Subscriber\CreditHistoryController;
+use App\Http\Controllers\Web\Subscriber\CreditPurchaseController;
 use App\Http\Controllers\Web\Subscriber\ManagerController;
 use App\Http\Controllers\Web\Subscriber\PanelController;
 use App\Http\Controllers\Web\Subscriber\PlansController;
@@ -24,7 +25,8 @@ Route::post('/user/cancel-downgrade', [SubscriptionController::class, 'cancelDow
 Route::post('/user/unsubscribe', [SubscriptionController::class, 'unsubscribe'])->name('subscriber.unsubscribe');
 Route::post('/user/resubscribe', [SubscriptionController::class, 'resubscribe'])->name('subscriber.resubscribe');
 
-Route::post('/user/extra-limits', [ExtraLimitController::class, 'purchase'])->name('subscriber.extra-limits');
+Route::post('/credits/purchase', [CreditPurchaseController::class, 'purchase'])->name('subscriber.credits.purchase');
 
 Route::get('/user/history', [PaymentController::class, 'index'])->name('subscriber.payments.history');
+Route::get('/credits/history', [CreditHistoryController::class, 'index'])->name('subscriber.credits.history');
 Route::post('/payments/deposit', [PaymentController::class, 'create'])->name('subscriber.payments.deposit');

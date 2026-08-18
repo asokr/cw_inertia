@@ -12,6 +12,7 @@ defineProps({
     ratingType: { type: [String, Array], default: null },
     sendUrl: { type: String, required: true },
     generateUrl: { type: String, required: true },
+    creditsCost: { type: Number, default: 0 },
 });
 
 const imageDialog = ref(false);
@@ -89,6 +90,7 @@ const selectedImage = ref("");
                     :rating-type="ratingType"
                     :send-url="sendUrl"
                     :generate-url="generateUrl"
+                    :credits-cost="creditsCost"
                 />
             </div>
         </div>

@@ -7,6 +7,7 @@ use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\Models\Permission;
 
 class AdminPlanService
@@ -45,32 +46,41 @@ class AdminPlanService
 
     public function create(array $data): SubscribersPlans
     {
-        return SubscribersPlans::create([
+        $payload = [
             'name' => $data['name'],
             'price' => $data['price'],
             'duration' => $data['duration'],
             'description' => $data['description'] ?? '',
             'limits_plan' => $this->parseLimits($data['limits_plan'] ?? []),
-            'limits_month' => $this->parseLimits($data['limits_month'] ?? []),
             'permissions' => $this->normalizePermissions($data['permissions'] ?? []),
             'status' => $data['status'],
             'hidden' => $data['hidden'],
-        ]);
+        ];
+
+        if (Schema::hasColumn((new SubscribersPlans)->getTable(), 'credits_per_period')) {
+            $payload['credits_per_period'] = $this->parseCreditsPerPeriod($data['credits_per_period'] ?? 0);
+        }
+
+        return SubscribersPlans::create($payload);
     }
 
     public function update(SubscribersPlans $plan, array $data): SubscribersPlans
     {
         $limitsPlan = $this->parseLimits($data['limits_plan'] ?? []);
-        $limitsMonth = $this->parseLimits($data['limits_month'] ?? []);
         $permissions = $this->normalizePermissions($data['permissions'] ?? []);
-
-        $plan->update([
+        $payload = [
             'name' => $data['name'],
             'price' => $data['price'],
             'duration' => $data['duration'],
             'description' => $data['description'] ?? '',
             'limits_plan' => $limitsPlan,
-            'limits_month' => $limitsMonth,
+        ];
+
+        if (Schema::hasColumn((new SubscribersPlans)->getTable(), 'credits_per_period')) {
+            $payload['credits_per_period'] = $this->parseCreditsPerPeriod($data['credits_per_period'] ?? 0);
+        }
+
+        $plan->update($payload + [
             'permissions' => $permissions,
             'status' => $data['status'],
             'hidden' => $data['hidden'],
@@ -78,18 +88,12 @@ class AdminPlanService
 
         $subscriptions = SubscribersSubscriptions::where('plan_id', $plan->id)->get();
         foreach ($subscriptions as $subscription) {
-            $newLimitMonth = [];
-            foreach ($limitsMonth as $key => $limit) {
-                $newLimitMonth[$key] = $subscription->limits_month[$key] ?? $limit;
-            }
-
             $newLimitPlan = [];
             foreach ($limitsPlan as $key => $limit) {
                 $newLimitPlan[$key] = $subscription->limits_plan[$key] ?? $limit;
             }
 
             $subscription->limits_plan = $newLimitPlan;
-            $subscription->limits_month = $newLimitMonth;
             $subscription->save();
 
             $subscriber = Subscribers::find($subscription->subscribers_id);
@@ -126,6 +130,11 @@ class AdminPlanService
         }
 
         return $result;
+    }
+
+    private function parseCreditsPerPeriod(mixed $value): int
+    {
+        return max(0, (int) $value);
     }
 
     /**

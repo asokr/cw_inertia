@@ -10,6 +10,7 @@ use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\Feedbacks\WbFeedbacksSettings;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
+use App\Services\Credits\CreditBillingService;
 use App\Services\SubscriptionService;
 use App\Support\PlanLimitPresenter;
 use Illuminate\Support\Facades\Schema;
@@ -18,6 +19,7 @@ class PanelDashboardService
 {
     public function __construct(
         private readonly SubscriptionService $subscriptionService,
+        private readonly CreditBillingService $creditBilling,
     ) {
     }
 
@@ -56,7 +58,8 @@ class PanelDashboardService
             'end_date' => $subscription->end_date,
             'status' => (int) $subscription->status,
             'remaining_limits' => $remainingLimits,
-            'remaining_limits_display' => PlanLimitPresenter::displayEntries($remainingLimits, null),
+            'remaining_limits_display' => PlanLimitPresenter::displayEntries($remainingLimits),
+            'credits' => $this->creditBilling->getBalance($user)->toFrontendArray(),
         ];
     }
 
@@ -104,13 +107,6 @@ class PanelDashboardService
     private function buildRemainingLimits(SubscribersSubscriptions $subscription): array
     {
         $limits = [];
-
-        foreach ($this->monthlyLimitKeys() as $key) {
-            $remaining = $subscription->getMonthLimit($key);
-            if ($remaining !== false) {
-                $limits[$key] = (int) $remaining;
-            }
-        }
 
         $planLimits = is_array($subscription->limits_plan) ? $subscription->limits_plan : [];
 
@@ -229,19 +225,6 @@ class PanelDashboardService
                 'created_at' => $transaction->created_at,
             ])
             ->all();
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function monthlyLimitKeys(): array
-    {
-        return [
-            'ai_text_query',
-            'ai_image_query',
-            'ai_video_query',
-            'feedbacks_gpt_query',
-        ];
     }
 
 }

@@ -13,7 +13,7 @@ use App\Http\Controllers\Web\Admin\Blog\MediaController as BlogMediaController;
 use App\Http\Controllers\Web\Admin\Blog\PostController as BlogPostController;
 use App\Http\Controllers\Web\Admin\Blog\TagController as BlogTagController;
 use App\Http\Controllers\Web\Admin\CouponController;
-use App\Http\Controllers\Web\Admin\ExtraLimitController;
+use App\Http\Controllers\Web\Admin\CreditPricingController;
 use App\Http\Controllers\Web\Admin\Feedbacks\AiAnswerController as FeedbacksAiAnswerController;
 use App\Http\Controllers\Web\Admin\Feedbacks\CabinetController as FeedbacksCabinetController;
 use App\Http\Controllers\Web\Admin\PaymentController;
@@ -78,6 +78,7 @@ Route::middleware(['admin.access', 'verified'])
             Route::post('subscribers/{subscriber}/deposit', [SubscriberController::class, 'deposit'])->name('subscribers.deposit');
             Route::post('subscribers/{subscriber}/withdraw', [SubscriberController::class, 'withdraw'])->name('subscribers.withdraw');
             Route::post('subscribers/{subscriber}/transactions/{transaction}/reverse', [SubscriberController::class, 'reverseTransaction'])->name('subscribers.transactions.reverse');
+            Route::post('subscribers/{subscriber}/credits/adjust', [SubscriberController::class, 'adjustCredits'])->name('subscribers.credits.adjust');
 
             Route::get('plans', [PlanController::class, 'index'])->name('plans.index');
             Route::get('plans/create', [PlanController::class, 'create'])->name('plans.create');
@@ -86,14 +87,23 @@ Route::middleware(['admin.access', 'verified'])
             Route::put('plans/{plan}', [PlanController::class, 'update'])->name('plans.update');
             Route::patch('plans/{plan}/status', [PlanController::class, 'toggleStatus'])->name('plans.status');
 
-            Route::get('extra-limits', [ExtraLimitController::class, 'index'])->name('extra-limits.index');
-            Route::post('extra-limits', [ExtraLimitController::class, 'store'])->name('extra-limits.store');
-            Route::put('extra-limits/{extraLimit}', [ExtraLimitController::class, 'update'])
-                ->whereNumber('extraLimit')
-                ->name('extra-limits.update');
-            Route::delete('extra-limits/{extraLimit}', [ExtraLimitController::class, 'destroy'])
-                ->whereNumber('extraLimit')
-                ->name('extra-limits.destroy');
+            Route::get('credit-pricing', [CreditPricingController::class, 'index'])->name('credit-pricing.index');
+            Route::put('credit-pricing/rubles', [CreditPricingController::class, 'updateRubles'])
+                ->name('credit-pricing.rubles');
+            Route::put('credit-pricing/services/{creditService}', [CreditPricingController::class, 'updateService'])
+                ->whereNumber('creditService')
+                ->name('credit-pricing.services.update');
+            Route::post('credit-pricing/services/{creditService}/tiers', [CreditPricingController::class, 'storeTier'])
+                ->whereNumber('creditService')
+                ->name('credit-pricing.tiers.store');
+            Route::put('credit-pricing/tiers/{tier}', [CreditPricingController::class, 'updateTier'])
+                ->whereNumber('tier')
+                ->name('credit-pricing.tiers.update');
+            Route::delete('credit-pricing/tiers/{tier}', [CreditPricingController::class, 'destroyTier'])
+                ->whereNumber('tier')
+                ->name('credit-pricing.tiers.destroy');
+
+            Route::redirect('extra-limits', '/cw-page/credit-pricing')->name('extra-limits.index');
 
             Route::get('payments', [PaymentController::class, 'index'])->name('payments.index');
 

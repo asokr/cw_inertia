@@ -5,11 +5,12 @@ import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
 import Switch from "@/components/ui/Switch.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
+import { formatCredits } from "@/utils/credits";
 
 const props = defineProps({
     clientId: { type: [Number, String], required: true },
     settings: { type: Object, default: null },
-    aiLimit: { type: Number, default: 0 },
+    creditsCost: { type: Number, default: 0 },
     updateUrl: { type: String, required: true },
 });
 
@@ -132,7 +133,9 @@ function toggleRating(value) {
             <div>
                 <template v-if="aiStatus">
                     <p>У вас настроены автоответы при помощи ИИ.</p>
-                    <p class="mt-1 text-muted-foreground">Осталось запросов к ИИ для отзывов: {{ aiLimit }}</p>
+                    <p class="mt-1 text-muted-foreground">
+                        Один ответ ИИ стоит {{ formatCredits(creditsCost) }}
+                    </p>
                 </template>
                 <p v-else>Отвечать на отзывы автоматически при помощи ИИ:</p>
             </div>
@@ -174,7 +177,7 @@ function toggleRating(value) {
                     Отвечать в стихотворной форме
                 </label>
                 <p class="text-xs text-muted-foreground">
-                    При ответах расходуется лимит ИИ на отзывы. ИИ-автоответы имеют приоритет над шаблонами.
+                    За каждый ответ ИИ списываются кредиты. ИИ-автоответы имеют приоритет над шаблонами.
                 </p>
             </div>
         </div>

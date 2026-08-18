@@ -1,7 +1,8 @@
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { aiFetch, extractAiMessage } from "@/composables/useAiGeneration";
 import { mapAiImageItem, normalizeVideoItem, toAiMediaUrl } from "@/composables/useAiMediaUrl";
 import { useAiVideoPoll } from "@/composables/useAiVideoPoll";
+import { useSubscriberContext } from "@/composables/useSubscriberContext";
 
 const GENERATION_STORAGE_KEYS = {
     image: "ai_image_active_generation_uuid",
@@ -183,14 +184,18 @@ function buildSceneVideoPayload(payload, generationUuid) {
     return body;
 }
 
-export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone, limitsMode = "all" } = {}) {
+export function useMarketplaceAi(_initialLimits = {}, { onVideoError, onVideoDone, limitsMode = "all" } = {}) {
     const loading = ref(false);
     const limitsLoading = ref(false);
     const generationsLoading = ref(false);
+    const { credits } = useSubscriberContext();
+    const creditsAvailable = ref(Number(credits.value?.available ?? 0));
 
-    const textLimit = ref(initialLimits.text ?? 0);
-    const imageLimit = ref(initialLimits.image ?? 0);
-    const videoLimit = ref(initialLimits.video ?? 0);
+    watch(() => credits.value?.available, (value) => {
+        if (value !== undefined && value !== null) {
+            creditsAvailable.value = Number(value);
+        }
+    });
 
     const textResult = ref("");
     const richDescriptionResult = ref("");
@@ -206,26 +211,18 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
     const activeGenerationStorageKey = GENERATION_STORAGE_KEYS[generationsMode];
     const taskHistory = generationsMode === "image" ? imageHistory : videoHistory;
 
-    const hasTextLimit = computed(() => Number(textLimit.value ?? 0) > 0);
-    const hasImageLimit = computed(() => Number(imageLimit.value ?? 0) > 0);
-    const hasVideoLimit = computed(() => Number(videoLimit.value ?? 0) > 0);
+    const hasCredits = computed(() => Number(creditsAvailable.value ?? 0) > 0);
+    const hasTextLimit = hasCredits;
+    const hasImageLimit = hasCredits;
+    const hasVideoLimit = hasCredits;
 
-    function applyLimits(limits) {
-        if (!limits || typeof limits !== "object") {
+    function applyCredits(payload) {
+        const next = payload?.credits ?? payload?.data?.credits ?? payload?.meta?.credits;
+        if (!next || next.available === undefined) {
             return;
         }
 
-        if (limits.AI_TEXT_QUERY !== undefined) {
-            textLimit.value = Number(limits.AI_TEXT_QUERY);
-        }
-
-        if (limits.AI_IMAGE_QUERY !== undefined) {
-            imageLimit.value = Number(limits.AI_IMAGE_QUERY);
-        }
-
-        if (limits.AI_VIDEO_QUERY !== undefined) {
-            videoLimit.value = Number(limits.AI_VIDEO_QUERY);
-        }
+        creditsAvailable.value = Number(next.available);
     }
 
     function rememberActiveGeneration(key) {
@@ -260,7 +257,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
     }
 
     const videoPoll = useAiVideoPoll({
-        onLimitsUpdate: applyLimits,
+        onLimitsUpdate: applyCredits,
         onError: ({ message }) => onVideoError?.(message),
         onDone: (task) => {
             onVideoDone?.(task);
@@ -269,64 +266,9 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
         resolveTask: (requestId) => videoHistory.value.find((task) => task.request_id === requestId) ?? null,
     });
 
-    async function refreshLimits(mode = limitsMode) {
-        limitsLoading.value = true;
-
-        const requests = [];
-
-        if (mode === "all" || mode === "text") {
-            requests.push(
-                aiFetch("/panel/ai/limits", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ limit: "ai_text_query" }),
-                }).then((response) => ({ type: "text", response })),
-            );
-        }
-
-        if (mode === "all" || mode === "image") {
-            requests.push(
-                aiFetch("/panel/ai/limits", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ limit: "ai_image_query" }),
-                }).then((response) => ({ type: "image", response })),
-            );
-        }
-
-        if (mode === "all" || mode === "video") {
-            requests.push(
-                aiFetch("/panel/ai/limits", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ limit: "ai_video_query" }),
-                }).then((response) => ({ type: "video", response })),
-            );
-        }
-
-        try {
-            const results = await Promise.all(requests);
-
-            for (const { type, response } of results) {
-                if (!response?.success) {
-                    continue;
-                }
-
-                if (type === "text") {
-                    textLimit.value = Number(response.data ?? 0);
-                }
-
-                if (type === "image") {
-                    imageLimit.value = Number(response.data ?? 0);
-                }
-
-                if (type === "video") {
-                    videoLimit.value = Number(response.data ?? 0);
-                }
-            }
-        } finally {
-            limitsLoading.value = false;
-        }
+    async function refreshLimits() {
+        creditsAvailable.value = Number(credits.value?.available ?? creditsAvailable.value ?? 0);
+        limitsLoading.value = false;
     }
 
     async function loadGenerations() {
@@ -482,7 +424,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
                 return { ok: false, message: extractAiMessage(response, "Запрос не выполнен") };
             }
 
-            applyLimits(response?.limits || response?.data?.limits);
+            applyCredits(response);
 
             return { ok: true, response };
         } catch (error) {
@@ -492,7 +434,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             if (status === 402) {
                 return {
                     ok: false,
-                    message: extractAiMessage(payload, "Недостаточно лимитов для выполнения запроса"),
+                    message: extractAiMessage(payload, "Недостаточно кредитов"),
                     limitError: true,
                 };
             }
@@ -548,7 +490,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
                 };
             }
 
-            applyLimits(response?.limits || response?.data?.limits);
+            applyCredits(response);
 
             const generationUuid = response?.data?.generation_uuid;
             if (generationUuid) {
@@ -582,7 +524,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             if (status === 402) {
                 return {
                     ok: false,
-                    message: extractAiMessage(errorPayload, "Недостаточно лимита AI_IMAGE_QUERY"),
+                    message: extractAiMessage(errorPayload, "Недостаточно кредитов"),
                     limitError: true,
                 };
             }
@@ -614,6 +556,8 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             const reqId = response?.data?.request_id;
             const generationUuid = response?.data?.generation_uuid ?? null;
 
+            applyCredits(response);
+
             if (generationUuid) {
                 rememberActiveGeneration(generationUuid);
             }
@@ -643,7 +587,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             if (status === 402) {
                 return {
                     ok: false,
-                    message: extractAiMessage(payload, "Недостаточно лимита AI_VIDEO_QUERY"),
+                    message: extractAiMessage(payload, "Недостаточно кредитов"),
                     limitError: true,
                 };
             }
@@ -675,6 +619,8 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             const reqId = response?.data?.request_id;
             const generationUuid = response?.data?.generation_uuid ?? null;
 
+            applyCredits(response);
+
             if (generationUuid) {
                 rememberActiveGeneration(generationUuid);
             }
@@ -704,7 +650,7 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
             if (status === 402) {
                 return {
                     ok: false,
-                    message: extractAiMessage(payload, "Недостаточно лимита AI_VIDEO_QUERY"),
+                    message: extractAiMessage(payload, "Недостаточно кредитов"),
                     limitError: true,
                 };
             }
@@ -722,9 +668,10 @@ export function useMarketplaceAi(initialLimits = {}, { onVideoError, onVideoDone
         loading,
         limitsLoading,
         generationsLoading,
-        textLimit,
-        imageLimit,
-        videoLimit,
+        creditsAvailable,
+        textLimit: creditsAvailable,
+        imageLimit: creditsAvailable,
+        videoLimit: creditsAvailable,
         textResult,
         richDescriptionResult,
         imageResults,

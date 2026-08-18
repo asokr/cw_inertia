@@ -13,9 +13,9 @@ import { useFlashToast } from "@/composables/useFlashToast";
 import { useMarketplaceAi } from "@/composables/useMarketplaceAi";
 
 const props = defineProps({
-    limits: {
+    pricing: {
         type: Object,
-        default: () => ({ text: 0, image: 0, video: 0 }),
+        default: () => ({}),
     },
 });
 
@@ -33,14 +33,14 @@ const { showError, showSuccess } = useFlashToast();
 
 const {
     limitsLoading,
-    imageLimit,
+    creditsAvailable,
     savedGenerations,
     generationsLoading,
     createGeneration,
     deleteGeneration,
     loadGenerations,
     refreshLimits,
-} = useMarketplaceAi(props.limits, { limitsMode: "image" });
+} = useMarketplaceAi({}, { limitsMode: "image" });
 
 function handleOpenGeneration(generationUuid) {
     router.visit(`/panel/ai/image/${generationUuid}`);
@@ -113,7 +113,7 @@ onMounted(async () => {
                     <Plus class="h-3.5 w-3.5" />
                     Новая
                 </Button>
-                <AiLimitsBadge mode="image" :loading="limitsLoading" :image-limit="imageLimit" />
+                <AiLimitsBadge :loading="limitsLoading" :available="creditsAvailable" />
             </template>
         </ToolPageHeader>
 

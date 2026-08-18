@@ -107,7 +107,7 @@ function handleSelect() {
                             />
                             <span
                                 role="tooltip"
-                                class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-52 -translate-x-1/2 rounded-md border border-border/70 bg-popover px-2.5 py-1.5 text-center text-xs font-normal leading-snug text-popover-foreground opacity-0 shadow-md transition-opacity group-hover/hint:opacity-100 group-focus-within/hint:opacity-100"
+                                class="pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-1.5 w-52 -translate-x-1/2 rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-center text-xs font-normal leading-snug text-neutral-900 opacity-0 shadow-md transition-opacity group-hover/hint:visible group-hover/hint:opacity-100 group-focus-within/hint:visible group-focus-within/hint:opacity-100"
                             >
                                 {{ item.hint }}
                             </span>

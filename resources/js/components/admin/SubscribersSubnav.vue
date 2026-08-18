@@ -8,7 +8,7 @@ const page = usePage();
 const items = [
     { label: "Список", href: "/cw-page/subscribers" },
     { label: "Планы", href: "/cw-page/plans" },
-    { label: "Экстра-лимиты", href: "/cw-page/extra-limits" },
+    { label: "Стоимость кредитов", href: "/cw-page/credit-pricing" },
     { label: "Оплаты", href: "/cw-page/payments" },
 ];
 

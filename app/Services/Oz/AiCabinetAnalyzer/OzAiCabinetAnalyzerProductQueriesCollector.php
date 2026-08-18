@@ -110,6 +110,7 @@ class OzAiCabinetAnalyzerProductQueriesCollector
                             'view_conversion' => is_numeric($item['view_conversion'] ?? null)
                                 ? (float) $item['view_conversion']
                                 : null,
+                            'queries' => [],
                         ];
                     }
 
@@ -122,6 +123,102 @@ class OzAiCabinetAnalyzerProductQueriesCollector
                     'batch' => $batchIndex + 1,
                 ];
             }
+
+            $detailsResult = $this->fetchQueryDetails($apiKey, $clientId, $beginDate, $endDate, $batch, $batchIndex, $onStage);
+            foreach ($detailsResult['by_sku'] as $sku => $queries) {
+                if (! isset($bySku[$sku])) {
+                    $bySku[$sku] = self::emptySearchBlock();
+                    $bySku[$sku]['sku'] = $sku;
+                }
+                $bySku[$sku]['queries'] = $queries;
+            }
+            if ($detailsResult['warnings'] !== []) {
+                $warnings = array_merge($warnings, $detailsResult['warnings']);
+            }
+        }
+
+        return ['by_sku' => $bySku, 'warnings' => $warnings];
+    }
+
+    /**
+     * Тексты поисковых запросов: POST /v1/analytics/product-queries/details
+     *
+     * @param  list<int>  $skus
+     * @return array{by_sku: array<int, list<array<string, mixed>>>, warnings: list<array<string, mixed>>}
+     */
+    private function fetchQueryDetails(
+        string $apiKey,
+        string $clientId,
+        string $beginDate,
+        string $endDate,
+        array $skus,
+        int $batchIndex,
+        ?callable $onStage,
+    ): array {
+        $bySku = [];
+        $warnings = [];
+        $page = 0;
+        $pageCount = 1;
+
+        try {
+            while ($page < $pageCount && $page < 50) {
+                $onStage && $onStage(sprintf('product_queries_details_batch_%d_page_%d', $batchIndex + 1, $page + 1));
+
+                $payload = [
+                    'date_from' => $beginDate,
+                    'date_to' => $endDate,
+                    'limit_by_sku' => 15,
+                    'page' => $page,
+                    'page_size' => self::PAGE_SIZE,
+                    'skus' => array_map('strval', $skus),
+                    'sort_by' => 'BY_SEARCHES',
+                    'sort_dir' => 'DESCENDING',
+                ];
+
+                $response = $this->guard->requestWithRetry(
+                    fn () => $this->ozonApiService->getProductQueriesDetails($apiKey, $clientId, $payload),
+                    'analytics/product-queries/details',
+                );
+
+                $items = (array) Arr::get($response, 'data.queries', []);
+                $pageCount = max(1, (int) Arr::get($response, 'data.page_count', 1));
+
+                foreach ($items as $item) {
+                    if (! is_array($item)) {
+                        continue;
+                    }
+                    $sku = (int) ($item['sku'] ?? 0);
+                    $query = trim((string) ($item['query'] ?? ''));
+                    if ($sku <= 0 || $query === '') {
+                        continue;
+                    }
+
+                    if (! isset($bySku[$sku])) {
+                        $bySku[$sku] = [];
+                    }
+                    if (count($bySku[$sku]) >= 15) {
+                        continue;
+                    }
+
+                    $bySku[$sku][] = [
+                        'query' => $query,
+                        'unique_search_users' => (int) ($item['unique_search_users'] ?? 0),
+                        'gmv' => is_numeric($item['gmv'] ?? null) ? (float) $item['gmv'] : 0.0,
+                        'order_count' => (int) ($item['order_count'] ?? 0),
+                    ];
+                }
+
+                $page++;
+                if ($items === []) {
+                    break;
+                }
+            }
+        } catch (Throwable $e) {
+            $warnings[] = [
+                'type' => 'product_queries_details_batch_failed',
+                'message' => $e->getMessage(),
+                'batch' => $batchIndex + 1,
+            ];
         }
 
         return ['by_sku' => $bySku, 'warnings' => $warnings];
@@ -141,6 +238,7 @@ class OzAiCabinetAnalyzerProductQueriesCollector
             'position' => null,
             'unique_view_users' => null,
             'view_conversion' => null,
+            'queries' => [],
         ];
     }
 }

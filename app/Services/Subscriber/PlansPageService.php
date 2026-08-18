@@ -8,6 +8,7 @@ use App\Models\Subscribers\SubscribersSubscriptionsControl;
 use App\Models\User;
 use App\Support\PlanLimitPresenter;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Schema;
 
 class PlansPageService
 {
@@ -26,15 +27,19 @@ class PlansPageService
      */
     public function forUser(User $user): array
     {
-        $plans = SubscribersPlans::select([
+        $planColumns = [
             'id',
             'description',
             'duration',
             'name',
             'price',
             'limits_plan',
-            'limits_month',
-        ])
+        ];
+        if (Schema::hasColumn('subscribers_plans', 'credits_per_period')) {
+            $planColumns[] = 'credits_per_period';
+        }
+
+        $plans = SubscribersPlans::select($planColumns)
             ->where(['status' => 1, 'hidden' => 0])
             ->orderBy('price')
             ->get()
@@ -66,9 +71,9 @@ class PlansPageService
                 $plan['downgrade_overages'] = $plan['lower'] && $subscriberId
                     ? $this->subscriptionService->previewPlanLimitOverages($subscriberId, $plan['limits_plan'] ?? [])
                     : [];
-                $plan['display_limits'] = PlanLimitPresenter::displayEntries(
+                $plan['display_limits'] = PlanLimitPresenter::displayTariffEntries(
                     $plan['limits_plan'] ?? [],
-                    $plan['limits_month'] ?? [],
+                    (int) ($plan['credits_per_period'] ?? 0),
                 );
 
                 return $plan;

@@ -23,8 +23,6 @@ class UpdateSubscriberRequest extends FormRequest
             'subscriptions' => 'nullable|array',
             'subscriptions.*.id' => 'required|integer',
             'subscriptions.*.limits_plan' => 'nullable|array',
-            'subscriptions.*.limits_month' => 'nullable|array',
-            'subscriptions.*.extra_limits_month' => 'nullable|array',
         ];
     }
 }

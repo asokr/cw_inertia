@@ -4,6 +4,7 @@ namespace App\Models;
 
 use O21\LaravelWallet\Models\Balance;
 use Spatie\Permission\Traits\HasRoles;
+use App\Models\Credits\CreditAccount;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\Oz\OzCabinet;
 use App\Models\Subscribers\Wb\WbCabinet;
@@ -18,6 +19,7 @@ use LaravelAndVueJS\Traits\LaravelPermissionToVueJS;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 
 
@@ -79,6 +81,11 @@ class User extends Authenticatable implements MustVerifyEmail, Payable, CanReset
         return $this->hasOne(Subscribers::class, 'user_id', 'id');
     }
 
+    public function creditAccount(): HasOne
+    {
+        return $this->hasOne(CreditAccount::class);
+    }
+
     public function subscriberId(): ?int
     {
         return $this->subscriber?->id;
@@ -120,28 +127,6 @@ class User extends Authenticatable implements MustVerifyEmail, Payable, CanReset
             'subscribers_id' => $subscriber->id
         ])->first();
         return $subsription;
-    }
-
-    public function getSubscriberLimits()
-    {
-        $subscriber = Subscribers::where('user_id', $this->id)->first();
-        $subsriptions = SubscribersSubscriptions::where([
-            'subscribers_id' => $subscriber->id,
-            'status' => 1,
-        ])->get();
-
-        $limits_month = array();
-        $limits_plan = array();
-
-        foreach ($subsriptions as $subsription) {
-            $limits_month = array_merge($limits_month, $subsription['limits_month']);
-            $limits_plan = array_merge($limits_plan, $subsription['limits_plan']);
-        }
-
-        return [
-            'limits_month' => $limits_month,
-            'limits_plan' => $limits_plan
-        ];
     }
 
     public static function boot()

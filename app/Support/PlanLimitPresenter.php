@@ -2,15 +2,12 @@
 
 namespace App\Support;
 
-use App\Models\ExtraLimits;
-use Illuminate\Support\Facades\Schema;
-
 /**
- * Formats plan limits for marketing/UI: unified WB cabinets + DB names by slug.
+ * Форматирует лимиты тарифа для витрины и кабинета: кабинеты WB/Ozon и репрайсер.
  */
 class PlanLimitPresenter
 {
-    /** Legacy per-tool WB cabinet keys collapsed into wb_cabinets. */
+    /** Старые ключи кабинетов WB сворачиваются в wb_cabinets. */
     private const LEGACY_WB_CABINET_KEYS = [
         'feedbacks_clients',
         'price_calc_clients',
@@ -18,7 +15,7 @@ class PlanLimitPresenter
     ];
 
     /**
-     * Removed Ozon per-tool cabinet keys — dropped from display (use oz_cabinets only).
+     * Удалённые ключи кабинетов Ozon — не показываем (только oz_cabinets).
      *
      * @var list<string>
      */
@@ -28,47 +25,30 @@ class PlanLimitPresenter
     ];
 
     /**
-     * Static labels for structural / cabinet keys (not sold as unit extra limits).
-     *
      * @var array<string, string>
      */
     private const STRUCTURAL_LABELS = [
+        'credits' => 'Кредиты',
         'wb_cabinets' => 'Единый кабинет Wildberries',
         'oz_cabinets' => 'Единый кабинет Ozon',
         'repricer_nmid' => 'Номенклатуры в репрайсере',
     ];
 
-    /** Preferred display order for known keys. */
+    /** Предпочтительный порядок известных ключей. */
     private const KEY_ORDER = [
+        'credits',
         'wb_cabinets',
         'oz_cabinets',
         'repricer_nmid',
-        'feedbacks_gpt_query',
-        'ai_text_query',
-        'ai_image_query',
-        'ai_video_query',
     ];
-
-    /** @var array<string, string>|null */
-    private static ?array $catalogNames = null;
 
     /**
      * @param  array<string, mixed>|null  $limitsPlan
-     * @param  array<string, mixed>|null  $limitsMonth
      * @return array<int, array{key: string, label: string, value: int|string, hint: ?string}>
      */
-    public static function displayEntries(?array $limitsPlan, ?array $limitsMonth = null): array
+    public static function displayEntries(?array $limitsPlan): array
     {
         $merged = self::normalizePlanLimits($limitsPlan ?? []);
-        foreach ($limitsMonth ?? [] as $key => $value) {
-            if ($value === null || $value === '') {
-                continue;
-            }
-            $merged[(string) $key] = $value;
-        }
-
-        // Collapse again in case month map accidentally carried legacy keys.
-        $merged = self::normalizePlanLimits($merged);
 
         $entries = [];
         foreach ($merged as $key => $value) {
@@ -97,8 +77,27 @@ class PlanLimitPresenter
     }
 
     /**
-     * Collapse legacy WB per-service cabinet counters into a single wb_cabinets limit.
-     * Safe for mixed plan/month remaining maps (only legacy cabinet keys are touched).
+     * @param  array<int, array{key: string, label: string, value: int|string, hint: ?string}>  $entries
+     * @return array<int, array{key: string, label: string, value: int|string, hint: ?string}>
+     */
+    public static function prependCredits(array $entries, int $credits): array
+    {
+        if ($credits <= 0) {
+            return $entries;
+        }
+
+        array_unshift($entries, [
+            'key' => 'credits',
+            'label' => 'Кредиты',
+            'value' => $credits,
+            'hint' => 'На период тарифа',
+        ]);
+
+        return $entries;
+    }
+
+    /**
+     * Сворачивает старые счётчики кабинетов WB в один wb_cabinets.
      *
      * @param  array<string, mixed>  $limits
      * @return array<string, mixed>
@@ -121,7 +120,6 @@ class PlanLimitPresenter
                 continue;
             }
 
-            // Drop removed Ozon per-tool keys (no runtime fallback).
             if (in_array($key, self::DROPPED_OZ_CABINET_KEYS, true)) {
                 continue;
             }
@@ -133,7 +131,6 @@ class PlanLimitPresenter
             $out['wb_cabinets'] = max($legacyValues);
         }
 
-        // Drop legacy WB keys if unified is present (including when both existed).
         foreach (self::LEGACY_WB_CABINET_KEYS as $legacyKey) {
             unset($out[$legacyKey]);
         }
@@ -142,8 +139,6 @@ class PlanLimitPresenter
     }
 
     /**
-     * Normalize a remaining/limits map (collapse legacy WB cabinets, cast numerics).
-     *
      * @param  array<string, mixed>  $limits
      * @return array<string, int|float|string>
      */
@@ -160,18 +155,12 @@ class PlanLimitPresenter
 
     public static function label(string $key): string
     {
-        // Unified WB cabinet always uses product wording (not catalog override).
         if ($key === 'wb_cabinets' || in_array($key, self::LEGACY_WB_CABINET_KEYS, true)) {
             return self::STRUCTURAL_LABELS['wb_cabinets'];
         }
 
         if ($key === 'oz_cabinets') {
             return self::STRUCTURAL_LABELS['oz_cabinets'];
-        }
-
-        $fromCatalog = self::catalogNames()[$key] ?? null;
-        if ($fromCatalog !== null) {
-            return $fromCatalog;
         }
 
         return self::STRUCTURAL_LABELS[$key] ?? SubscriberLimitLabels::label($key);
@@ -187,63 +176,41 @@ class PlanLimitPresenter
             return 'Кабинет на все услуги для маркетплейса Ozon';
         }
 
+        if ($key === 'credits') {
+            return 'На период тарифа';
+        }
+
         return null;
     }
 
     /**
-     * Usable display names from extra_limits (slug → name).
-     * Skips empty names and name===slug so soft fallbacks still apply on broken prod data.
+     * Карточка тарифа: кабинеты / репрайсер + кредиты.
      *
-     * @return array<string, string>
+     * @param  array<string, mixed>|null  $limitsPlan
+     * @return array<int, array{key: string, label: string, value: int|string, hint: ?string}>
      */
-    public static function catalogNames(): array
+    public static function displayTariffEntries(?array $limitsPlan, int $credits = 0): array
     {
-        if (self::$catalogNames !== null) {
-            return self::$catalogNames;
-        }
-
-        try {
-            if (! Schema::hasTable('extra_limits') || ! Schema::hasColumn('extra_limits', 'slug')) {
-                return self::$catalogNames = [];
-            }
-
-            $map = [];
-            foreach (ExtraLimits::query()->whereNotNull('slug')->get(['slug', 'name']) as $row) {
-                $slug = (string) $row->slug;
-                $name = is_string($row->name) ? trim($row->name) : '';
-                if ($slug === '' || $name === '' || $name === $slug) {
-                    continue;
-                }
-                $map[$slug] = $name;
-            }
-            self::$catalogNames = $map;
-        } catch (\Throwable) {
-            self::$catalogNames = [];
-        }
-
-        return self::$catalogNames;
+        return self::prependCredits(
+            self::displayEntries($limitsPlan ?? []),
+            $credits,
+        );
     }
 
     /**
-     * Human-readable lines for static-like UIs ("Label: value").
+     * Строки для статичных блоков («Подпись: значение»).
      *
      * @param  array<string, mixed>|null  $limitsPlan
-     * @param  array<string, mixed>|null  $limitsMonth
-     * @return array{plan: array<int, string>, month: array<int, string>}
+     * @return array{plan: array<int, string>}
      */
-    public static function displayLines(?array $limitsPlan, ?array $limitsMonth = null): array
+    public static function displayLines(?array $limitsPlan): array
     {
-        $planEntries = self::displayEntries($limitsPlan, null);
-        $monthEntries = self::displayEntries(null, $limitsMonth);
+        $planEntries = self::displayEntries($limitsPlan);
 
         return [
             'plan' => array_map(
                 fn (array $e) => $e['label'].': '.$e['value'],
                 $planEntries,
-            ),
-            'month' => array_map(
-                fn (array $e) => $e['label'].': '.$e['value'],
-                $monthEntries,
             ),
         ];
     }

@@ -7,18 +7,19 @@ import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
-import ExtraLimitsShop from "@/components/subscriber/profile/ExtraLimitsShop.vue";
+import CreditsShop from "@/components/subscriber/profile/CreditsShop.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useSubscriberContext } from "@/composables/useSubscriberContext";
+import { formatCreditsRemaining } from "@/utils/credits";
 
 const props = defineProps({
     subscriptionData: { type: Object, default: null },
-    extraLimitsCatalog: { type: Array, default: () => [] },
-    userExtraLimits: { type: Object, default: () => ({}) },
+    rublesPerCredit: { type: [String, Number], default: 2 },
+    purchasedCredits: { type: Number, default: 0 },
 });
 
 const page = usePage();
-const { balance, daysIndicator } = useSubscriberContext();
+const { balance, daysIndicator, credits } = useSubscriberContext();
 const editingName = ref(false);
 
 const profileForm = useForm({
@@ -41,16 +42,10 @@ const plan = computed(() => props.subscriptionData?.plan ?? null);
 const nextActions = computed(() => props.subscriptionData?.next ?? []);
 const hasStopAction = computed(() => nextActions.value?.some((item) => item.action === "STOP"));
 
-/** Server-prepared limit rows (unified WB cabinets + DB names for monthly). */
+/** Строки лимитов тарифа (кабинеты и репрайсер). */
 const displayLimits = computed(() => props.subscriptionData?.display_limits ?? null);
 const planLimitEntries = computed(() =>
     Array.isArray(displayLimits.value?.plan) ? displayLimits.value.plan : []
-);
-const monthLimitEntries = computed(() =>
-    Array.isArray(displayLimits.value?.month) ? displayLimits.value.month : []
-);
-const extraLimitEntries = computed(() =>
-    Array.isArray(displayLimits.value?.extra) ? displayLimits.value.extra : []
 );
 
 const formattedBalance = computed(() =>
@@ -188,6 +183,18 @@ function resubscribe() {
         </div>
 
         <Card class="mt-6 p-6">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <h2 class="text-base font-semibold">Кредиты</h2>
+                <Link href="/panel/credits/history" class="text-sm text-primary hover:underline">
+                    История кредитов
+                </Link>
+            </div>
+            <p class="text-2xl font-semibold tabular-nums">
+                {{ formatCreditsRemaining(credits?.available ?? 0) }}
+            </p>
+        </Card>
+
+        <Card class="mt-6 p-6">
             <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div class="flex items-center gap-2">
                     <Shield class="h-5 w-5 text-primary" />
@@ -203,7 +210,7 @@ function resubscribe() {
                     <div><span class="text-muted-foreground">Затем спишется:</span> <strong>{{ plan.price }} ₽</strong></div>
                 </div>
 
-                <div v-if="planLimitEntries.length" class="mb-3">
+                <div v-if="planLimitEntries.length" class="mb-4">
                     <p class="mb-1 text-xs text-muted-foreground">По тарифу</p>
                     <ul class="list-inside list-disc text-sm">
                         <li v-for="item in planLimitEntries" :key="item.key">
@@ -211,29 +218,6 @@ function resubscribe() {
                             <strong>{{ item.value }}</strong>
                         </li>
                     </ul>
-                </div>
-
-                <div v-if="monthLimitEntries.length" class="mb-3">
-                    <p class="mb-1 text-xs text-muted-foreground">На действие тарифа</p>
-                    <ul class="list-inside list-disc text-sm">
-                        <li v-for="item in monthLimitEntries" :key="item.key">
-                            {{ item.label }}: <strong>{{ item.value }}</strong>
-                        </li>
-                    </ul>
-                </div>
-
-                <div v-if="extraLimitEntries.length" class="mb-4">
-                    <p class="mb-2 text-xs text-muted-foreground">Дополнительные лимиты</p>
-                    <div class="flex flex-wrap gap-2">
-                        <span
-                            v-for="item in extraLimitEntries"
-                            :key="item.key"
-                            class="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs"
-                        >
-                            <span class="text-muted-foreground">{{ item.label }}</span>
-                            <strong class="tabular-nums text-primary">+{{ item.value }}</strong>
-                        </span>
-                    </div>
                 </div>
 
                 <div class="max-w-xs">
@@ -250,9 +234,9 @@ function resubscribe() {
             </div>
         </Card>
 
-        <ExtraLimitsShop
-            :catalog="extraLimitsCatalog"
-            :user-extra-limits="userExtraLimits"
+        <CreditsShop
+            :rubles-per-credit="rublesPerCredit"
+            :purchased-credits="purchasedCredits"
             :balance="balance"
         />
     </SubscriberLayout>

@@ -4,6 +4,7 @@ namespace App\Jobs\Oz\AiCabinetAnalyzer;
 
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysis;
+use App\Services\Credits\CreditBillingService;
 use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysisService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -46,7 +47,7 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
         ];
     }
 
-    public function handle(OzAiCabinetAnalyzerAiAnalysisService $service): void
+    public function handle(OzAiCabinetAnalyzerAiAnalysisService $service, CreditBillingService $credits): void
     {
         $analysis = OzAiCabinetAnalyzerAiAnalysis::with(['report.cabinet', 'template'])->find($this->analysisId);
 
@@ -73,6 +74,7 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 'analysis_id' => $analysis->id,
                 'attempt' => $this->attempts(),
             ]);
+            $credits->captureOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
 
             return;
         }
@@ -106,6 +108,7 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 Log::info('[OzAiCabinetAnalyzerAI] Результат уже сохранён другим процессом, пропуск записи', [
                     'analysis_id' => $analysis->id,
                 ]);
+                $credits->captureOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
 
                 return;
             }
@@ -121,7 +124,7 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 throw new RuntimeException('AI вернул пустой анализ. Сохранение результата отменено.');
             }
 
-            DB::transaction(function () use ($analysis, $result, $analysisText, $analysisJson, $analysisMarkdown): void {
+            DB::transaction(function () use ($analysis, $result, $analysisText, $analysisJson, $analysisMarkdown, $credits): void {
                 $analysis->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE;
                 $analysis->model = (string) ($result['model'] ?? $analysis->model);
                 $analysis->analysis_text = $analysisText ?: null;
@@ -133,6 +136,8 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 $analysis->error_message = null;
                 $analysis->finished_at = now();
                 $analysis->save();
+
+                $credits->captureOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
             });
 
             if ($analysisMarkdownLength > 0) {
@@ -163,11 +168,13 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
             ]);
 
             if ($this->isFinalAttempt()) {
-                DB::transaction(function () use ($analysis, $exception): void {
+                DB::transaction(function () use ($analysis, $exception, $credits): void {
                     $analysis->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_FAILED;
                     $analysis->error_message = mb_substr($exception->getMessage(), 0, 5000);
                     $analysis->finished_at = now();
                     $analysis->save();
+
+                    $credits->releaseOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
                 });
             }
 

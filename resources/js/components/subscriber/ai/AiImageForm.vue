@@ -6,10 +6,12 @@ import Button from "@/components/ui/Button.vue";
 import Label from "@/components/ui/Label.vue";
 import Textarea from "@/components/ui/Textarea.vue";
 import { toAiMediaUrl } from "@/composables/useAiMediaUrl";
+import { creditsWord } from "@/utils/credits";
 
 const props = defineProps({
     loading: { type: Boolean, default: false },
     disabled: { type: Boolean, default: false },
+    pricing: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(["submit", "error"]);
@@ -32,10 +34,10 @@ const aspectRatios = [
 ];
 
 const resolutions = [
-    { value: "default", label: "512px", cost: 1 },
-    { value: "1K", label: "1K", cost: 2 },
-    { value: "2K", label: "2K", cost: 3 },
-    { value: "4K", label: "4K", cost: 3 },
+    { value: "default", label: "512px" },
+    { value: "1K", label: "1K" },
+    { value: "2K", label: "2K" },
+    { value: "4K", label: "4K" },
 ];
 
 const hasReferenceContext = computed(() =>
@@ -50,12 +52,11 @@ const inputPlaceholder = computed(() =>
 
 const canGenerate = computed(() => Boolean(form.image_prompt.trim()));
 
-const resolutionMultiplier = computed(() => {
-    const found = resolutions.find((r) => r.value === form.resolution);
-    return found ? found.cost : 1;
-});
+const totalCost = computed(() => {
+    const amounts = props.pricing?.image?.amounts ?? {};
 
-const totalCost = computed(() => resolutionMultiplier.value);
+    return Number(amounts[form.resolution] ?? 0);
+});
 
 const referencePreviews = computed(() =>
     form.images
@@ -64,9 +65,7 @@ const referencePreviews = computed(() =>
 );
 
 function pluralCredits(n) {
-    if (n === 1) return "лимит";
-    if (n >= 2 && n <= 4) return "лимита";
-    return "лимитов";
+    return creditsWord(n);
 }
 
 function insertSourcePrompt() {

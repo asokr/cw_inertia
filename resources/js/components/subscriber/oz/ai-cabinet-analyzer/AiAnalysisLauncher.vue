@@ -4,6 +4,7 @@ import { Play, Sparkles } from "lucide-vue-next";
 import Alert from "@/components/ui/Alert.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
+import { formatCredits } from "@/utils/credits";
 
 const props = defineProps({
     isReportReady: { type: Boolean, default: false },
@@ -110,6 +111,9 @@ function onStart(templateId) {
                             class="text-sm leading-relaxed text-muted-foreground"
                         >
                             {{ template.description }}
+                        </p>
+                        <p class="text-sm font-medium">
+                            Стоимость отчёта: {{ formatCredits(template.credits_cost) }}
                         </p>
                     </div>
                 </div>

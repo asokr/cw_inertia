@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Exceptions\Credits\InvalidCreditOperationException;
+use App\Http\Requests\Admin\AdjustSubscriberCreditsRequest;
 use App\Http\Requests\Admin\DepositSubscriberRequest;
 use App\Http\Requests\Admin\IndexSubscriberRequest;
 use App\Http\Requests\Admin\ReverseTransactionRequest;
 use App\Http\Requests\Admin\UpdateSubscriberRequest;
 use App\Http\Requests\Admin\WithdrawSubscriberRequest;
+use App\Services\Credits\CreditBillingService;
 use App\Models\Subscribers\Subscribers;
 use App\Services\Admin\AdminPlanService;
 use App\Services\Admin\AdminSubscriberService;
@@ -81,9 +84,11 @@ class SubscriberController extends Controller
             'subscriber' => $detail['subscriber'],
             'payments' => $detail['payments'],
             'totalDeposits' => $detail['total_deposits'],
+            'credits' => $detail['credits'],
+            'creditHistory' => $detail['credit_history'],
             'plans' => $this->planService->available(),
-            'limitKeys' => array_keys(SubscriberLimitLabels::all()),
-            'limitLabels' => SubscriberLimitLabels::all(),
+            'limitKeys' => array_keys(SubscriberLimitLabels::structural()),
+            'limitLabels' => SubscriberLimitLabels::structural(),
         ]);
     }
 
@@ -158,5 +163,31 @@ class SubscriberController extends Controller
         }
 
         return redirect()->back()->with('success', 'Операция отменена');
+    }
+
+    public function adjustCredits(
+        AdjustSubscriberCreditsRequest $request,
+        Subscribers $subscriber,
+        CreditBillingService $billing,
+    ): RedirectResponse {
+        $user = $subscriber->user;
+
+        if (! $user) {
+            return redirect()->back()->with('error', 'Пользователь не найден');
+        }
+
+        try {
+            $billing->adjust(
+                $user,
+                (int) $request->validated('subscription_delta'),
+                (int) $request->validated('purchased_delta'),
+                $request->validated('reason'),
+                $request->user(),
+            );
+        } catch (InvalidCreditOperationException $exception) {
+            return redirect()->back()->with('error', $exception->getMessage());
+        }
+
+        return redirect()->back()->with('success', 'Баланс кредитов обновлён');
     }
 }

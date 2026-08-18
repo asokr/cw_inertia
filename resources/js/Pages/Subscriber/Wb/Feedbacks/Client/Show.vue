@@ -45,7 +45,7 @@ const props = defineProps({
         }),
     },
     aiSettings: { type: Object, default: null },
-    aiLimit: { type: Number, default: 0 },
+    creditsCost: { type: Number, default: 0 },
     ratingType: { type: [String, Array], default: null },
 });
 
@@ -184,7 +184,7 @@ watchPropToast(() => props.feedbacksError);
         <AiAutoSettings
             :client-id="client.id"
             :settings="aiSettings"
-            :ai-limit="aiLimit"
+            :credits-cost="creditsCost"
             :update-url="updateAiUrl"
             @rating-type-change="localRatingType = $event"
         />
@@ -354,6 +354,7 @@ watchPropToast(() => props.feedbacksError);
                         :rating-type="localRatingType"
                         :send-url="sendUrl"
                         :generate-url="generateUrl"
+                        :credits-cost="creditsCost"
                     />
 
                     <div

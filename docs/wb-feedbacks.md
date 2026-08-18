@@ -84,7 +84,18 @@ Prefix: `/panel/wb/feedbacks` · name: `subscriber.wb.feedbacks.*`
 ## Лимиты и тарификация
 
 - Число кабинетов WB ограничивается `limits_plan.wb_cabinets` (не `feedbacks_clients` для новых созданий) — см. [wb-cabinets.md](wb-cabinets.md)
-- AI-ответы: `AiTaskType::WB_FEEDBACK_ANSWER_AI` (см. [ai-marketplace.md](ai-marketplace.md))
+- ИИ-ответы (ручные и авто) списывают кредиты. Стоимость — услуга `feedback_answer` из каталога `/cw-page/credit-pricing`, не хардкод. См. [credits-billing.md](credits-billing.md)
+- Шаблонный автоответчик кредиты не тратит
+- Логи провайдера: `AiTaskType::WB_FEEDBACK_ANSWER_AI` (см. [ai-marketplace.md](ai-marketplace.md))
+
+### Списание кредитов за ИИ-ответ
+
+- Ручная генерация: `POST /panel/wb/feedbacks/ai/generate` (`FeedbacksController::generateAi`). Перед GPT проверяется баланс; успех — одно `spend`. Повторная генерация — новая операция.
+- Та же точка для кнопки «Сгенерировать ИИ» на странице шаблонов.
+- Авто: команда `subscriber:wb-feedbacks-answer`. Списание только после успешной отправки ответа в WB. Ключ: `feedback_answer:auto:{cabinetId}:{reviewId}`.
+- Стоимость берётся из каталога кредитов (`feedback_answer`).
+- Frontend получает `creditsCost` с backend quote; сумму с клиента не принимают.
+- История: `credit_ledger`, подпись «Ответ на отзыв Wildberries».
 
 ## Технические детали
 
@@ -106,4 +117,5 @@ Prefix: `/panel/wb/feedbacks` · name: `subscriber.wb.feedbacks.*`
 ## Связанные документы
 
 - [wb-cabinets.md](wb-cabinets.md) — единый кабинет
-- [ai-marketplace.md](ai-marketplace.md) — AI-ответы
+- [credits-billing.md](credits-billing.md) — списание кредитов за ИИ-ответы
+- [ai-marketplace.md](ai-marketplace.md) — логи провайдера

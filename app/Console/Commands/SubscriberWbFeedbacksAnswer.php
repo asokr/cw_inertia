@@ -3,17 +3,18 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use App\Exceptions\Credits\InsufficientCreditsException;
 use App\Http\Traits\ChatGptTrait;
 use App\Http\Traits\WBFeedbacksTrait;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersPlans;
-use App\Notifications\LimitEndsNotification;
 use App\Models\Subscribers\Wb\Feedbacks\Review;
 use App\Models\AiRequestLog;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\Feedbacks\BotResponse;
 use App\Notifications\WbCabinetAuthorizationNotification;
 use App\Models\Subscribers\Wb\Feedbacks\FeedbacksTemplates;
+use App\Services\Subscriber\Concerns\ChargesFeedbackAnswerCredits;
 use App\Support\Wb\FeedbacksRuntimeCabinetResolver;
 use App\Support\Wb\FeedbacksRuntimeClient;
 use Illuminate\Support\Facades\Log;
@@ -21,14 +22,12 @@ use Illuminate\Support\Facades\Log;
 class SubscriberWbFeedbacksAnswer extends Command
 {
 
+    use ChargesFeedbackAnswerCredits;
     use WBFeedbacksTrait;
     use ChatGptTrait;
 
     /** Max successful answers per cabinet per mode (AI / templates) in one command run. */
     private const MAX_ANSWERS_PER_CABINET_PASS = 150;
-
-    private $end_limit_notification_num = 30;
-    private $limit_ends_notification = true;
     /**
      * The name and signature of the console command.
      *
@@ -87,17 +86,16 @@ class SubscriberWbFeedbacksAnswer extends Command
             }
 
             foreach ($subscriberSubscriptions as $subscription) {
-                $limit = $subscription->getMonthLimit('feedbacks_gpt_query');
-                if (!$limit) {
-                    $this->logCommandEvent('Skip subscription: AI limit exhausted.', [
-                        'subscription_id' => $subscription->id,
-                        'subscriber_id' => $subscription->subscribers_id,
-                    ]);
+                $user = $subscription->getUser();
+                if (! $user) {
                     continue;
                 }
 
-                $user = $subscription->getUser();
-                if (! $user) {
+                if (! $this->hasEnoughFeedbackAnswerCredits($user)) {
+                    $this->logCommandEvent('Skip subscription: not enough credits.', [
+                        'subscription_id' => $subscription->id,
+                        'subscriber_id' => $subscription->subscribers_id,
+                    ]);
                     continue;
                 }
 
@@ -112,8 +110,6 @@ class SubscriberWbFeedbacksAnswer extends Command
                     $fetchFailures = 0;
 
                     try {
-                        $this->limit_ends_notification = true;
-
                         $cabinet = [
                             'id' => $client['id'],
                             'name' => $client['name'],
@@ -177,21 +173,9 @@ class SubscriberWbFeedbacksAnswer extends Command
                                 break;
                             }
 
-                            $limit = $subscription->getMonthLimit('feedbacks_gpt_query');
-                            if (!$limit) {
+                            if (! $this->hasEnoughFeedbackAnswerCredits($user)) {
                                 $limitExhausted = true;
                                 continue 2;
-                            }
-
-                            if ($limit == $this->end_limit_notification_num && $this->limit_ends_notification) {
-                                try {
-                                    $this->limit_ends_notification = false;
-                                    $subscriber = Subscribers::find($subscription->subscribers_id);
-                                    $subscriber->user->notify(new LimitEndsNotification([
-                                        'limit' => 'feedbacks_gpt_query',
-                                    ]));
-                                } catch (\Throwable $th) {
-                                }
                             }
 
                             if (isset($item['childFeedbackId']) && $item['childFeedbackId']) {
@@ -242,6 +226,11 @@ class SubscriberWbFeedbacksAnswer extends Command
                             }
                             if (isset($item['cons']) && !empty($item['cons'])) {
                                 $prompt .= ' Эти недостатки товара указал покупатель:' . $item['cons'];
+                            }
+
+                            $reviewId = (string) ($item['id'] ?? '');
+                            if ($reviewId === '') {
+                                continue;
                             }
 
                             $aiResponse = $this->askToChatGptWithMeta($type, $prompt);
@@ -328,10 +317,26 @@ class SubscriberWbFeedbacksAnswer extends Command
                                 break;
                             }
 
-                            $subscription->minusMonthLimit('feedbacks_gpt_query');
                             $responsesSent++;
 
-                            sleep(1);
+                            try {
+                                $this->spendFeedbackAnswerCredits($user, [
+                                    'mode' => 'auto',
+                                    'cabinet_id' => $client->id,
+                                    'review_id' => $reviewId,
+                                ], $this->autoFeedbackAnswerKey((int) $client->id, $reviewId));
+                            } catch (InsufficientCreditsException) {
+                                $limitExhausted = true;
+                                break;
+                            } catch (\Throwable $exception) {
+                                $this->logCommandEvent('AI credit spend failed', [
+                                    'cabinet_id' => $client->id,
+                                    'review_id' => $reviewId,
+                                    'error' => $exception->getMessage(),
+                                ]);
+                            }
+
+                            $this->pauseBetweenAnswers();
                         }
                     } finally {
                         $this->finishClientTimer('ai', $client, $clientStartedAt, [
@@ -348,8 +353,7 @@ class SubscriberWbFeedbacksAnswer extends Command
                 }
             }
 
-            $this->logCommandEvent('Waiting before template replies', ['seconds' => 60]);
-            sleep(60);
+            $this->pauseBeforeTemplateReplies();
             $this->logCommandEvent('Starting template replies');
 
             foreach ($subscriberSubscriptions as $subscription) {
@@ -519,7 +523,7 @@ class SubscriberWbFeedbacksAnswer extends Command
                                 outputTokens: $this->estimateTokensByText($answer)
                             );
 
-                            sleep(1);
+                            $this->pauseBetweenAnswers();
 
                             if (!$resp['success']) {
                                 $fetchFailures++;
@@ -557,6 +561,25 @@ class SubscriberWbFeedbacksAnswer extends Command
         }
 
         return $result;
+    }
+
+    private function pauseBetweenAnswers(): void
+    {
+        if (app()->runningUnitTests()) {
+            return;
+        }
+
+        sleep(1);
+    }
+
+    private function pauseBeforeTemplateReplies(): void
+    {
+        if (app()->runningUnitTests()) {
+            return;
+        }
+
+        $this->logCommandEvent('Waiting before template replies', ['seconds' => 60]);
+        sleep(60);
     }
 
     private function logCommandEvent(string $message, array $context = []): void

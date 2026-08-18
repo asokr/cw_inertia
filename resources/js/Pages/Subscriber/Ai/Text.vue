@@ -9,11 +9,12 @@ import Skeleton from "@/components/ui/Skeleton.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
 import { useMarketplaceAi } from "@/composables/useMarketplaceAi";
+import { formatCredits } from "@/utils/credits";
 
 const props = defineProps({
-    limits: {
+    pricing: {
         type: Object,
-        default: () => ({ text: 0, image: 0, video: 0 }),
+        default: () => ({ text: { amount: 0 } }),
     },
 });
 
@@ -28,19 +29,23 @@ const { showError } = useFlashToast();
 const {
     loading,
     limitsLoading,
-    textLimit,
+    creditsAvailable,
     textResult,
     richDescriptionResult,
     hasTextLimit,
     refreshLimits,
     runTextTask,
-} = useMarketplaceAi(props.limits, { limitsMode: "text" });
+} = useMarketplaceAi({}, { limitsMode: "text" });
 
+const textCost = computed(() => Number(props.pricing?.text?.amount ?? 0));
 const hasResult = computed(() => Boolean(textResult.value || richDescriptionResult.value));
 
 async function handleTextSubmit(payload) {
-    if (!hasTextLimit.value) {
-        showError("Недостаточно лимитов AI_TEXT_QUERY");
+    const cost = textCost.value;
+    const available = Number(creditsAvailable.value ?? 0);
+
+    if (!hasTextLimit.value || available < cost) {
+        showError(`Недостаточно кредитов. Нужно ${formatCredits(cost)}, доступно ${formatCredits(available)}.`);
         return;
     }
 
@@ -59,7 +64,7 @@ onMounted(refreshLimits);
     <SubscriberLayout title="ИИ — Текст" :breadcrumbs="breadcrumbs">
         <ToolPageHeader title="Генерация текста" description="Описания, адаптации и rich-контент для карточек товаров">
             <template #actions>
-                <AiLimitsBadge mode="text" :loading="limitsLoading" :text-limit="textLimit" />
+                <AiLimitsBadge :loading="limitsLoading" :available="creditsAvailable" />
             </template>
         </ToolPageHeader>
 

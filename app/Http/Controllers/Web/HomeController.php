@@ -7,6 +7,7 @@ use App\Models\Subscribers\SubscribersPlans;
 use App\Support\HomeRedirect;
 use App\Support\PlanLimitPresenter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -27,14 +28,19 @@ class HomeController extends Controller
     }
 
     /**
-     * Public pricing cards from DB (unified WB cabinets + labels from extra_limits).
+     * Карточки тарифов на главной: кабинеты и кредиты.
      *
      * @return array<int, array<string, mixed>>
      */
     private function pricingPlans(): array
     {
+        $columns = ['id', 'name', 'description', 'price', 'duration', 'limits_plan'];
+        if (Schema::hasColumn('subscribers_plans', 'credits_per_period')) {
+            $columns[] = 'credits_per_period';
+        }
+
         $plans = SubscribersPlans::query()
-            ->select(['id', 'name', 'description', 'price', 'duration', 'limits_plan', 'limits_month'])
+            ->select($columns)
             ->where(['status' => 1, 'hidden' => 0])
             ->orderBy('price')
             ->get();
@@ -50,9 +56,12 @@ class HomeController extends Controller
 
         return $featured
             ->map(function (SubscribersPlans $plan, int $index) use ($middleIndex) {
+                $displayLimits = PlanLimitPresenter::displayTariffEntries(
+                    is_array($plan->limits_plan) ? $plan->limits_plan : [],
+                    (int) ($plan->credits_per_period ?? 0),
+                );
                 $lines = PlanLimitPresenter::displayLines(
                     is_array($plan->limits_plan) ? $plan->limits_plan : [],
-                    is_array($plan->limits_month) ? $plan->limits_month : [],
                 );
 
                 return [
@@ -64,11 +73,8 @@ class HomeController extends Controller
                     'popular' => $index === $middleIndex,
                     'stars' => min(3, $index + 1),
                     'limits' => $lines['plan'],
-                    'monthly' => $lines['month'],
-                    'display_limits' => PlanLimitPresenter::displayEntries(
-                        is_array($plan->limits_plan) ? $plan->limits_plan : [],
-                        is_array($plan->limits_month) ? $plan->limits_month : [],
-                    ),
+                    'monthly' => [],
+                    'display_limits' => $displayLimits,
                 ];
             })
             ->values()

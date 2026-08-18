@@ -64,7 +64,6 @@ class ProfileTest extends WebAuthTestCase
             'price' => 2000,
             'duration' => 30,
             'limits_plan' => ['feedbacks_clients' => 3, 'price_calc_clients' => 1],
-            'limits_month' => ['ai_text_query' => 50],
             'permissions' => ['subscriber'],
             'status' => 1,
             'hidden' => 0,
@@ -75,8 +74,6 @@ class ProfileTest extends WebAuthTestCase
             'plan_id' => $plan->id,
             'status' => 1,
             'limits_plan' => ['feedbacks_clients' => 2, 'price_calc_clients' => 1],
-            'limits_month' => ['ai_text_query' => 40],
-            'extra_limits_month' => [],
             'end_date' => now()->addDays(14),
         ]);
 
@@ -89,8 +86,7 @@ class ProfileTest extends WebAuthTestCase
                 ->where('subscriptionData.display_limits.plan.0.key', 'wb_cabinets')
                 ->where('subscriptionData.display_limits.plan.0.value', 2)
                 ->where('subscriptionData.display_limits.plan.0.label', 'Единый кабинет Wildberries')
-                ->has('subscriptionData.display_limits.month', 1)
-                ->where('subscriptionData.display_limits.month.0.key', 'ai_text_query'));
+                ->missing('subscriptionData.display_limits.month'));
     }
 
     private function createSubscriberUser(): User

@@ -128,6 +128,83 @@ class AdminServicesTest extends WebAuthTestCase
 
         $this->assertNotNull($template);
         $this->assertSame(['ads'], $template->resolvedDataSources());
+        $this->assertSame(10, $template->creditsCost());
+    }
+
+    public function test_super_admin_can_create_ozon_prompt_with_new_data_sources(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('password'),
+        ]);
+        $user->assignRole('super-admin');
+
+        $this->actingAs($user)
+            ->post('/cw-page/services/oz-ai-cabinet/prompts', [
+                'name' => 'Качество карточек',
+                'description' => 'Content + ratings',
+                'system_prompt' => 'Analyze content',
+                'sort_order' => 19,
+                'is_active' => true,
+                'response_format' => 'json',
+                'data_sources' => ['products', 'content', 'seller_rating', 'promos'],
+            ])
+            ->assertRedirect();
+
+        $template = \App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerTemplate::query()
+            ->where('name', 'Качество карточек')
+            ->first();
+
+        $this->assertNotNull($template);
+        $this->assertSame(
+            ['products', 'content', 'seller_rating', 'promos'],
+            $template->resolvedDataSources()
+        );
+        $this->assertSame(10, $template->creditsCost());
+    }
+
+    public function test_super_admin_can_save_prompt_credits_cost(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('password'),
+        ]);
+        $user->assignRole('super-admin');
+
+        $this->actingAs($user)
+            ->post('/cw-page/services/ai-cabinet/prompts', [
+                'name' => 'Дорогой отчёт',
+                'description' => 'Custom cost',
+                'system_prompt' => 'Analyze',
+                'sort_order' => 20,
+                'is_active' => true,
+                'response_format' => 'json',
+                'data_sources' => ['ads', 'funnel'],
+                'credits_cost' => 15,
+            ])
+            ->assertRedirect();
+
+        $template = \App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerTemplate::query()
+            ->where('name', 'Дорогой отчёт')
+            ->first();
+
+        $this->assertNotNull($template);
+        $this->assertSame(15, $template->creditsCost());
+
+        $this->actingAs($user)
+            ->from('/cw-page/services/ai-cabinet/prompts')
+            ->put("/cw-page/services/ai-cabinet/prompts/{$template->id}", [
+                'name' => 'Дорогой отчёт',
+                'description' => 'Custom cost',
+                'system_prompt' => 'Analyze',
+                'sort_order' => 20,
+                'is_active' => true,
+                'response_format' => 'json',
+                'data_sources' => ['ads', 'funnel'],
+                'credits_cost' => 0,
+            ])
+            ->assertRedirect('/cw-page/services/ai-cabinet/prompts')
+            ->assertSessionHasErrors('credits_cost');
+
+        $this->assertSame(15, $template->fresh()->creditsCost());
     }
 
     public function test_prompt_requires_at_least_one_data_source(): void
@@ -223,12 +300,20 @@ class AdminServicesTest extends WebAuthTestCase
                 $table->boolean('is_active')->default(true);
                 $table->string('response_format')->default('json');
                 $table->json('data_sources')->nullable();
+                $table->unsignedInteger('credits_cost')->default(10);
                 $table->timestamps();
             });
-        } elseif (! Schema::hasColumn('wb_ai_cabinet_analyzer_templates', 'data_sources')) {
-            Schema::table('wb_ai_cabinet_analyzer_templates', function (Blueprint $table) {
-                $table->json('data_sources')->nullable();
-            });
+        } else {
+            if (! Schema::hasColumn('wb_ai_cabinet_analyzer_templates', 'data_sources')) {
+                Schema::table('wb_ai_cabinet_analyzer_templates', function (Blueprint $table) {
+                    $table->json('data_sources')->nullable();
+                });
+            }
+            if (! Schema::hasColumn('wb_ai_cabinet_analyzer_templates', 'credits_cost')) {
+                Schema::table('wb_ai_cabinet_analyzer_templates', function (Blueprint $table) {
+                    $table->unsignedInteger('credits_cost')->default(10);
+                });
+            }
         }
 
         if (! Schema::hasTable('oz_cabinets')) {
@@ -253,7 +338,12 @@ class AdminServicesTest extends WebAuthTestCase
                 $table->boolean('is_active')->default(true);
                 $table->string('response_format')->default('json');
                 $table->json('data_sources')->nullable();
+                $table->unsignedInteger('credits_cost')->default(10);
                 $table->timestamps();
+            });
+        } elseif (! Schema::hasColumn('oz_ai_cabinet_analyzer_templates', 'credits_cost')) {
+            Schema::table('oz_ai_cabinet_analyzer_templates', function (Blueprint $table) {
+                $table->unsignedInteger('credits_cost')->default(10);
             });
         }
 

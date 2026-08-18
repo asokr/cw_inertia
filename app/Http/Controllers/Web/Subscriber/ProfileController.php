@@ -4,7 +4,8 @@ namespace App\Http\Controllers\Web\Subscriber;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Subscriber\UpdateProfileRequest;
-use App\Services\Subscriber\ExtraLimitPurchaseService;
+use App\Services\Credits\CreditBillingService;
+use App\Services\Credits\CreditPriceCalculator;
 use App\Services\Subscriber\ProfileService;
 use App\Services\Subscriber\SubscriptionManagementService;
 use Illuminate\Http\RedirectResponse;
@@ -18,14 +19,15 @@ class ProfileController extends Controller
         Request $request,
         ProfileService $profileService,
         SubscriptionManagementService $subscriptionService,
-        ExtraLimitPurchaseService $extraLimitService,
+        CreditPriceCalculator $priceCalculator,
+        CreditBillingService $creditBilling,
     ): Response {
         $user = $request->user();
 
         return Inertia::render('Subscriber/Profile/Index', [
             'subscriptionData' => $subscriptionService->getCurrent($user),
-            'extraLimitsCatalog' => $extraLimitService->listCatalog(),
-            'userExtraLimits' => $extraLimitService->getUserExtraLimits($user) ?? [],
+            'rublesPerCredit' => $priceCalculator->rublesPerCredit(),
+            'purchasedCredits' => $creditBilling->getBalance($user)->purchased,
         ]);
     }
 

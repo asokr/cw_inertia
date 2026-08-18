@@ -125,6 +125,12 @@ function isActive(href) {
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
+                        <Link
+                            href="/panel"
+                            class="text-xs text-muted-foreground hover:text-foreground"
+                        >
+                            Панель подписчика
+                        </Link>
                         <AiCostsWidget v-if="isSuperAdmin" />
                         <Button variant="ghost" size="icon" @click="toggleAppColorMode">
                             <Sun v-if="isDark" class="h-4 w-4" />

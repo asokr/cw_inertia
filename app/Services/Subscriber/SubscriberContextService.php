@@ -7,6 +7,8 @@ use App\Models\Subscribers\SubscribersPlans;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\SubscribersSubscriptionsControl;
 use App\Models\User;
+use App\Services\Credits\CreditBillingService;
+use App\Services\Credits\CreditPriceCalculator;
 use App\Services\SubscriptionService;
 use Carbon\Carbon;
 
@@ -20,6 +22,8 @@ class SubscriberContextService
 
     public function __construct(
         private readonly SubscriptionService $subscriptionService,
+        private readonly CreditBillingService $creditBilling,
+        private readonly CreditPriceCalculator $priceCalculator,
     ) {
     }
 
@@ -41,7 +45,15 @@ class SubscriberContextService
      *         visible: bool,
      *         urgent: bool,
      *         shortfall: float|null
-     *     }
+     *     },
+     *     credits: array{
+     *         available: int,
+     *         subscription: int,
+     *         purchased: int,
+     *         held: int,
+     *         plan_per_period: int
+     *     },
+     *     rubles_per_credit: string
      * }
      */
     public function forUser(User $user): array
@@ -65,6 +77,8 @@ class SubscriberContextService
                 'end_date' => $subscription->getRawOriginal('end_date'),
             ] : null,
             'days_indicator' => $this->buildDaysIndicator($user, $subscription),
+            'credits' => $this->creditBilling->getBalance($user)->toFrontendArray(),
+            'rubles_per_credit' => $this->priceCalculator->rublesPerCredit(),
         ];
     }
 

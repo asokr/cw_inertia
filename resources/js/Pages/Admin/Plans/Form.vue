@@ -66,7 +66,7 @@ const form = useForm({
     price: props.plan?.price ?? 0,
     permissions: normalizePermissions(props.plan?.permissions),
     limits_plan: limitsToString(props.plan?.limits_plan),
-    limits_month: limitsToString(props.plan?.limits_month),
+    credits_per_period: Number(props.plan?.credits_per_period ?? 0),
     status: Boolean(props.plan?.status ?? true),
     hidden: Boolean(props.plan?.hidden ?? false),
 });
@@ -150,22 +150,17 @@ function submit() {
                     <label class="mb-1 block text-sm">Лимиты тарифа</label>
                     <Input
                         v-model="form.limits_plan"
-                        placeholder="wb_cabinets:3|repricer_nmid:100|feedbacks_gpt_query:500"
+                        placeholder="wb_cabinets:3|oz_cabinets:2|repricer_nmid:100"
                     />
                     <p class="mt-1 text-xs text-muted-foreground">
                         Формат: <code>ключ:число</code> через
-                        <code>|</code>. Кабинеты WB после унификации:
-                        <code>wb_cabinets:N</code> (N — сколько общих кабинетов можно создать).
+                        <code>|</code>. Сколько кабинетов и номенклатур доступно по тарифу.
                     </p>
                     <p class="mt-1 text-xs text-muted-foreground">
-                        Частые ключи:
+                        Ключи:
                         <code>wb_cabinets</code>,
                         <code>oz_cabinets</code>,
-                        <code>repricer_nmid</code>,
-                        <code>feedbacks_gpt_query</code>,
-                        <code>ai_text_query</code>,
-                        <code>ai_image_query</code>,
-                        <code>ai_video_query</code>.
+                        <code>repricer_nmid</code>.
                         Старые <code>feedbacks_clients</code> /
                         <code>price_calc_clients</code> ещё работают как fallback для WB, если
                         <code>wb_cabinets</code> не задан. Для Ozon только
@@ -173,10 +168,14 @@ function submit() {
                     </p>
                 </div>
                 <div>
-                    <label class="mb-1 block text-sm">Месячные лимиты</label>
-                    <Input v-model="form.limits_month" placeholder="feedbacks_gpt_query:100|ai_text_query:50" />
+                    <label class="mb-1 block text-sm">Кредиты за период</label>
+                    <Input v-model.number="form.credits_per_period" type="number" min="0" step="1" />
                     <p class="mt-1 text-xs text-muted-foreground">
-                        Сбрасываются/обновляются помесячно (запросы ИИ и т.п.).
+                        Сколько кредитов пользователь получает в начале периода тарифа.
+                        Купленные кредиты при обновлении не сгорают.
+                    </p>
+                    <p v-if="form.errors.credits_per_period" class="mt-1 text-xs text-destructive">
+                        {{ form.errors.credits_per_period }}
                     </p>
                 </div>
                 <div>

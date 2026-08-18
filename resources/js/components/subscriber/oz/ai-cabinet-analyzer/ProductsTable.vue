@@ -79,6 +79,21 @@ const columns = computed(() => [
         cell: ({ row }) => row.original.price ?? "—",
     },
     {
+        accessorKey: "price_index",
+        header: "Индекс цен",
+        enableSorting: false,
+        cell: ({ row }) => row.original.price_indexes?.color_index ?? "—",
+    },
+    {
+        accessorKey: "content_rating",
+        header: "Контент",
+        enableSorting: false,
+        cell: ({ row }) => {
+            const v = row.original.content_rating?.rating;
+            return v === undefined || v === null ? "—" : String(v);
+        },
+    },
+    {
         accessorKey: "analytics_revenue",
         header: "Выручка (зак.)",
         enableSorting: false,
@@ -121,6 +136,25 @@ const columns = computed(() => [
         cell: ({ row }) => {
             const v = row.original.stocks?.free_to_sell;
             return v === undefined || v === null ? "—" : String(v);
+        },
+    },
+    {
+        accessorKey: "liquidity",
+        header: "Ликвидность",
+        enableSorting: false,
+        cell: ({ row }) => row.original.liquidity?.turnover_grade
+            || row.original.turnover?.turnover_grade
+            || "—",
+    },
+    {
+        accessorKey: "top_query",
+        header: "Топ запрос",
+        enableSorting: false,
+        cell: ({ row }) => {
+            const queries = Array.isArray(row.original.search?.queries)
+                ? row.original.search.queries
+                : [];
+            return queries[0]?.query || "—";
         },
     },
     {

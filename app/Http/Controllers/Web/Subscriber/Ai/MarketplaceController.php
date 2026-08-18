@@ -3,18 +3,19 @@
 namespace App\Http\Controllers\Web\Subscriber\Ai;
 
 use App\Http\Controllers\Web\Subscriber\SubscriberToolController;
-use App\Http\Requests\Web\Subscriber\RefreshAiLimitsRequest;
+use App\Exceptions\Credits\CreditPriceNotFoundException;
+use App\Http\Requests\Web\Subscriber\QuoteAiMarketplaceRequest;
 use App\Http\Requests\Web\Subscriber\RunAiMarketplaceRequest;
 use App\Http\Requests\Web\Subscriber\StartAiImageRequest;
 use App\Http\Requests\Web\Subscriber\StartAiReferenceVideoRequest;
 use App\Http\Requests\Web\Subscriber\StartAiVideoRequest;
-use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Services\Ai\AiImageGenerationService;
 use App\Services\Ai\AiVideoGenerationService;
+use App\Services\Credits\CreditBillingService;
 use App\Services\Subscriber\Ai\SubscriberAiImageService;
 use App\Services\Subscriber\Ai\SubscriberAiMarketplaceService;
 use App\Services\Subscriber\Ai\SubscriberAiVideoService;
-use App\Support\ToolLimits;
+use App\Support\MarketplaceAiPricingPresenter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,6 +30,8 @@ class MarketplaceController extends SubscriberToolController
         private readonly SubscriberAiVideoService $aiVideoService,
         private readonly AiImageGenerationService $aiImageGenerationService,
         private readonly AiVideoGenerationService $aiVideoGenerationService,
+        private readonly MarketplaceAiPricingPresenter $pricingPresenter,
+        private readonly CreditBillingService $creditBilling,
     ) {
     }
 
@@ -40,14 +43,14 @@ class MarketplaceController extends SubscriberToolController
     public function text(Request $request): Response
     {
         return Inertia::render('Subscriber/Ai/Text', [
-            'limits' => $this->loadLimits($request),
+            'pricing' => $this->pricingPresenter->forFrontend(),
         ]);
     }
 
     public function image(Request $request): Response
     {
         return Inertia::render('Subscriber/Ai/Image', [
-            'limits' => $this->loadLimits($request),
+            'pricing' => $this->pricingPresenter->forFrontend(),
             // Always present so partial reloads can clear the active session.
             'generationUuid' => null,
         ]);
@@ -56,7 +59,7 @@ class MarketplaceController extends SubscriberToolController
     public function imageGeneration(Request $request, string $uuid): Response
     {
         return Inertia::render('Subscriber/Ai/Image', [
-            'limits' => $this->loadLimits($request),
+            'pricing' => $this->pricingPresenter->forFrontend(),
             'generationUuid' => $uuid,
         ]);
     }
@@ -64,14 +67,14 @@ class MarketplaceController extends SubscriberToolController
     public function imageHistory(Request $request): Response
     {
         return Inertia::render('Subscriber/Ai/ImageHistory', [
-            'limits' => $this->loadLimits($request),
+            'pricing' => $this->pricingPresenter->forFrontend(),
         ]);
     }
 
     public function video(Request $request): Response
     {
         return Inertia::render('Subscriber/Ai/Video', [
-            'limits' => $this->loadLimits($request),
+            'pricing' => $this->pricingPresenter->forFrontend(),
             // Always present so partial reloads can clear the active session.
             'generationUuid' => null,
         ]);
@@ -80,7 +83,7 @@ class MarketplaceController extends SubscriberToolController
     public function videoGeneration(Request $request, string $uuid): Response
     {
         return Inertia::render('Subscriber/Ai/Video', [
-            'limits' => $this->loadLimits($request),
+            'pricing' => $this->pricingPresenter->forFrontend(),
             'generationUuid' => $uuid,
         ]);
     }
@@ -88,7 +91,7 @@ class MarketplaceController extends SubscriberToolController
     public function videoHistory(Request $request): Response
     {
         return Inertia::render('Subscriber/Ai/VideoHistory', [
-            'limits' => $this->loadLimits($request),
+            'pricing' => $this->pricingPresenter->forFrontend(),
         ]);
     }
 
@@ -295,54 +298,31 @@ class MarketplaceController extends SubscriberToolController
         ]);
     }
 
-    public function refreshLimits(RefreshAiLimitsRequest $request): JsonResponse
+    public function quote(QuoteAiMarketplaceRequest $request): JsonResponse
     {
-        $subscription = $this->activeSubscription($request);
-        $limit = ToolLimits::monthLimitValue(
-            $request->user(),
-            $subscription,
-            $request->validated('limit'),
-        );
+        try {
+            $quote = $this->pricingPresenter->quoteFor(
+                (string) $request->validated('kind'),
+                $request->validated(),
+            );
+        } catch (CreditPriceNotFoundException) {
+            return response()->json([
+                'success' => false,
+                'messages' => ['Не удалось определить стоимость операции. Попробуйте позже.'],
+            ], 200);
+        }
+
+        $user = $request->user();
+        $credits = $user
+            ? $this->creditBilling->getBalance($user)->toFrontendArray()
+            : [];
 
         return response()->json([
             'success' => true,
-            'messages' => ['Информация по лимиту'],
-            'data' => $limit,
+            'messages' => ['Стоимость операции'],
+            'data' => array_merge($quote, [
+                'credits' => $credits,
+            ]),
         ]);
-    }
-
-    /**
-     * @return array{text: int, image: int, video: int}
-     */
-    private function loadLimits(Request $request): array
-    {
-        $subscription = $this->activeSubscription($request);
-
-        return [
-            'text' => $this->limitValue($subscription, 'ai_text_query'),
-            'image' => $this->limitValue($subscription, 'ai_image_query'),
-            'video' => $this->limitValue($subscription, 'ai_video_query'),
-        ];
-    }
-
-    private function activeSubscription(Request $request): ?SubscribersSubscriptions
-    {
-        $subscriberId = $request->user()?->subscriber?->id;
-
-        if (! $subscriberId) {
-            return null;
-        }
-
-        return SubscribersSubscriptions::query()
-            ->where([
-                'subscribers_id' => $subscriberId,
-                'status' => 1,
-            ])
-            ->first();
-    }
-
-    private function limitValue(?SubscribersSubscriptions $subscription, string $key): int
-    {
-        return ToolLimits::monthLimitValue(request()->user(), $subscription, $key);
     }
 }

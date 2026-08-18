@@ -74,13 +74,13 @@ class SubscriptionService
         }
         $this->subscription->start_date = Carbon::now();
         $this->subscription->end_date = Carbon::now()->addDays($this->plan->duration);
-        // Добавим лимиты по месячному тарифу
-        $limits = $this->subscription->limits_month;
-        foreach ($this->plan->limits_month as $limit => $value) {
-            $limits[$limit] = $value;
-        }
-        $this->subscription->limits_month = $limits;
         $this->subscription->save();
+
+        $user = $this->subscriber?->user ?? $this->subscription->getUser();
+        if ($user && $this->plan) {
+            app(\App\Services\Credits\CreditBillingService::class)
+                ->grantPeriod($user, $this->subscription, $this->plan);
+        }
 
         return true;
     }
@@ -160,7 +160,7 @@ class SubscriptionService
 
         $this->subscription->plan_id = $plan->id;
         $this->subscription->limits_plan = $remainingPlanLimits;
-        $this->subscription->limits_month = $plan->limits_month;
+        $this->subscription->start_date = Carbon::now();
 
         // Если есть баланс
         if ($this->subscriber->user->isEnoughFunds($plan->price, 'RUB')) {
@@ -176,5 +176,13 @@ class SubscriptionService
         }
 
         $this->subscription->save();
+
+        if ((int) $this->subscription->status === 1) {
+            $user = $this->subscriber?->user ?? $this->subscription->getUser();
+            if ($user) {
+                app(\App\Services\Credits\CreditBillingService::class)
+                    ->grantPeriod($user, $this->subscription, $plan);
+            }
+        }
     }
 }

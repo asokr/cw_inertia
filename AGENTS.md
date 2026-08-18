@@ -6,15 +6,15 @@
 
 Laravel-приложение для подписчиков маркетплейсов **Wildberries** и **Ozon** (подписки, лимиты, инструменты продавца, платежи, блог, админка).
 
-| Слой | Технологии |
-|------|------------|
-| Backend | PHP 8.3+, Laravel 13, MySQL, Composer |
-| Admin UI | Vue 3, Inertia.js, Tailwind, shadcn-vue, TanStack Table, Vite (`/cw-page/`) |
-| Subscriber UI | Vue 3, Inertia.js, Tailwind, shadcn-vue, Vite (`/panel/*`) |
-| Очереди | Laravel Queue (отдельные очереди на инструмент) |
-| Баланс | `O21\LaravelWallet` |
-| Права | Spatie Permission (`guard: web` для Inertia) |
-| Тесты | PHPUnit (`tests/Unit`, `tests/Feature`) |
+| Слой          | Технологии                                                                  |
+| ------------- | --------------------------------------------------------------------------- |
+| Backend       | PHP 8.3+, Laravel 13, MySQL, Composer                                       |
+| Admin UI      | Vue 3, Inertia.js, Tailwind, shadcn-vue, TanStack Table, Vite (`/cw-page/`) |
+| Subscriber UI | Vue 3, Inertia.js, Tailwind, shadcn-vue, Vite (`/panel/*`)                  |
+| Очереди       | Laravel Queue (отдельные очереди на инструмент)                             |
+| Баланс        | `O21\LaravelWallet`                                                         |
+| Права         | Spatie Permission (`guard: web` для Inertia)                                |
+| Тесты         | PHPUnit (`tests/Unit`, `tests/Feature`)                                     |
 
 ## Документация (`./docs`) — обязательно
 
@@ -33,6 +33,7 @@ Laravel-приложение для подписчиков маркетплей�
 3. Обновляй: маршруты, permissions, модели/таблицы, jobs/очереди, Inertia-страницы, API-контракты polling, shared props, бизнес-правила.
 4. **Очереди:** при добавлении, переименовании или смене очереди у job — обязательно обнови [`docs/queues.md`](docs/queues.md) (сводка, секция очереди, воркеры).
 5. Не оставляй устаревшие описания «на потом».
+6. какой либо текст на фронте сайта - пиши для пользователей - не нужно там использовать технические обороты, техническую информацию
 
 ## Язык
 
@@ -67,14 +68,14 @@ Controller (Web) → Service → Model / Job / External API
 
 ### Маршруты
 
-| Файл | Назначение |
-|------|------------|
-| `routes/admin.php` | Админка `/cw-page/*` |
-| `routes/subscriber.php` | Панель `/panel/*` |
-| `routes/subscriber-tools.php` | Инструменты подписчика |
-| `routes/blog.php` | Блог |
-| `routes/web.php` | Публичные страницы, auth |
-| `routes/api.php` | Legacy API, webhooks, auth-adjacent |
+| Файл                          | Назначение                          |
+| ----------------------------- | ----------------------------------- |
+| `routes/admin.php`            | Админка `/cw-page/*`                |
+| `routes/subscriber.php`       | Панель `/panel/*`                   |
+| `routes/subscriber-tools.php` | Инструменты подписчика              |
+| `routes/blog.php`             | Блог                                |
+| `routes/web.php`              | Публичные страницы, auth            |
+| `routes/api.php`              | Legacy API, webhooks, auth-adjacent |
 
 UI инструментов ходит в **Web/Inertia** (`/panel/*`), не в legacy `/subscriber/*` API.
 
@@ -134,19 +135,19 @@ php artisan queue:work
 
 ## Где что лежит
 
-| Путь | Содержимое |
-|------|------------|
-| `app/Models/` | Eloquent-модели |
-| `app/Services/` | Бизнес-логика |
-| `app/Jobs/` | Фоновые задачи |
+| Путь                        | Содержимое              |
+| --------------------------- | ----------------------- |
+| `app/Models/`               | Eloquent-модели         |
+| `app/Services/`             | Бизнес-логика           |
+| `app/Jobs/`                 | Фоновые задачи          |
 | `app/Http/Controllers/Web/` | Inertia/web контроллеры |
-| `app/Http/Requests/` | Валидация |
-| `database/migrations/` | Миграции |
-| `database/seeders/` | Сидеры |
-| `resources/js/Pages/` | Inertia-страницы |
-| `resources/js/components/` | Vue-компоненты |
-| `tests/` | PHPUnit |
-| `docs/` | Проектная документация |
+| `app/Http/Requests/`        | Валидация               |
+| `database/migrations/`      | Миграции                |
+| `database/seeders/`         | Сидеры                  |
+| `resources/js/Pages/`       | Inertia-страницы        |
+| `resources/js/components/`  | Vue-компоненты          |
+| `tests/`                    | PHPUnit                 |
+| `docs/`                     | Проектная документация  |
 
 ## Чеклист перед завершением задачи
 

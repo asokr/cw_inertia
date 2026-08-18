@@ -2,19 +2,27 @@
 
 namespace Tests\Feature\Web\Subscriber\Ai;
 
+use App\Models\Credits\CreditAccount;
+use App\Models\Credits\CreditLedger;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
+use App\Services\Gemini\GeminiApiClient;
+use Database\Seeders\CreditPricingSeeder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Mockery;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Web\Auth\WebAuthTestCase;
+use Tests\Support\CreatesCreditBillingSchema;
 
 class AiMarketplaceTest extends WebAuthTestCase
 {
+    use CreatesCreditBillingSchema;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -31,7 +39,7 @@ class AiMarketplaceTest extends WebAuthTestCase
 
     public function test_guest_cannot_access_text_page(): void
     {
-        $this->get('/panel/ai/text')->assertUnauthorized();
+        $this->get('/panel/ai/text')->assertRedirect('/login');
     }
 
     public function test_user_without_permission_cannot_access_text_page(): void
@@ -56,10 +64,10 @@ class AiMarketplaceTest extends WebAuthTestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Subscriber/Ai/Text')
-                ->has('limits')
-                ->where('limits.text', 10)
-                ->where('limits.image', 5)
-                ->where('limits.video', 30));
+                ->has('pricing')
+                ->has('pricing.text.amount')
+                ->has('pricing.image.amounts')
+                ->has('pricing.video.amounts'));
 
         $this->actingAs($user)
             ->get('/panel/ai/image')
@@ -146,15 +154,89 @@ class AiMarketplaceTest extends WebAuthTestCase
             ->assertHeader('Content-Disposition', 'inline; filename="demo.jpg"');
     }
 
-    public function test_refresh_limits_returns_value(): void
+    public function test_text_generation_spends_one_credit(): void
     {
+        $this->setupCreditsForMarketplace();
+        $user = $this->createSubscriberUser(withAiPermission: true);
+        $this->grantCredits($user, 10);
+
+        $gemini = Mockery::mock(GeminiApiClient::class);
+        $gemini->shouldReceive('generateProText')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => ['text' => 'Готовое описание'],
+            ]);
+        $gemini->shouldReceive('extractText')
+            ->once()
+            ->andReturn('Готовое описание');
+        $this->app->instance(GeminiApiClient::class, $gemini);
+
+        $this->actingAs($user)
+            ->postJson('/panel/ai/marketplace', [
+                'task_type' => 'rewrite_text',
+                'description' => 'Исходный текст карточки для проверки',
+                'credits' => 99,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('credits_charged', 1);
+
+        $this->assertSame(9, CreditAccount::query()->where('user_id', $user->id)->first()?->available());
+        $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('service_code', 'generate_text')->count());
+    }
+
+    public function test_text_generation_without_credits_does_not_call_provider(): void
+    {
+        $this->setupCreditsForMarketplace();
+        $user = $this->createSubscriberUser(withAiPermission: true);
+
+        $gemini = Mockery::mock(GeminiApiClient::class);
+        $gemini->shouldNotReceive('generateProText');
+        $this->app->instance(GeminiApiClient::class, $gemini);
+
+        $response = $this->actingAs($user)
+            ->postJson('/panel/ai/marketplace', [
+                'task_type' => 'rewrite_text',
+                'description' => 'Исходный текст карточки для проверки',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', false);
+
+        $this->assertStringContainsString('Недостаточно кредитов', (string) $response->json('messages.0'));
+    }
+
+    public function test_quote_returns_catalog_amount(): void
+    {
+        $this->setupCreditsForMarketplace();
         $user = $this->createSubscriberUser(withAiPermission: true);
 
         $this->actingAs($user)
-            ->postJson('/panel/ai/limits', ['limit' => 'ai_text_query'])
+            ->postJson('/panel/ai/quote', ['kind' => 'text'])
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data', 10);
+            ->assertJsonPath('data.amount', 1)
+            ->assertJsonPath('data.service', 'generate_text');
+
+        $this->actingAs($user)
+            ->postJson('/panel/ai/quote', [
+                'kind' => 'image',
+                'resolution' => '1K',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.amount', 10);
+
+        $this->actingAs($user)
+            ->postJson('/panel/ai/quote', [
+                'kind' => 'video',
+                'resolution' => '720p',
+                'duration' => 5,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.amount', 40);
     }
 
     private function createSubscriberUser(bool $withAiPermission = false): User
@@ -189,6 +271,25 @@ class AiMarketplaceTest extends WebAuthTestCase
         ]);
 
         return $user;
+    }
+
+    private function setupCreditsForMarketplace(): void
+    {
+        $this->setupCreditBillingSchema();
+        (new CreditPricingSeeder())->run();
+    }
+
+    private function grantCredits(User $user, int $amount): void
+    {
+        CreditAccount::query()->updateOrCreate(
+            ['user_id' => $user->id],
+            [
+                'subscription_balance' => 0,
+                'purchased_balance' => $amount,
+                'subscription_held' => 0,
+                'purchased_held' => 0,
+            ],
+        );
     }
 
     private function setupAiMarketplaceSchema(): void

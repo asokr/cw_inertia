@@ -2,6 +2,14 @@
 
 namespace Tests\Feature\Web\Subscriber\Wb;
 
+use App\Enums\Credits\CreditBillingMode;
+use App\Enums\Credits\CreditHoldStatus;
+use App\Enums\Credits\CreditLedgerType;
+use App\Enums\Credits\CreditServiceCode;
+use App\Models\Credits\CreditAccount;
+use App\Models\Credits\CreditHold;
+use App\Models\Credits\CreditLedger;
+use App\Models\Credits\CreditService;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\Subscribers\Wb\Feedbacks\BotResponse;
@@ -20,9 +28,12 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Web\Auth\WebAuthTestCase;
+use Tests\Support\CreatesCreditBillingSchema;
 
 class WbFeedbacksTest extends WebAuthTestCase
 {
+    use CreatesCreditBillingSchema;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -65,6 +76,7 @@ class WbFeedbacksTest extends WebAuthTestCase
 
     public function test_index_renders_workspace_for_selected_unified_cabinet(): void
     {
+        $this->setupCreditsForFeedbacks();
         $user = $this->createSubscriberUser(withPermission: true);
         $cabinet = $this->createUnifiedCabinet($user, 'Test Cabinet');
 
@@ -74,7 +86,9 @@ class WbFeedbacksTest extends WebAuthTestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Subscriber/Wb/Feedbacks/Client/Show')
                 ->where('client.id', $cabinet->id)
-                ->where('client.name', 'Test Cabinet'));
+                ->where('client.name', 'Test Cabinet')
+                ->where('creditsCost', 1)
+                ->missing('aiLimit'));
     }
 
     public function test_client_show_renders_for_owner(): void
@@ -271,17 +285,12 @@ class WbFeedbacksTest extends WebAuthTestCase
                 ->has('months'));
     }
 
-    public function test_generate_ai_passes_prompt_for_json_feedback_request(): void
+    public function test_generate_ai_passes_prompt_and_charges_catalog_cost(): void
     {
+        $this->setupCreditsForFeedbacks();
         $user = $this->createSubscriberUser(withPermission: true);
-        $cabinet = $this->createCabinet($user, 'AI Generate Cabinet');
-        $subscriber = Subscribers::query()->where('user_id', $user->id)->firstOrFail();
-
-        SubscribersSubscriptions::query()->create([
-            'subscribers_id' => $subscriber->id,
-            'status' => 1,
-            'limits_month' => ['feedbacks_gpt_query' => 5],
-        ]);
+        $cabinet = $this->createUnifiedCabinet($user, 'AI Generate Cabinet');
+        $this->grantCredits($user, 5);
 
         $this->mock(SubscriberAiTextService::class, function ($mock): void {
             $mock->shouldReceive('ask')
@@ -302,7 +311,7 @@ class WbFeedbacksTest extends WebAuthTestCase
         });
 
         $this->actingAs($user)
-            ->postJson("/panel/wb/feedbacks/clients/{$cabinet->id}/ai/generate", [
+            ->postJson('/panel/wb/feedbacks/ai/generate', [
                 'feedback' => [
                     'id' => 'fb-1',
                     'productValuation' => 5,
@@ -318,6 +327,129 @@ class WbFeedbacksTest extends WebAuthTestCase
                 'success' => true,
                 'data' => 'Спасибо за ваш отзыв!',
             ]);
+
+        $account = CreditAccount::query()->where('user_id', $user->id)->firstOrFail();
+        $this->assertSame(4, $account->available());
+        $this->assertSame(0, CreditHold::query()->where('user_id', $user->id)->where('status', CreditHoldStatus::Held)->count());
+        $this->assertTrue(
+            CreditLedger::query()
+                ->where('user_id', $user->id)
+                ->where('type', CreditLedgerType::Spend)
+                ->where('service_code', CreditServiceCode::FeedbackAnswer->value)
+                ->where('amount', 1)
+                ->where('user_label', 'Ответ на отзыв Wildberries')
+                ->exists()
+        );
+        $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->count());
+    }
+
+    public function test_generate_ai_does_not_start_without_credits(): void
+    {
+        $this->setupCreditsForFeedbacks();
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->createUnifiedCabinet($user, 'No Credits Cabinet');
+        $this->grantCredits($user, 0);
+
+        $this->mock(SubscriberAiTextService::class, function ($mock): void {
+            $mock->shouldReceive('ask')->never();
+        });
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/feedbacks/ai/generate', [
+                'feedback' => [
+                    'id' => 'fb-2',
+                    'productValuation' => 5,
+                    'productDetails' => [
+                        'productName' => 'Товар',
+                        'brandName' => 'Бренд',
+                    ],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', false)
+            ->assertJsonFragment(['Недостаточно кредитов. Нужно 1 кредит, доступно 0 кредитов.']);
+
+        $this->assertSame(0, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Spend)->count());
+    }
+
+    public function test_generate_ai_does_not_charge_when_generation_fails(): void
+    {
+        $this->setupCreditsForFeedbacks();
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->createUnifiedCabinet($user, 'Fail Cabinet');
+        $this->grantCredits($user, 5);
+
+        $this->mock(SubscriberAiTextService::class, function ($mock): void {
+            $mock->shouldReceive('ask')
+                ->once()
+                ->andReturn(response()->json([
+                    'success' => false,
+                    'messages' => ['Ошибка в работе с ИИ'],
+                ], 200));
+        });
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/feedbacks/ai/generate', [
+                'prompt' => 'Помоги составить шаблонный ответ на отзыв на товар в зависимости от оценки.',
+                'type' => 'копирайтер, задача которого отвечать на отзывы покупателей маркетплейса',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', false);
+
+        $account = CreditAccount::query()->where('user_id', $user->id)->firstOrFail();
+        $this->assertSame(5, $account->available());
+        $this->assertSame(0, CreditHold::query()->where('user_id', $user->id)->where('status', CreditHoldStatus::Held)->count());
+        $this->assertSame(0, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Spend)->count());
+    }
+
+    public function test_regenerate_ai_charges_again(): void
+    {
+        $this->setupCreditsForFeedbacks();
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->createUnifiedCabinet($user, 'Regen Cabinet');
+        $this->grantCredits($user, 5);
+
+        $this->mock(SubscriberAiTextService::class, function ($mock): void {
+            $mock->shouldReceive('ask')
+                ->twice()
+                ->andReturn(response()->json([
+                    'success' => true,
+                    'messages' => ['Ответ ИИ'],
+                    'data' => 'Спасибо!',
+                ], 200));
+        });
+
+        $payload = [
+            'feedback' => [
+                'id' => 'fb-3',
+                'productValuation' => 4,
+                'productDetails' => [
+                    'productName' => 'Товар',
+                    'brandName' => 'Бренд',
+                ],
+            ],
+        ];
+
+        $this->actingAs($user)->postJson('/panel/wb/feedbacks/ai/generate', $payload)->assertOk()->assertJsonPath('success', true);
+        $this->actingAs($user)->postJson('/panel/wb/feedbacks/ai/generate', $payload)->assertOk()->assertJsonPath('success', true);
+
+        $account = CreditAccount::query()->where('user_id', $user->id)->firstOrFail();
+        $this->assertSame(3, $account->available());
+        $this->assertSame(2, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Spend)->count());
+    }
+
+    public function test_templates_index_exposes_credits_cost(): void
+    {
+        $this->setupCreditsForFeedbacks();
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->createUnifiedCabinet($user, 'Templates Cabinet');
+
+        $this->actingAs($user)
+            ->get('/panel/wb/feedbacks/templates')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Wb/Feedbacks/Templates/Index')
+                ->where('creditsCost', 1));
     }
 
     public function test_destroy_cabinet_redirects_with_success(): void
@@ -331,6 +463,39 @@ class WbFeedbacksTest extends WebAuthTestCase
             ->assertSessionHas('success');
 
         $this->assertDatabaseMissing('subs_wb_feedbacks_clients', ['id' => $cabinet->id]);
+    }
+
+    private function setupCreditsForFeedbacks(): void
+    {
+        $this->setupCreditBillingSchema();
+        $this->seedFeedbackAnswerPrice(1);
+    }
+
+    private function seedFeedbackAnswerPrice(int $amount): void
+    {
+        CreditService::query()->updateOrCreate(
+            ['code' => CreditServiceCode::FeedbackAnswer->value],
+            [
+                'name' => CreditServiceCode::FeedbackAnswer->label(),
+                'billing_mode' => CreditBillingMode::Fixed,
+                'amount' => $amount,
+                'sort_order' => 20,
+                'is_active' => true,
+            ],
+        );
+    }
+
+    private function grantCredits(User $user, int $amount): void
+    {
+        CreditAccount::query()->updateOrCreate(
+            ['user_id' => $user->id],
+            [
+                'subscription_balance' => 0,
+                'purchased_balance' => $amount,
+                'subscription_held' => 0,
+                'purchased_held' => 0,
+            ],
+        );
     }
 
     private function createSubscriberUser(bool $withPermission = false): User

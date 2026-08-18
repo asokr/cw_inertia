@@ -35,7 +35,6 @@ class ProfileService
             'name',
             'price',
             'limits_plan',
-            'limits_month',
         ])->where(['status' => 1, 'hidden' => 0])->get()->toArray();
 
         $subscriberId = $user->subscriberId();

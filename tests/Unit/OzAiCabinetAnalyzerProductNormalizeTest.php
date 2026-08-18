@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAdsCollector;
+use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerContentRatingCollector;
 use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysisService;
 use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAnalyticsCollector;
 use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerProductQueriesCollector;
@@ -48,6 +49,27 @@ class OzAiCabinetAnalyzerProductNormalizeTest extends TestCase
             'price' => '1990.00',
             'old_price' => '2500.00',
             'currency_code' => 'RUB',
+            'price_indexes' => [
+                'color_index' => 'GREEN',
+                'ozon_index_data' => [
+                    'minimal_price' => '1890.00',
+                    'minimal_price_currency' => 'RUB',
+                    'price_index_value' => 0.95,
+                ],
+            ],
+            'commissions' => [
+                ['sale_schema' => 'fbo', 'percent' => 15, 'value' => 200],
+            ],
+            'promotions' => [
+                ['type' => 'DISCOUNT', 'is_enabled' => true],
+            ],
+            'errors' => [
+                ['code' => 'INVALID_PRICE', 'field' => 'price', 'texts' => ['message' => 'Исправьте цену']],
+            ],
+            'stocks' => ['has_stock' => true],
+            'availabilities' => [
+                ['reasons' => [['human_text' => ['text' => 'Товар доступен на складе']]]],
+            ],
             'sources' => [
                 ['sku' => 9001, 'source' => 'sds', 'shipment_type' => 'general'],
             ],
@@ -69,6 +91,12 @@ class OzAiCabinetAnalyzerProductNormalizeTest extends TestCase
         $this->assertSame('https://cdn.example/main.jpg', $product['primary_image']);
         $this->assertSame(['460123'], $product['barcodes']);
         $this->assertTrue($product['visible']);
+        $this->assertSame('GREEN', $product['price_indexes']['color_index']);
+        $this->assertSame(15.0, $product['commissions'][0]['percent']);
+        $this->assertTrue($product['promotions'][0]['is_enabled']);
+        $this->assertSame('INVALID_PRICE', $product['errors'][0]['code']);
+        $this->assertTrue($product['availability']['has_stock']);
+        $this->assertContains('Товар доступен на складе', $product['availability']['reasons']);
         $this->assertIsArray($product['raw']);
         $this->assertSame(101, $product['raw']['id']);
     }
@@ -79,6 +107,15 @@ class OzAiCabinetAnalyzerProductNormalizeTest extends TestCase
         $this->assertSame(0.0, $block['revenue']);
         $this->assertSame(0.0, $block['ordered_units']);
         $this->assertSame('2026-01-01', $block['period']['begin_date']);
+    }
+
+    public function test_content_rating_empty_skus_returns_empty(): void
+    {
+        $collector = new OzAiCabinetAnalyzerContentRatingCollector(new OzonApiService());
+        $result = $collector->collect('key', '1', []);
+
+        $this->assertSame([], $result['by_sku']);
+        $this->assertSame([], $result['warnings']);
     }
 
     public function test_ads_skipped_without_credentials(): void
@@ -98,7 +135,12 @@ class OzAiCabinetAnalyzerProductNormalizeTest extends TestCase
         $service = new OzAiCabinetAnalyzerAiAnalysisService($gemini);
 
         $dataset = [
-            'meta' => ['products_count' => 1],
+            'meta' => [
+                'products_count' => 1,
+                'seller_rating' => ['premium' => false, 'groups' => []],
+                'actions' => [['id' => 7]],
+                'actions_count' => 1,
+            ],
             'campaigns' => [['id' => 1]],
             'products' => [
                 [
@@ -110,6 +152,9 @@ class OzAiCabinetAnalyzerProductNormalizeTest extends TestCase
                     'turnover' => ['idc' => 1],
                     'advertising' => ['spend' => 1.5, 'orders' => 1],
                     'ads_vs_analytics' => ['orders_gap' => -1],
+                    'content_rating' => ['rating' => 42.5, 'groups' => []],
+                    'promos' => [['action_id' => 7]],
+                    'liquidity' => ['turnover_grade' => 'DEFICIT'],
                 ],
             ],
         ];
@@ -120,10 +165,20 @@ class OzAiCabinetAnalyzerProductNormalizeTest extends TestCase
         $this->assertArrayNotHasKey('advertising', $filtered['products'][0]);
         $this->assertArrayNotHasKey('search', $filtered['products'][0]);
         $this->assertArrayNotHasKey('ads_vs_analytics', $filtered['products'][0]);
+        $this->assertArrayNotHasKey('content_rating', $filtered['products'][0]);
+        $this->assertArrayNotHasKey('promos', $filtered['products'][0]);
         $this->assertArrayNotHasKey('campaigns', $filtered);
+        $this->assertArrayNotHasKey('seller_rating', $filtered['meta']);
+        $this->assertArrayNotHasKey('actions', $filtered['meta']);
 
         $both = $service->filterDatasetBySources($dataset, ['analytics', 'advertising']);
         $this->assertArrayHasKey('ads_vs_analytics', $both['products'][0]);
         $this->assertArrayHasKey('campaigns', $both);
+
+        $quality = $service->filterDatasetBySources($dataset, ['products', 'content', 'seller_rating', 'promos']);
+        $this->assertArrayHasKey('content_rating', $quality['products'][0]);
+        $this->assertArrayHasKey('promos', $quality['products'][0]);
+        $this->assertArrayHasKey('seller_rating', $quality['meta']);
+        $this->assertSame(1, $quality['meta']['actions_count']);
     }
 }

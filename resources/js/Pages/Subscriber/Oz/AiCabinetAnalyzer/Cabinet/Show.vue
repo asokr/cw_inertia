@@ -45,6 +45,26 @@ const isReportDone = computed(() => props.report?.status === "done");
 const hasMeta = computed(() => Boolean(props.meta && Object.keys(props.meta).length > 0));
 const warnings = computed(() => (Array.isArray(props.meta?.warnings) ? props.meta.warnings : []));
 const productsCount = computed(() => props.meta?.products_count ?? props.productsMeta?.total ?? null);
+const sellerRating = computed(() => {
+    const summary = props.meta?.seller_rating;
+    if (!summary || typeof summary !== "object") {
+        return null;
+    }
+    const items = [];
+    for (const group of Array.isArray(summary.groups) ? summary.groups : []) {
+        for (const item of Array.isArray(group.items) ? group.items : []) {
+            if (item?.name) {
+                items.push(item);
+            }
+        }
+    }
+    return {
+        premium: Boolean(summary.premium),
+        premiumPlus: Boolean(summary.premium_plus),
+        penaltyExceeded: Boolean(summary.penalty_score_exceeded),
+        items: items.slice(0, 8),
+    };
+});
 
 function onPollingStart() {
     poll.start();
@@ -86,6 +106,30 @@ watchPropToast(() => warnings.value, "default");
                     <p v-if="productsCount !== null" class="text-sm text-muted-foreground">
                         Товаров в snapshot: <span class="font-medium text-foreground">{{ productsCount }}</span>
                     </p>
+                    <div
+                        v-if="sellerRating"
+                        class="rounded-lg border p-4 text-sm"
+                    >
+                        <p class="mb-2 font-medium">Рейтинги продавца</p>
+                        <p class="mb-3 text-xs text-muted-foreground">
+                            Premium: {{ sellerRating.premium ? "да" : "нет" }}
+                            · Premium Plus: {{ sellerRating.premiumPlus ? "да" : "нет" }}
+                            · Штрафные баллы превышены: {{ sellerRating.penaltyExceeded ? "да" : "нет" }}
+                        </p>
+                        <ul v-if="sellerRating.items.length" class="grid gap-1 sm:grid-cols-2">
+                            <li
+                                v-for="(item, index) in sellerRating.items"
+                                :key="`${item.rating || item.name}-${index}`"
+                                class="text-muted-foreground"
+                            >
+                                <span class="text-foreground">{{ item.name }}</span>
+                                <span v-if="item.current_value !== null && item.current_value !== undefined">
+                                    — {{ item.current_value }}
+                                </span>
+                                <span v-if="item.status"> ({{ item.status }})</span>
+                            </li>
+                        </ul>
+                    </div>
                     <ProductsTable
                         :show-url="showUrl"
                         :report-id="report?.id"

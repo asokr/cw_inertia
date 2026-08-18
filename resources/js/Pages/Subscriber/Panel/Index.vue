@@ -157,6 +157,7 @@ function markTourSeen() {
             <PanelLimitsWidget
                 :remaining-limits="subscription?.remaining_limits ?? {}"
                 :remaining-limits-display="subscription?.remaining_limits_display ?? null"
+                :credits-available="subscription?.credits?.available ?? 0"
             />
             <PanelRecentPayments :payments="dashboard.recent_payments ?? []" />
         </div>

@@ -87,7 +87,85 @@ class OzonApiService
         return $this->post('v4/product/info/attributes', $apiKey, $clientId, $payload);
     }
 
+    /**
+     * Контент-рейтинг карточек: POST /v1/product/rating-by-sku
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getProductRatingBySku(string $apiKey, string $clientId, array $payload): array
+    {
+        return $this->post('v1/product/rating-by-sku', $apiKey, $clientId, $payload);
+    }
+
+    /**
+     * Детализация поисковых запросов по SKU: POST /v1/analytics/product-queries/details
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getProductQueriesDetails(string $apiKey, string $clientId, array $payload): array
+    {
+        return $this->post('v1/analytics/product-queries/details', $apiKey, $clientId, $payload);
+    }
+
+    /**
+     * Аналитика остатков / ликвидность: POST /v1/analytics/stocks
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getAnalyticsStocks(string $apiKey, string $clientId, array $payload): array
+    {
+        return $this->post('v1/analytics/stocks', $apiKey, $clientId, $payload);
+    }
+
+    /**
+     * Текущие рейтинги продавца: POST /v1/rating/summary
+     *
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getSellerRatingSummary(string $apiKey, string $clientId): array
+    {
+        return $this->post('v1/rating/summary', $apiKey, $clientId, []);
+    }
+
+    /**
+     * Список акций Ozon: GET /v1/actions
+     *
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getActions(string $apiKey, string $clientId): array
+    {
+        return $this->get('v1/actions', $apiKey, $clientId);
+    }
+
+    /**
+     * Товары, участвующие в акции: POST /v1/actions/products
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getActionProducts(string $apiKey, string $clientId, array $payload): array
+    {
+        return $this->post('v1/actions/products', $apiKey, $clientId, $payload);
+    }
+
     public function post(string $uri, string $apiKey, string $clientId, array $payload = []): array
+    {
+        return $this->request('POST', $uri, $apiKey, $clientId, $payload);
+    }
+
+    public function get(string $uri, string $apiKey, string $clientId, array $query = []): array
+    {
+        return $this->request('GET', $uri, $apiKey, $clientId, $query);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    private function request(string $method, string $uri, string $apiKey, string $clientId, array $payload = []): array
     {
         $client = new Client([
             'base_uri' => self::BASE_URL,
@@ -100,11 +178,17 @@ class OzonApiService
             'http_errors' => false,
         ]);
 
+        $options = [];
+        if ($payload !== []) {
+            $options[strtoupper($method) === 'GET' ? 'query' : 'json'] = $payload;
+        }
+
         try {
-            $response = $client->post($uri, empty($payload) ? [] : ['json' => $payload]);
+            $response = $client->request($method, $uri, $options);
         } catch (\Throwable $exception) {
             Log::channel('oz_api_response')->error('Ошибка обращения к API Ozon', [
                 'uri' => $uri,
+                'method' => $method,
                 'message' => $exception->getMessage(),
             ]);
 
@@ -122,6 +206,7 @@ class OzonApiService
         if (json_last_error() !== JSON_ERROR_NONE) {
             Log::channel('oz_api_response')->warning('Некорректный ответ API Ozon', [
                 'uri' => $uri,
+                'method' => $method,
                 'status' => $status,
                 'body' => $body,
             ]);
@@ -138,6 +223,7 @@ class OzonApiService
         if (! $success) {
             Log::channel('oz_api_response')->info('Ошибка API Ozon', [
                 'uri' => $uri,
+                'method' => $method,
                 'status' => $status,
                 'response' => $decoded,
             ]);

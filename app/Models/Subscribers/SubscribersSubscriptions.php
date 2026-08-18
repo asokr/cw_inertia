@@ -5,8 +5,6 @@ namespace App\Models\Subscribers;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Models\CouponUsage;
-use App\Support\ToolLimits;
-use Illuminate\Support\Facades\Auth;
 use App\Models\Subscribers\Subscribers;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Subscribers\SubscribersPlans;
@@ -21,39 +19,12 @@ class SubscribersSubscriptions extends Model
         'subscribers_id',
         'plan_id',
         'limits_plan',
-        'extra_limits_plan',
-        'limits_month',
-        'extra_limits_month',
         'start_date',
         'end_date',
         'status'
     ];
 
     protected function limitsPlan(): Attribute
-    {
-        return new Attribute(
-            get: fn($value) => json_decode($value, true),
-            set: fn($value) => json_encode($value, JSON_UNESCAPED_UNICODE),
-        );
-    }
-
-    protected function extraLimitsPlan(): Attribute
-    {
-        return new Attribute(
-            get: fn($value) => json_decode($value, true),
-            set: fn($value) => json_encode($value, JSON_UNESCAPED_UNICODE),
-        );
-    }
-
-    protected function limitsMonth(): Attribute
-    {
-        return new Attribute(
-            get: fn($value) => json_decode($value, true),
-            set: fn($value) => json_encode($value, JSON_UNESCAPED_UNICODE),
-        );
-    }
-
-    protected function extraLimitsMonth(): Attribute
     {
         return new Attribute(
             get: fn($value) => json_decode($value, true),
@@ -98,61 +69,6 @@ class SubscribersSubscriptions extends Model
             'user_id'    // Local key в Subscribers
         );
     }
-
-    public function getMonthLimit($limit)
-    {
-        $user = Auth::user();
-
-        if ($user instanceof User && ToolLimits::bypassesFor($user)) {
-            return ToolLimits::UNLIMITED_VALUE;
-        }
-
-        $limits = is_array($this->limits_month) ? $this->limits_month : [];
-        $extraLimits = is_array($this->extra_limits_month) ? $this->extra_limits_month : [];
-
-        $base = max(0, (int) ($limits[$limit] ?? 0));
-        $extra = max(0, (int) ($extraLimits[$limit] ?? 0));
-        $total = $base + $extra;
-
-        return $total > 0 ? $total : false;
-    }
-
-    public function minusMonthLimit($limit)
-    {
-        $user = Auth::user();
-
-        if ($user instanceof User && ToolLimits::bypassesFor($user)) {
-            return true;
-        }
-
-        $limits = is_array($this->limits_month) ? $this->limits_month : [];
-        $extraLimits = is_array($this->extra_limits_month) ? $this->extra_limits_month : [];
-
-        if (isset($limits[$limit]) && (int) $limits[$limit] !== 0) {
-            $limits[$limit]--;
-            $this->update([
-                'limits_month' => $limits,
-            ]);
-
-            return true;
-        }
-
-        if (isset($extraLimits[$limit]) && (int) $extraLimits[$limit] !== 0) {
-            $extraLimits[$limit]--;
-            $this->update([
-                'extra_limits_month' => $extraLimits,
-            ]);
-
-            return true;
-        }
-
-        return false;
-    }
-
-    // private function getLastSubscriptions()
-    // {
-    //     return $this->
-    // }
 
     public function subscriber()
     {

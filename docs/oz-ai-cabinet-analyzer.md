@@ -16,10 +16,13 @@
 
 1. Берётся **единый** кабинет Ozon из шапки (`oz_cabinets` / `selected_oz_cabinet_id`).
 2. В очереди `oz_ai_cabinet_analyzer` собираются:
-   - полный **каталог** товаров;
+   - полный **каталог** товаров (включая индекс цен, комиссии, ошибки карточки);
    - **free-аналитика** (`revenue`, `ordered_units` по SKU);
-   - **поисковый спрос** (product-queries, free-поля);
-   - **остатки / оборачиваемость**;
+   - **поисковый спрос** (product-queries + тексты запросов details, free-поля);
+   - **остатки / оборачиваемость / ликвидность**;
+   - **контент-рейтинг** карточек;
+   - **рейтинги продавца**;
+   - **акции** Ozon;
    - **реклама** (Performance API) — если заданы Performance-ключи.
 3. Данные **агрегируются в одну запись на product_id**.
 4. Snapshot сохраняется в `oz_ai_cabinet_analyzer_reports.result_json`.
@@ -55,6 +58,9 @@
   - `OzAiCabinetAnalyzerProductQueriesCollector`
   - `OzAiCabinetAnalyzerStocksCollector`
   - `OzAiCabinetAnalyzerAdsCollector`
+  - `OzAiCabinetAnalyzerContentRatingCollector`
+  - `OzAiCabinetAnalyzerSellerRatingCollector`
+  - `OzAiCabinetAnalyzerPromosCollector`
 - HTTP: `OzonApiService`, `OzonPerformanceApiService`
 - Jobs: `ProcessOzAiCabinetAnalyzerReport`, `ProcessOzAiCabinetAnalyzerAiAnalysisJob`
 
@@ -65,12 +71,18 @@
 | Метод | Назначение | Free |
 |-------|------------|------|
 | `POST /v3/product/list` | Список товаров | да |
-| `POST /v3/product/info/list` | Карточки | да |
+| `POST /v3/product/info/list` | Карточки + индекс цен, комиссии, ошибки | да |
 | `POST /v4/product/info/attributes` | Бренд (best-effort) | да |
 | `POST /v1/analytics/data` | revenue, ordered_units by sku | free-метрики only |
-| `POST /v1/analytics/product-queries` | поисковый спрос | частично |
-| `POST /v2/analytics/stock_on_warehouses` | остатки | да |
-| `POST /v1/analytics/turnover/stocks` | IDC / ADS | да |
+| `POST /v1/analytics/product-queries` | поисковый спрос (агрегат) | частично |
+| `POST /v1/analytics/product-queries/details` | тексты запросов (до 15 на SKU) | частично |
+| `POST /v2/analytics/stock_on_warehouses` | остатки по складам | да (метод будет отключён, оставлен как разрез) |
+| `POST /v1/analytics/turnover/stocks` | IDC / ADS / turnover | да |
+| `POST /v1/analytics/stocks` | ликвидность остатков | да |
+| `POST /v1/product/rating-by-sku` | контент-рейтинг карточки | да |
+| `POST /v1/rating/summary` | рейтинги продавца | да |
+| `GET /v1/actions` | список акций | да |
+| `POST /v1/actions/products` | товары в акции | да |
 
 **Ограничения free analytics:** глубина ~3 месяца; max 1000 строк/запрос; throttle + 429 backoff 60s.
 
@@ -103,7 +115,9 @@
     "period": { "begin_date": "Y-m-d", "end_date": "Y-m-d" },
     "analytics_period": { "begin_date": "Y-m-d", "end_date": "Y-m-d" },
     "period_clamped": false,
-    "sources_collected": ["products", "analytics", "product_queries", "stocks", "advertising"],
+    "sources_collected": ["products", "analytics", "product_queries", "stocks", "advertising", "content", "seller_rating", "promos"],
+    "seller_rating": {},
+    "actions": [],
     "analytics_tier": "free",
     "premium_metrics_excluded": true,
     "advertising_status": "collected|skipped_no_credentials|failed",
@@ -121,10 +135,14 @@
       "name": "...",
       "brand": null,
       "raw": {},
+      "price_indexes": { "color_index": "GREEN" },
       "analytics": { "revenue": 0, "ordered_units": 0, "period": {} },
-      "search": { "unique_search_users": 0, "gmv": 0 },
+      "search": { "unique_search_users": 0, "gmv": 0, "queries": [] },
       "stocks": { "free_to_sell": 0, "reserved": 0, "promised": 0 },
       "turnover": { "ads": 0, "current_stock": 0, "idc": 0 },
+      "liquidity": { "turnover_grade": null, "days_without_sales": 0 },
+      "content_rating": { "rating": null, "groups": [] },
+      "promos": [],
       "advertising": { "views": 0, "clicks": 0, "spend": 0, "orders": 0 },
       "ads_vs_analytics": { "orders_gap": 0, "orders_ratio_ads_to_analytics": null }
     }
@@ -135,8 +153,12 @@
 Join: analytics/ads/stocks по **SKU** → `products[].skus.all`.
 
 - Статусы отчёта: `processing | done | failed`
-- AI `data_sources`: `products`, `analytics`, `search`, `stocks`, `advertising`
+- AI `data_sources`: `products`, `analytics`, `search`, `stocks`, `advertising`, `content`, `seller_rating`, `promos`
 - `ads_vs_analytics` в LLM только если выбраны analytics **и** advertising
+- `meta.seller_rating` / `meta.actions` в LLM только при выбранных `seller_rating` / `promos`
+- Выбор источников — в админке `/cw-page/services/oz-ai-cabinet/prompts`
+- У шаблона поле `credits_cost` (default **10** кредитов) — стоимость одной AI-генерации. Редактируется в форме промпта, не на `/cw-page/credit-pricing`. Резерв при запуске, списание когда job ставит анализ в `done`.
+- При старте/перегенерации: `CreditBillingService::reserve`. Как только job получил ответ ИИ и поставил `done` — `captureOpenHold`. Failed job — `releaseOpenHold`. Snapshot не тарифицируется.
 - AI: Gemini + GPT fallback, `AiTaskType::OZ_AI_CABINET_ANALYZER_AI`
 
 ## Очереди

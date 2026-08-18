@@ -10,12 +10,14 @@ import Switch from "@/components/ui/Switch.vue";
 import Textarea from "@/components/ui/Textarea.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
+import { formatCredits } from "@/utils/credits";
 
 const props = defineProps({
     client: { type: Object, required: true },
     templates: { type: Array, default: () => [] },
     templatesError: { type: String, default: null },
     botStatus: { type: Number, default: 0 },
+    creditsCost: { type: Number, default: 0 },
 });
 
 const breadcrumbs = [
@@ -136,6 +138,8 @@ async function generateTemplateText() {
         const data = await response.json();
         if (data.success) {
             addForm.text = data.data ?? "";
+        } else {
+            showError(data.messages?.[0] ?? "Не удалось сгенерировать шаблон");
         }
     } catch {
         showError("Не удалось сгенерировать шаблон");
@@ -195,7 +199,12 @@ async function generateTemplateText() {
                         <input v-model.number="addForm.maxRating" type="number" min="1" max="5" class="w-full rounded-md border px-3 py-2" />
                     </label>
                 </div>
-                <Button variant="outline" size="sm" @click="generateTemplateText">Сгенерировать ИИ</Button>
+                <div class="space-y-1">
+                    <Button variant="outline" size="sm" @click="generateTemplateText">Сгенерировать ИИ</Button>
+                    <p class="text-xs text-muted-foreground">
+                        За генерацию будет списано {{ formatCredits(creditsCost) }}
+                    </p>
+                </div>
                 <Textarea v-model="addForm.text" :rows="10" placeholder="Текст шаблона" />
                 <p v-if="addForm.errors.text" class="text-sm text-destructive">{{ addForm.errors.text }}</p>
             </div>

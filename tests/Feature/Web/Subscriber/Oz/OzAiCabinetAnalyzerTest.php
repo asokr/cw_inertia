@@ -2,8 +2,12 @@
 
 namespace Tests\Feature\Web\Subscriber\Oz;
 
+use App\Enums\Credits\CreditLedgerType;
 use App\Jobs\Oz\AiCabinetAnalyzer\ProcessOzAiCabinetAnalyzerAiAnalysisJob;
 use App\Jobs\Oz\AiCabinetAnalyzer\ProcessOzAiCabinetAnalyzerReport;
+use App\Models\Credits\CreditAccount;
+use App\Models\Credits\CreditHold;
+use App\Models\Credits\CreditLedger;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysis;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerReport;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerTemplate;
@@ -19,14 +23,18 @@ use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Web\Auth\WebAuthTestCase;
+use Tests\Support\CreatesCreditBillingSchema;
 
 class OzAiCabinetAnalyzerTest extends WebAuthTestCase
 {
+    use CreatesCreditBillingSchema;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->setupOzAiCabinetAnalyzerSchema();
+        $this->setupCreditBillingSchema();
 
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
 
@@ -154,6 +162,7 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
         Queue::fake();
 
         $user = $this->createSubscriberUser(withPermission: true);
+        $this->grantCredits($user, 25);
         $cabinet = $this->createUnifiedCabinet($user, 'Start AI');
         $report = $this->createReport($cabinet);
         $template = $this->createTemplate();
@@ -174,6 +183,11 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
             'status' => OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING,
         ]);
         Queue::assertPushed(ProcessOzAiCabinetAnalyzerAiAnalysisJob::class);
+
+        $account = CreditAccount::query()->where('user_id', $user->id)->first();
+        $this->assertSame(15, $account->available());
+        $this->assertSame(10, $account->purchased_held);
+        $this->assertSame(0, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Capture)->count());
     }
 
     public function test_cannot_start_same_analysis_while_processing_on_report(): void
@@ -197,6 +211,154 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
 
         $this->assertDatabaseCount('oz_ai_cabinet_analyzer_ai_analyses', 1);
         Queue::assertNothingPushed();
+    }
+
+    public function test_start_ai_analysis_requires_credits(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->grantCredits($user, 3);
+        $cabinet = $this->createUnifiedCabinet($user, 'No credits');
+        $report = $this->createReport($cabinet);
+        $template = $this->createTemplate();
+
+        $this->actingAs($user)
+            ->from('/panel/oz/ai-cabinet-analyzer')
+            ->post('/panel/oz/ai-cabinet-analyzer/ai-analyses/start', [
+                'report_id' => $report->id,
+                'template_id' => $template->id,
+            ])
+            ->assertRedirect('/panel/oz/ai-cabinet-analyzer')
+            ->assertSessionHas('error');
+
+        $this->assertDatabaseCount('oz_ai_cabinet_analyzer_ai_analyses', 0);
+        Queue::assertNothingPushed();
+        $this->assertSame(3, CreditAccount::query()->where('user_id', $user->id)->first()->available());
+    }
+
+    public function test_returning_existing_done_analysis_does_not_charge(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->grantCredits($user, 25);
+        $cabinet = $this->createUnifiedCabinet($user, 'Existing done');
+        $report = $this->createReport($cabinet);
+        $template = $this->createTemplate();
+        $this->createAnalysis($report, $template, OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE);
+
+        $this->actingAs($user)
+            ->from('/panel/oz/ai-cabinet-analyzer')
+            ->post('/panel/oz/ai-cabinet-analyzer/ai-analyses/start', [
+                'report_id' => $report->id,
+                'template_id' => $template->id,
+            ])
+            ->assertRedirect('/panel/oz/ai-cabinet-analyzer')
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseCount('oz_ai_cabinet_analyzer_ai_analyses', 1);
+        Queue::assertNothingPushed();
+        $this->assertSame(25, CreditAccount::query()->where('user_id', $user->id)->first()->available());
+    }
+
+    public function test_show_done_analysis_captures_reserved_credits(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->grantCredits($user, 25);
+        $cabinet = $this->createUnifiedCabinet($user, 'Capture AI');
+        $report = $this->createReport($cabinet);
+        $template = $this->createTemplate();
+
+        $this->actingAs($user)
+            ->from('/panel/oz/ai-cabinet-analyzer')
+            ->post('/panel/oz/ai-cabinet-analyzer/ai-analyses/start', [
+                'report_id' => $report->id,
+                'template_id' => $template->id,
+            ])
+            ->assertSessionHas('success');
+
+        $analysis = OzAiCabinetAnalyzerAiAnalysis::query()->first();
+        $analysis->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE;
+        $analysis->analysis_text = json_encode(['summary' => 'ok'], JSON_UNESCAPED_UNICODE);
+        $analysis->save();
+
+        $this->actingAs($user)
+            ->get("/panel/oz/ai-cabinet-analyzer/ai-analyses/{$analysis->id}")
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $account = CreditAccount::query()->where('user_id', $user->id)->first();
+        $this->assertSame(15, $account->available());
+        $this->assertSame(0, $account->purchased_held);
+        $this->assertSame(15, $account->purchased_balance);
+        $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Capture)->count());
+
+        $this->actingAs($user)
+            ->get("/panel/oz/ai-cabinet-analyzer/ai-analyses/{$analysis->id}")
+            ->assertOk();
+
+        $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Capture)->count());
+        $this->assertSame(15, $account->fresh()->available());
+    }
+
+    public function test_regenerate_uses_current_template_cost(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->grantCredits($user, 40);
+        $cabinet = $this->createUnifiedCabinet($user, 'Regen cost');
+        $report = $this->createReport($cabinet);
+        $template = $this->createTemplate();
+        $analysis = $this->createAnalysis($report, $template, OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE);
+
+        $template->credits_cost = 15;
+        $template->save();
+
+        $this->actingAs($user)
+            ->from('/panel/oz/ai-cabinet-analyzer')
+            ->post("/panel/oz/ai-cabinet-analyzer/ai-analyses/{$analysis->id}/regenerate")
+            ->assertRedirect('/panel/oz/ai-cabinet-analyzer')
+            ->assertSessionHas('success');
+
+        $account = CreditAccount::query()->where('user_id', $user->id)->first();
+        $this->assertSame(25, $account->available());
+        $this->assertSame(15, $account->purchased_held);
+        Queue::assertPushed(ProcessOzAiCabinetAnalyzerAiAnalysisJob::class);
+    }
+
+    public function test_snapshot_start_does_not_charge_credits(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->grantCredits($user, 25);
+        $this->createUnifiedCabinet($user, 'Snapshot');
+
+        $this->actingAs($user)
+            ->from('/panel/oz/ai-cabinet-analyzer')
+            ->post('/panel/oz/ai-cabinet-analyzer/reports', [
+                'begin_date' => '2026-01-01',
+                'end_date' => '2026-01-15',
+            ])
+            ->assertSessionHas('success');
+
+        $this->assertSame(25, CreditAccount::query()->where('user_id', $user->id)->first()->available());
+        $this->assertSame(0, CreditHold::query()->where('user_id', $user->id)->count());
+    }
+
+    private function grantCredits(User $user, int $amount): void
+    {
+        CreditAccount::query()->create([
+            'user_id' => $user->id,
+            'subscription_balance' => 0,
+            'purchased_balance' => $amount,
+            'subscription_held' => 0,
+            'purchased_held' => 0,
+        ]);
     }
 
     private function createSubscriberUser(bool $withPermission = false): User
@@ -333,7 +495,12 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
                 $table->boolean('is_active')->default(true)->index();
                 $table->string('response_format', 32)->default('json');
                 $table->json('data_sources')->nullable();
+                $table->unsignedInteger('credits_cost')->default(10);
                 $table->timestamps();
+            });
+        } elseif (! Schema::hasColumn('oz_ai_cabinet_analyzer_templates', 'credits_cost')) {
+            Schema::table('oz_ai_cabinet_analyzer_templates', function (Blueprint $table) {
+                $table->unsignedInteger('credits_cost')->default(10);
             });
         }
 
@@ -364,7 +531,12 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
                 $table->timestamp('started_at')->nullable();
                 $table->timestamp('finished_at')->nullable();
                 $table->text('error_message')->nullable();
+                $table->string('credit_idempotency_key')->nullable();
                 $table->timestamps();
+            });
+        } elseif (! Schema::hasColumn('oz_ai_cabinet_analyzer_ai_analyses', 'credit_idempotency_key')) {
+            Schema::table('oz_ai_cabinet_analyzer_ai_analyses', function (Blueprint $table) {
+                $table->string('credit_idempotency_key')->nullable();
             });
         }
 

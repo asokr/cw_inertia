@@ -35,6 +35,7 @@ class AiVideoGenerationTask extends Model
         'error_message',
         'model',
         'limit_consumed_at',
+        'credit_idempotency_key',
     ];
 
     protected $casts = [

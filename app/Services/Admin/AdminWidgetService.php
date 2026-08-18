@@ -6,6 +6,7 @@ use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class AdminWidgetService
 {
@@ -103,11 +104,12 @@ class AdminWidgetService
             ->with([
                 'user' => function ($query) {
                     $query->select(['id', 'name', 'email', 'email_verified_at', 'created_at', 'vk_id', 'yandex_id'])
-                        ->with([
+                        ->with(array_filter([
                             'balances' => function ($balanceQuery) {
                                 $balanceQuery->select(['payable_id', 'value']);
                             },
-                        ]);
+                            Schema::hasTable('credit_accounts') ? 'creditAccount' : null,
+                        ]));
                 },
                 'subscriptions' => function ($query) {
                     $query->select([
@@ -115,9 +117,6 @@ class AdminWidgetService
                         'subscribers_id',
                         'plan_id',
                         'limits_plan',
-                        'extra_limits_plan',
-                        'limits_month',
-                        'extra_limits_month',
                         'start_date',
                         'status',
                     ])
@@ -125,7 +124,7 @@ class AdminWidgetService
                         ->latest('start_date')
                         ->with([
                             'plan' => function ($planQuery) {
-                                $planQuery->select(['id', 'name', 'limits_plan', 'limits_month']);
+                                $planQuery->select(['id', 'name', 'limits_plan']);
                             },
                             'couponUsage' => function ($couponQuery) {
                                 $couponQuery->where('used_at', '>=', now()->subDays(30))
@@ -163,9 +162,16 @@ class AdminWidgetService
                 'balance' => $balance,
                 'coupon_usage' => $subscription?->couponUsage,
                 'limits_plan' => $subscription?->limits_plan ?? [],
-                'extra_limits_plan' => $subscription?->extra_limits_plan ?? [],
-                'limits_month' => $subscription?->limits_month ?? [],
-                'extra_limits_month' => $subscription?->extra_limits_month ?? [],
+                'credits' => [
+                    'available' => max(
+                        0,
+                        (int) ($subscriber->user?->creditAccount?->subscription_balance ?? 0)
+                        + (int) ($subscriber->user?->creditAccount?->purchased_balance ?? 0)
+                        - (int) ($subscriber->user?->creditAccount?->subscription_held ?? 0)
+                        - (int) ($subscriber->user?->creditAccount?->purchased_held ?? 0)
+                    ),
+                    'purchased' => (int) ($subscriber->user?->creditAccount?->purchased_balance ?? 0),
+                ],
             ];
         });
 

@@ -75,7 +75,7 @@ class AdminCwPageRoutesTest extends WebAuthTestCase
             ['/cw-page/subscribers', 'Admin/Subscribers/Index'],
             ['/cw-page/plans', 'Admin/Plans/Index'],
             ['/cw-page/plans/create', 'Admin/Plans/Form'],
-            ['/cw-page/extra-limits', 'Admin/ExtraLimits/Index'],
+            ['/cw-page/credit-pricing', 'Admin/CreditPricing/Index'],
             ['/cw-page/payments', 'Admin/Payments/Index'],
             ['/cw-page/coupons', 'Admin/Coupons/Index'],
             ['/cw-page/sent-emails', 'Admin/SentEmails/Index'],
@@ -274,6 +274,7 @@ class AdminCwPageRoutesTest extends WebAuthTestCase
                 $table->boolean('is_active')->default(true);
                 $table->string('response_format')->default('json');
                 $table->json('data_sources')->nullable();
+                $table->unsignedInteger('credits_cost')->default(10);
                 $table->timestamps();
             },
             'oz_cabinets' => function (Blueprint $table) {
@@ -294,6 +295,7 @@ class AdminCwPageRoutesTest extends WebAuthTestCase
                 $table->boolean('is_active')->default(true);
                 $table->string('response_format')->default('json');
                 $table->json('data_sources')->nullable();
+                $table->unsignedInteger('credits_cost')->default(10);
                 $table->timestamps();
             },
             'wb_api_usage_stats' => function (Blueprint $table) {
