@@ -95,6 +95,21 @@ class WbAbExperimentEngine
             $errors[] = 'По этому товару уже запущен эксперимент «'.$running->name.'».';
         }
 
+        $advertIdForBusyCheck = (int) ($experiment->wb_advert_id ?? 0);
+        if ($advertIdForBusyCheck > 0) {
+            $busyAdvert = AbExperiment::query()
+                ->where('cabinet_id', $experiment->cabinet_id)
+                ->where('wb_advert_id', $advertIdForBusyCheck)
+                ->where('status', WbAbTestStatus::Running->value)
+                ->where('id', '!=', $experiment->id)
+                ->first();
+
+            if ($busyAdvert) {
+                $errors[] = 'Эта кампания уже используется в запущенном эксперименте «'.$busyAdvert->name
+                    .'». Дождитесь завершения или остановите его.';
+            }
+        }
+
         foreach ($photos as $photo) {
             $disk = (string) ($photo->disk ?: self::PHOTO_DISK);
             $path = (string) $photo->path;

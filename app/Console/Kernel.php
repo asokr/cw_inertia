@@ -123,6 +123,12 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->onOneServer()
             ->runInBackground();
+
+        $schedule->command('subscriber:oz-ab-testing-tick')
+            ->everyTwoMinutes()
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground();
     }
 
     /**

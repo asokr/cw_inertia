@@ -39,6 +39,7 @@ Jobs: [`app/Jobs/`](../app/Jobs/).
 | `profitability` | WB Рентабельность | `ProcessProfitabilityReport`, `ExportProfitabilityReportJob` | |
 | `repricer_stocks` | WB Репрайсер (остатки / strategy one) | `UpdateRepricerStocksJob`, `ApplyRepricerStrategyOneJob` | Unique jobs |
 | `wb_ab_testing` | WB A/B-тесты | `ProcessAbExperimentJob` | Unique until processing |
+| `oz_ab_testing` | Ozon A/B-тесты | `ProcessOzAbCabinetTickJob` | Unique until processing, один job на кабинет |
 | `wb_ai_cabinet_analyzer` | WB AI Cabinet Analyzer | report + AI analysis jobs | timeout 3600 |
 | `oz_ai_cabinet_analyzer` | Ozon AI Cabinet Analyzer | report + AI analysis jobs | timeout 3600 |
 
@@ -101,6 +102,17 @@ Ozon Price Calc: batch names вида `ozon_fbo_*_{cabinetId}` / `ozon_fbs_*_{ca
 `EnrichAbProductRatingsJob` — в `default` (см. выше).  
 Документация: [wb-ab-testing.md](wb-ab-testing.md).
 
+### `oz_ab_testing`
+
+| Job | Timeout | Tries | Unique | Где задаётся очередь |
+|-----|---------|-------|--------|----------------------|
+| `App\Jobs\Oz\AbTesting\ProcessOzAbCabinetTickJob` | 120 | 1 | `ShouldBeUniqueUntilProcessing` (`uniqueFor` 180, id `oz-ab-cabinet-{cabinetId}`) | `$this->onQueue('oz_ab_testing')` |
+| `App\Jobs\Oz\AbTesting\ProcessOzAbExperimentJob` | 30 | 1 | shim: перекладывает в cabinet tick | `$this->onQueue('oz_ab_testing')` |
+
+Диспатч: первый running-эксперимент кабинета → `ProcessOzAbCabinetTickJob`; следующие running только добавляются в тот же тик. Self-dispatch с delay **60 сек**.  
+Fallback-команда: каждые 2 минуты, по одному job на кабинет.  
+Документация: [oz-ab-testing.md](oz-ab-testing.md).
+
 ### `wb_ai_cabinet_analyzer`
 
 | Job | Timeout | Tries | Unique / lock | Где задаётся очередь |
@@ -146,6 +158,9 @@ php artisan queue:work --queue=repricer_stocks --timeout=1500
 # WB A/B
 php artisan queue:work --queue=wb_ab_testing,default --tries=1 --timeout=120
 
+# Ozon A/B
+php artisan queue:work --queue=oz_ab_testing,default --tries=1 --timeout=120
+
 # AI-анализаторы
 php artisan queue:work --queue=wb_ai_cabinet_analyzer --tries=3 --timeout=3600 --sleep=1
 php artisan queue:work --queue=oz_ai_cabinet_analyzer --tries=3 --timeout=3600 --sleep=1
@@ -154,7 +169,7 @@ php artisan queue:work --queue=oz_ai_cabinet_analyzer --tries=3 --timeout=3600 -
 Один воркер на несколько очередей (приоритет слева направо):
 
 ```bash
-php artisan queue:work --queue=wb_ab_testing,price_calc,profitability,repricer_stocks,wb_ai_cabinet_analyzer,oz_ai_cabinet_analyzer,default --timeout=3600
+php artisan queue:work --queue=wb_ab_testing,oz_ab_testing,price_calc,profitability,repricer_stocks,wb_ai_cabinet_analyzer,oz_ai_cabinet_analyzer,default --timeout=3600
 ```
 
 Для локальной отладки без воркеров: `QUEUE_CONNECTION=sync` (jobs выполняются синхронно; batch/delay ведут себя иначе).

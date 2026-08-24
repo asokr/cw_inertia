@@ -38,6 +38,18 @@ class WbAdvertApiClient
     public const SERVICE_NMS_EDITABLE_STATUSES = [4, 11];
 
     /**
+     * Статусы РК, которые можно использовать в A/B-тесте.
+     * 4 — готова к запуску, 9 — активна, 11 — на паузе.
+     */
+    public const AB_USABLE_ADVERT_STATUSES = [4, 9, 11];
+
+    /**
+     * Типы из GET /adv/v1/promotion/count: 8 — историческая автокампания, 9 — seacat/аукцион.
+     * GET /api/advert/v2/adverts возвращает только кампании с единой/ручной ставкой.
+     */
+    public const AB_USABLE_ADVERT_TYPES = [8, 9];
+
+    /**
      * GET /adv/v1/promotion/count
      *
      * @return array{success: bool, code: int, data: mixed, message?: string}
@@ -306,6 +318,9 @@ class WbAdvertApiClient
     /**
      * Extract stats for a campaign, optionally filtered by nm_id from nested days/apps/nms.
      *
+     * Если в ответе есть разбивка по nm — берём только этот товар (нет строк = 0),
+     * не подставляя итоги всей кампании: иначе чужие товары раздуют статистику A/B.
+     *
      * @param  list<array<string, mixed>>  $rows
      * @return array{views:int,clicks:int,spend:float,orders:int,ctr:float}
      */
@@ -323,18 +338,55 @@ class WbAdvertApiClient
                 continue;
             }
 
-            // Prefer nested nm breakdown when nmId is known.
-            if ($nmId !== null && $nmId > 0) {
-                $nmTotals = $this->sumNmStatsFromFullstatsRow($row, $nmId);
-                if ($nmTotals !== null) {
-                    return $nmTotals;
-                }
+            if ($nmId !== null && $nmId > 0 && $this->fullstatsRowHasNmBreakdown($row)) {
+                return $this->sumNmStatsFromFullstatsRow($row, $nmId) ?? $empty;
             }
 
             return $this->normalizeFullstatsRow($row);
         }
 
         return $empty;
+    }
+
+    /**
+     * Есть ли в строке fullstats вложенная разбивка по номенклатурам.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private function fullstatsRowHasNmBreakdown(array $row): bool
+    {
+        $topNms = Arr::get($row, 'nms', Arr::get($row, 'nmStats'));
+        if (is_array($topNms)) {
+            return true;
+        }
+
+        $days = Arr::get($row, 'days', []);
+        if (! is_array($days)) {
+            return false;
+        }
+
+        foreach ($days as $day) {
+            if (! is_array($day)) {
+                continue;
+            }
+            if (is_array(Arr::get($day, 'nms'))) {
+                return true;
+            }
+            $apps = Arr::get($day, 'apps', []);
+            if (! is_array($apps)) {
+                continue;
+            }
+            foreach ($apps as $app) {
+                if (! is_array($app)) {
+                    continue;
+                }
+                if (is_array(Arr::get($app, 'nms')) || is_array(Arr::get($app, 'nm'))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -490,12 +542,13 @@ class WbAdvertApiClient
     }
 
     /**
-     * Collect advert IDs from promotion/count, optionally filtered by status.
+     * Collect advert IDs from promotion/count, optionally filtered by status and type.
      *
      * @param  list<int>|null  $statuses
+     * @param  list<int>|null  $types
      * @return array{success: bool, code: int, ids: list<int>, groups: list<array<string, mixed>>, message?: string}
      */
-    public function listAdvertIds(string $apiKey, ?array $statuses = null): array
+    public function listAdvertIds(string $apiKey, ?array $statuses = null, ?array $types = null): array
     {
         $result = $this->promotionCount($apiKey);
         if (! ($result['success'] ?? false)) {
@@ -516,6 +569,9 @@ class WbAdvertApiClient
         $statusFilter = $statuses !== null
             ? array_map('intval', $statuses)
             : null;
+        $typeFilter = $types !== null
+            ? array_map('intval', $types)
+            : null;
 
         $ids = [];
         $normalizedGroups = [];
@@ -531,6 +587,10 @@ class WbAdvertApiClient
             }
 
             $type = (int) Arr::get($group, 'type', 0);
+            if ($typeFilter !== null && ! in_array($type, $typeFilter, true)) {
+                continue;
+            }
+
             $list = Arr::get($group, 'advert_list', []);
             $groupIds = [];
 

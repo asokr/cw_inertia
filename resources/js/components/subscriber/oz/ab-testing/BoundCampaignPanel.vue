@@ -53,9 +53,7 @@ const isRunning = computed(() => experimentStatus.value === "running");
 const canEdit = computed(() => !!props.experiment?.can_edit);
 
 /** Deposit allowed for editable or running (need budget). */
-const canDeposit = computed(
-    () => !!advertId.value && (canEdit.value || isRunning.value),
-);
+const canDeposit = computed(() => false);
 
 /** Pause only when not busy by running AB and experiment is editable. */
 const canPause = computed(
@@ -114,37 +112,9 @@ function formatRub(value) {
 }
 
 async function loadBudget() {
-    if (!advertId.value) {
-        budgetTotal.value = null;
-        return;
-    }
-
-    budgetLoading.value = true;
+    budgetTotal.value = null;
+    budgetLoading.value = false;
     budgetError.value = "";
-
-    try {
-        const { data } = await axios.get(
-            `${props.baseUrl}/campaigns/${advertId.value}/budget`,
-        );
-
-        if (!data?.success) {
-            budgetError.value = data?.messages?.[0] || "Не удалось загрузить бюджет";
-            budgetTotal.value = null;
-            return;
-        }
-
-        budgetTotal.value =
-            data.budget_total != null && data.budget_total !== ""
-                ? Number(data.budget_total)
-                : null;
-    } catch (error) {
-        budgetError.value =
-            error?.response?.data?.messages?.[0] ||
-            "Не удалось загрузить бюджет";
-        budgetTotal.value = null;
-    } finally {
-        budgetLoading.value = false;
-    }
 }
 
 async function pauseCampaign() {
@@ -489,7 +459,7 @@ onMounted(() => {
         <Dialog
             :open="deleteOpen"
             title="Удалить кампанию?"
-            description="Кампания будет удалена в Wildberries и отвязана от эксперимента. Потребуется заново выбрать или создать кампанию."
+            description="Кампания будет удалена в Ozon и отвязана от эксперимента. Потребуется заново выбрать или создать кампанию."
             @update:open="(v) => { if (!v) deleteOpen = false }"
         >
             <p class="text-sm text-muted-foreground">

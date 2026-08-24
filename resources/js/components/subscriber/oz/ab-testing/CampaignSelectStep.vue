@@ -375,7 +375,7 @@ onMounted(() => {
         <div v-if="!embedded" class="space-y-1">
             <h3 class="text-lg font-semibold">Рекламная кампания</h3>
             <p class="text-sm text-muted-foreground">
-                Выберите кампанию из кабинета Wildberries или создайте новую. Клик по строке привязывает её к эксперименту.
+                Выберите кампанию из кабинета Ozon или создайте новую. Клик по строке привязывает её к эксперименту.
             </p>
         </div>
         <div v-else class="space-y-1">
@@ -470,7 +470,7 @@ onMounted(() => {
         <Dialog
             :open="!!deleteTarget"
             title="Удалить кампанию?"
-            description="Кампания будет удалена в кабинете Wildberries. Это действие необратимо."
+            description="Кампания будет удалена в кабинете Ozon. Это действие необратимо."
             @update:open="(v) => { if (!v) deleteTarget = null }"
         >
             <p v-if="deleteTarget" class="text-sm text-muted-foreground">

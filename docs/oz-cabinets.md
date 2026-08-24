@@ -96,4 +96,5 @@ Legacy path `/panel/oz/price-calc/cabinets/{cabinet}` → redirect на flat URL
 - [wb-cabinets.md](wb-cabinets.md) — образец архитектуры
 - [oz-ai-cabinet-analyzer.md](oz-ai-cabinet-analyzer.md) — AI Анализ кабинета Ozon
 - [ozon-price-calculation.md](ozon-price-calculation.md)
+- [oz-ab-testing.md](oz-ab-testing.md) — A/B-тест фото; нужны ключи Performance API
 - [inertia-migration-matrix.md](inertia-migration-matrix.md)

@@ -623,7 +623,7 @@ SQL;
     }
 
     /**
-     * Guard for future start action: only one running experiment per product.
+     * Guard for start: one running experiment per product and per campaign.
      *
      * @throws ValidationException
      */
@@ -641,6 +641,45 @@ SQL;
                     .'». Дождитесь завершения или остановите его, прежде чем запускать другой.',
             ]);
         }
+
+        $advertId = (int) ($experiment->wb_advert_id ?? 0);
+        if ($advertId <= 0) {
+            return;
+        }
+
+        $busy = $this->findRunningExperimentForAdvert(
+            (int) $experiment->cabinet_id,
+            $advertId,
+            (int) $experiment->id,
+        );
+
+        if ($busy) {
+            throw ValidationException::withMessages([
+                'experiment' => 'Эта кампания уже используется в запущенном эксперименте «'.$busy->name
+                    .'». Дождитесь завершения или остановите его.',
+            ]);
+        }
+    }
+
+    public function findRunningExperimentForAdvert(
+        int $cabinetId,
+        int $advertId,
+        ?int $exceptExperimentId = null,
+    ): ?AbExperiment {
+        if ($advertId <= 0) {
+            return null;
+        }
+
+        $query = AbExperiment::query()
+            ->where('cabinet_id', $cabinetId)
+            ->where('wb_advert_id', $advertId)
+            ->where('status', WbAbTestStatus::Running->value);
+
+        if ($exceptExperimentId !== null && $exceptExperimentId > 0) {
+            $query->where('id', '!=', $exceptExperimentId);
+        }
+
+        return $query->orderByDesc('id')->first();
     }
 
     public function getExperimentForCabinet(int $cabinetId, int $experimentId): ?AbExperiment
@@ -794,6 +833,7 @@ SQL;
             'can_start' => $canStart,
             'can_stop' => $canStop,
             'is_terminal' => $status->isTerminal(),
+            'campaign_created_by_tool' => $this->isCampaignCreatedByTool($experiment),
             'start_checks' => $this->buildStartChecksSummary($experiment, $settingsReady, $photosCount),
         ];
 
@@ -1726,7 +1766,7 @@ SQL;
     }
 
     /**
-     * List campaigns created by our service for this cabinet (not the whole WB ad cabinet).
+     * Список рекламных кампаний кабинета WB, пригодных для A/B-теста.
      *
      * @return array{success: bool, items: list<array<string, mixed>>, messages: list<string>}
      */
@@ -1737,45 +1777,7 @@ SQL;
         $nmId = (int) $product->nm_id;
         $selectedAdvertId = $experiment->wb_advert_id ? (int) $experiment->wb_advert_id : null;
 
-        $registry = AbCampaign::query()
-            ->where('cabinet_id', $cabinet->id)
-            ->orderByDesc('id')
-            ->get();
-
-        if ($registry->isEmpty()) {
-            return [
-                'success' => true,
-                'items' => [],
-                'messages' => [],
-            ];
-        }
-
-        $ids = $registry->pluck('wb_advert_id')->map(fn ($id) => (int) $id)->filter(fn ($id) => $id > 0)->values()->all();
-        $busyAdvertIds = $this->runningAdvertIdsForCabinet((int) $cabinet->id);
-        $advertsById = [];
-
-        if ($apiKey !== '' && $ids !== []) {
-            $details = $this->advertApi->getAdvertsBatched($apiKey, $ids);
-            if (! ($details['success'] ?? false)) {
-                return [
-                    'success' => false,
-                    'items' => [],
-                    'messages' => $details['messages'] !== []
-                        ? $details['messages']
-                        : ['Не удалось получить информацию о кампаниях'],
-                ];
-            }
-
-            foreach ($details['adverts'] as $advert) {
-                if (! is_array($advert)) {
-                    continue;
-                }
-                $id = (int) Arr::get($advert, 'id', 0);
-                if ($id > 0) {
-                    $advertsById[$id] = $advert;
-                }
-            }
-        } elseif ($apiKey === '') {
+        if ($apiKey === '') {
             return [
                 'success' => false,
                 'items' => [],
@@ -1783,16 +1785,76 @@ SQL;
             ];
         }
 
+        $listed = $this->advertApi->listAdvertIds(
+            $apiKey,
+            WbAdvertApiClient::AB_USABLE_ADVERT_STATUSES,
+            WbAdvertApiClient::AB_USABLE_ADVERT_TYPES,
+        );
+        if (! ($listed['success'] ?? false)) {
+            return [
+                'success' => false,
+                'items' => [],
+                'messages' => [$listed['message'] ?? 'Не удалось получить список кампаний'],
+            ];
+        }
+
+        $ids = $listed['ids'];
+        if ($selectedAdvertId !== null && $selectedAdvertId > 0 && ! in_array($selectedAdvertId, $ids, true)) {
+            $ids[] = $selectedAdvertId;
+        }
+
+        if ($ids === []) {
+            return [
+                'success' => true,
+                'items' => [],
+                'messages' => [],
+            ];
+        }
+
+        $details = $this->advertApi->getAdvertsBatched($apiKey, $ids);
+        if (! ($details['success'] ?? false)) {
+            return [
+                'success' => false,
+                'items' => [],
+                'messages' => $details['messages'] !== []
+                    ? $details['messages']
+                    : ['Не удалось получить информацию о кампаниях'],
+            ];
+        }
+
+        $advertsById = [];
+        foreach ($details['adverts'] as $advert) {
+            if (! is_array($advert)) {
+                continue;
+            }
+            $id = (int) Arr::get($advert, 'id', 0);
+            if ($id > 0) {
+                $advertsById[$id] = $advert;
+            }
+        }
+
+        $registryByAdvertId = AbCampaign::query()
+            ->where('cabinet_id', $cabinet->id)
+            ->whereIn('wb_advert_id', array_keys($advertsById) ?: [0])
+            ->get()
+            ->keyBy(fn (AbCampaign $row) => (int) $row->wb_advert_id);
+
+        $busyAdvertIds = $this->runningAdvertIdsForCabinet((int) $cabinet->id);
+
         $items = [];
-        foreach ($registry as $row) {
-            $advertId = (int) $row->wb_advert_id;
-            $live = $advertsById[$advertId] ?? null;
-            $items[] = $this->mapRegistryCampaignRow(
-                $row,
-                $live,
+        foreach ($advertsById as $advertId => $advert) {
+            $isSelected = $selectedAdvertId !== null && $selectedAdvertId === (int) $advertId;
+            if (! $isSelected && ! $this->isAdvertUsableForAb($advert, $nmId)) {
+                continue;
+            }
+
+            $items[] = $this->mapCampaignRow(
+                (int) $advertId,
+                $advert,
                 $nmId,
                 $selectedAdvertId,
                 $busyAdvertIds,
+                $registryByAdvertId->get($advertId),
             );
         }
 
@@ -1800,8 +1862,8 @@ SQL;
             if (($a['is_selected'] ?? false) !== ($b['is_selected'] ?? false)) {
                 return ($a['is_selected'] ?? false) ? -1 : 1;
             }
-            if (($a['can_edit_nms'] ?? false) !== ($b['can_edit_nms'] ?? false)) {
-                return ($a['can_edit_nms'] ?? false) ? -1 : 1;
+            if (($a['can_select'] ?? false) !== ($b['can_select'] ?? false)) {
+                return ($a['can_select'] ?? false) ? -1 : 1;
             }
             if (($a['contains_product'] ?? false) !== ($b['contains_product'] ?? false)) {
                 return ($a['contains_product'] ?? false) ? -1 : 1;
@@ -1962,7 +2024,7 @@ SQL;
     }
 
     /**
-     * Swap campaign nms to current product and bind experiment (reuse idle campaign).
+     * Привязать кампанию к эксперименту: добавить товар, если его нет, чужие товары не трогать.
      *
      * @return array{success: bool, experiment?: array<string, mixed>, campaign?: array<string, mixed>, messages: list<string>}
      */
@@ -1973,11 +2035,14 @@ SQL;
     ): array {
         $this->assertDraftExperiment($experiment);
         $product = $this->requireExperimentProduct($experiment);
-        $registry = $this->requireOurCampaign($cabinet, $advertId);
         $apiKey = (string) ($cabinet->apikey ?? '');
 
         if ($apiKey === '') {
             return ['success' => false, 'messages' => ['У кабинета не задан API-ключ Wildberries']];
+        }
+
+        if ($advertId <= 0) {
+            return ['success' => false, 'messages' => ['Некорректный ID кампании']];
         }
 
         $details = $this->advertApi->getAdverts($apiKey, [$advertId]);
@@ -1993,46 +2058,64 @@ SQL;
             return ['success' => false, 'messages' => ['Кампания не найдена в Wildberries']];
         }
 
-        $guard = $this->assertCanEditCampaignNms($cabinet, $advertId, $advert);
-        if ($guard !== null) {
-            return ['success' => false, 'messages' => [$guard]];
+        $status = (int) Arr::get($advert, 'status', 0);
+        if (! in_array($status, WbAdvertApiClient::AB_USABLE_ADVERT_STATUSES, true)) {
+            return [
+                'success' => false,
+                'messages' => ['Эту кампанию нельзя использовать для теста (статус: '.$this->campaignStatusLabel($status).').'],
+            ];
+        }
+
+        if ($this->isAdvertBusyByRunningAb((int) $cabinet->id, $advertId)) {
+            return [
+                'success' => false,
+                'messages' => [
+                    'Эта кампания уже используется в запущенном эксперименте. Дождитесь завершения или остановите его.',
+                ],
+            ];
         }
 
         $nmId = (int) $product->nm_id;
         $nmIds = $this->extractAdvertNmIds($advert);
-        $toDelete = array_values(array_filter($nmIds, static fn (int $id): bool => $id !== $nmId));
-        $toAdd = in_array($nmId, $nmIds, true) ? [] : [$nmId];
+        $containsProduct = in_array($nmId, $nmIds, true);
+        $addedProduct = false;
 
-        if ($toAdd !== [] || $toDelete !== []) {
-            $patch = $this->advertApi->patchAuctionNms($apiKey, $advertId, $toAdd, $toDelete);
+        if (! $containsProduct) {
+            $guard = $this->assertCanEditCampaignNms($cabinet, $advertId, $advert);
+            if ($guard !== null) {
+                return ['success' => false, 'messages' => [$guard]];
+            }
+
+            $patch = $this->advertApi->patchAuctionNms($apiKey, $advertId, [$nmId], []);
             if (! ($patch['success'] ?? false)) {
                 return [
                     'success' => false,
-                    'messages' => [$patch['message'] ?? 'Не удалось обновить товары в кампании'],
+                    'messages' => [$patch['message'] ?? 'Не удалось добавить товар в кампанию'],
                 ];
             }
+            $addedProduct = true;
         }
 
-        $name = (string) Arr::get($advert, 'settings.name', $registry->name);
+        $name = (string) Arr::get($advert, 'settings.name', '');
+        $bidType = (string) Arr::get($advert, 'bid_type', '');
+        $paymentType = (string) Arr::get($advert, 'settings.payment_type', '');
+        $registry = $this->registerExistingCampaign($cabinet, $advertId, $name, $bidType, $paymentType);
+
         $this->unbindOtherDraftsFromAdvert($cabinet, $experiment, $advertId);
         $this->bindAdvertToExperiment($experiment, $advertId, $name !== '' ? $name : $registry->name);
-
-        if ($name !== '' && $name !== $registry->name) {
-            $registry->name = $name;
-            $registry->save();
-        }
 
         $refreshed = $this->advertApi->getAdverts($apiKey, [$advertId]);
         $advertAfter = ($refreshed['success'] ?? false)
             ? $this->firstAdvertFromPayload($refreshed['data'] ?? null, $advertId)
             : $advert;
 
-        $mapped = $this->mapRegistryCampaignRow(
-            $registry->refresh(),
+        $mapped = $this->mapCampaignRow(
+            $advertId,
             $advertAfter,
             $nmId,
             $advertId,
             $this->runningAdvertIdsForCabinet((int) $cabinet->id),
+            $registry->refresh(),
         );
         $mapped['contains_product'] = true;
 
@@ -2041,9 +2124,9 @@ SQL;
             'experiment' => $this->mapExperiment($experiment->refresh()),
             'campaign' => $mapped,
             'messages' => [
-                $toAdd === [] && $toDelete === []
-                    ? 'Кампания уже содержит текущий товар и привязана к эксперименту'
-                    : 'Кампания подготовлена под текущий товар и привязана к эксперименту',
+                $addedProduct
+                    ? 'Товар добавлен в кампанию, кампания привязана к эксперименту'
+                    : 'Кампания уже содержит текущий товар и привязана к эксперименту',
             ],
         ];
     }
@@ -2061,7 +2144,6 @@ SQL;
     ): array {
         $this->assertDraftExperiment($experiment);
         $product = $this->requireExperimentProduct($experiment);
-        $this->requireOurCampaign($cabinet, $advertId);
         $apiKey = (string) ($cabinet->apikey ?? '');
 
         if ($apiKey === '') {
@@ -2083,7 +2165,11 @@ SQL;
 
         $nmId = (int) $product->nm_id;
         $nmIds = $this->extractAdvertNmIds($advert);
-        $registry = $this->requireOurCampaign($cabinet, $advertId);
+        $name = (string) Arr::get($advert, 'settings.name', '');
+        $bidType = (string) Arr::get($advert, 'bid_type', '');
+        $paymentType = (string) Arr::get($advert, 'settings.payment_type', '');
+        $registry = $this->registerExistingCampaign($cabinet, $advertId, $name, $bidType, $paymentType);
+        $selectedId = $bind ? $advertId : ($experiment->wb_advert_id ? (int) $experiment->wb_advert_id : null);
 
         if (in_array($nmId, $nmIds, true)) {
             if ($bind) {
@@ -2091,19 +2177,20 @@ SQL;
                 $this->bindAdvertToExperiment(
                     $experiment,
                     $advertId,
-                    (string) Arr::get($advert, 'settings.name', $registry->name),
+                    $name !== '' ? $name : $registry->name,
                 );
             }
 
             return [
                 'success' => true,
                 'experiment' => $this->mapExperiment($experiment->refresh()),
-                'campaign' => $this->mapRegistryCampaignRow(
-                    $registry,
+                'campaign' => $this->mapCampaignRow(
+                    $advertId,
                     $advert,
                     $nmId,
-                    $bind ? $advertId : ($experiment->wb_advert_id ? (int) $experiment->wb_advert_id : null),
+                    $selectedId,
                     $this->runningAdvertIdsForCabinet((int) $cabinet->id),
+                    $registry,
                 ),
                 'messages' => ['Товар уже есть в кампании'],
             ];
@@ -2122,10 +2209,9 @@ SQL;
             ];
         }
 
-        $name = (string) Arr::get($advert, 'settings.name', $registry->name);
         if ($bind) {
             $this->unbindOtherDraftsFromAdvert($cabinet, $experiment, $advertId);
-            $this->bindAdvertToExperiment($experiment, $advertId, $name);
+            $this->bindAdvertToExperiment($experiment, $advertId, $name !== '' ? $name : $registry->name);
         }
 
         $refreshed = $this->advertApi->getAdverts($apiKey, [$advertId]);
@@ -2133,12 +2219,13 @@ SQL;
             ? $this->firstAdvertFromPayload($refreshed['data'] ?? null, $advertId)
             : $advert;
 
-        $mapped = $this->mapRegistryCampaignRow(
-            $registry,
+        $mapped = $this->mapCampaignRow(
+            $advertId,
             $advertAfter,
             $nmId,
-            $bind ? $advertId : ($experiment->wb_advert_id ? (int) $experiment->wb_advert_id : null),
+            $selectedId,
             $this->runningAdvertIdsForCabinet((int) $cabinet->id),
+            $registry->refresh(),
         );
         $mapped['contains_product'] = true;
 
@@ -2162,7 +2249,6 @@ SQL;
     ): array {
         $this->assertDraftExperiment($experiment);
         $product = $this->requireExperimentProduct($experiment);
-        $this->requireOurCampaign($cabinet, $advertId);
         $apiKey = (string) ($cabinet->apikey ?? '');
 
         if ($apiKey === '') {
@@ -2228,7 +2314,6 @@ SQL;
      */
     public function pauseCampaign(WbCabinet $cabinet, int $advertId, ?AbExperiment $contextExperiment = null): array
     {
-        $registry = $this->requireOurCampaign($cabinet, $advertId);
         $apiKey = (string) ($cabinet->apikey ?? '');
 
         if ($apiKey === '') {
@@ -2288,14 +2373,17 @@ SQL;
                 : null;
         }
 
+        $registry = $this->findRegistryCampaign($cabinet, $advertId);
+
         return [
             'success' => true,
-            'campaign' => $this->mapRegistryCampaignRow(
-                $registry->refresh(),
+            'campaign' => $this->mapCampaignRow(
+                $advertId,
                 $advertAfter,
                 $productNmId,
                 $selectedId,
                 $this->runningAdvertIdsForCabinet((int) $cabinet->id),
+                $registry,
             ),
             'messages' => ['Кампания поставлена на паузу'],
         ];
@@ -2308,7 +2396,16 @@ SQL;
      */
     public function deleteCampaign(WbCabinet $cabinet, int $advertId, ?AbExperiment $contextExperiment = null): array
     {
-        $registry = $this->requireOurCampaign($cabinet, $advertId);
+        $registry = $this->findRegistryCampaign($cabinet, $advertId);
+        if ($registry === null || (int) $registry->created_by_experiment_id <= 0) {
+            return [
+                'success' => false,
+                'messages' => [
+                    'Удалить можно только кампанию, которую вы создали в этом инструменте. Остальные кампании удаляются в кабинете Wildberries.',
+                ],
+            ];
+        }
+
         $apiKey = (string) ($cabinet->apikey ?? '');
 
         if ($apiKey === '') {
@@ -2385,7 +2482,6 @@ SQL;
      */
     public function getCampaignBudget(WbCabinet $cabinet, int $advertId): array
     {
-        $this->requireOurCampaign($cabinet, $advertId);
         $apiKey = (string) ($cabinet->apikey ?? '');
 
         if ($apiKey === '') {
@@ -2424,7 +2520,6 @@ SQL;
      */
     public function depositCampaignBudget(WbCabinet $cabinet, int $advertId, int $sum): array
     {
-        $this->requireOurCampaign($cabinet, $advertId);
         $apiKey = (string) ($cabinet->apikey ?? '');
 
         if ($apiKey === '') {
@@ -2532,7 +2627,6 @@ SQL;
 
         $this->assertDraftExperiment($experiment);
         $product = $this->requireExperimentProduct($experiment);
-        $registry = $this->requireOurCampaign($cabinet, $advertId);
         $apiKey = (string) ($cabinet->apikey ?? '');
 
         if ($apiKey === '') {
@@ -2552,24 +2646,37 @@ SQL;
             return ['success' => false, 'messages' => ['Кампания не найдена']];
         }
 
-        $guard = $this->assertCanEditCampaignNms($cabinet, $advertId, $advert);
-        if ($guard !== null) {
-            return ['success' => false, 'messages' => [$guard]];
-        }
-
         $nmIds = $this->extractAdvertNmIds($advert);
         if (! in_array((int) $product->nm_id, $nmIds, true)) {
             return [
                 'success' => false,
-                'messages' => ['Сначала добавьте выбранный товар в кампанию или нажмите «Использовать для этого товара»'],
+                'messages' => ['Сначала добавьте выбранный товар в кампанию'],
             ];
         }
+
+        if ($this->isAdvertBusyByRunningAb((int) $cabinet->id, $advertId)) {
+            return [
+                'success' => false,
+                'messages' => [
+                    'Эта кампания уже используется в запущенном эксперименте. Дождитесь завершения или остановите его.',
+                ],
+            ];
+        }
+
+        $name = (string) Arr::get($advert, 'settings.name', '');
+        $this->registerExistingCampaign(
+            $cabinet,
+            $advertId,
+            $name,
+            (string) Arr::get($advert, 'bid_type', ''),
+            (string) Arr::get($advert, 'settings.payment_type', ''),
+        );
 
         $this->unbindOtherDraftsFromAdvert($cabinet, $experiment, $advertId);
         $this->bindAdvertToExperiment(
             $experiment,
             $advertId,
-            (string) Arr::get($advert, 'settings.name', $registry->name),
+            $name,
         );
 
         return [
@@ -2611,26 +2718,56 @@ SQL;
         );
     }
 
-    private function requireOurCampaign(WbCabinet $cabinet, int $advertId): AbCampaign
+    private function findRegistryCampaign(WbCabinet $cabinet, int $advertId): ?AbCampaign
     {
         if ($advertId <= 0) {
-            throw ValidationException::withMessages([
-                'advert_id' => 'Некорректный ID кампании.',
-            ]);
+            return null;
         }
 
-        $campaign = AbCampaign::query()
+        return AbCampaign::query()
             ->where('cabinet_id', $cabinet->id)
             ->where('wb_advert_id', $advertId)
             ->first();
+    }
 
-        if (! $campaign) {
-            throw ValidationException::withMessages([
-                'advert_id' => 'Кампания не создана этим сервисом. Доступны только кампании A/B-тестирования.',
-            ]);
+    /**
+     * Сохранить/обновить снимок РК в реестре, не помечая её как созданную инструментом.
+     */
+    private function registerExistingCampaign(
+        WbCabinet $cabinet,
+        int $advertId,
+        string $name,
+        string $bidType,
+        string $paymentType,
+    ): AbCampaign {
+        $resolvedName = $this->nullableString($name) ?? ('Кампания #'.$advertId);
+
+        return AbCampaign::query()->updateOrCreate(
+            [
+                'cabinet_id' => $cabinet->id,
+                'wb_advert_id' => $advertId,
+            ],
+            [
+                'name' => $resolvedName,
+                'bid_type' => $bidType !== '' ? $bidType : 'unified',
+                'payment_type' => $paymentType !== '' ? $paymentType : 'cpm',
+            ],
+        );
+    }
+
+    private function isCampaignCreatedByTool(AbExperiment $experiment): bool
+    {
+        $advertId = (int) ($experiment->wb_advert_id ?? 0);
+        if ($advertId <= 0) {
+            return false;
         }
 
-        return $campaign;
+        $createdBy = AbCampaign::query()
+            ->where('cabinet_id', (int) $experiment->cabinet_id)
+            ->where('wb_advert_id', $advertId)
+            ->value('created_by_experiment_id');
+
+        return $createdBy !== null && (int) $createdBy > 0;
     }
 
     /**
@@ -2663,18 +2800,60 @@ SQL;
         $status = (int) Arr::get($advert, 'status', 0);
 
         if ($status === 9) {
-            return 'Нельзя менять товары: кампания активна на Wildberries. Остановите или приостановите её.';
+            return 'Нельзя менять товары: кампания активна на Wildberries. Сначала поставьте её на паузу.';
         }
 
         if (! in_array($status, WbAdvertApiClient::SERVICE_NMS_EDITABLE_STATUSES, true)) {
             return 'В текущем статусе кампании нельзя изменить список товаров.';
         }
 
+        if ($this->advertAllowsNmsChange($advert) === false) {
+            return 'В этой кампании нельзя изменить список товаров.';
+        }
+
         if (in_array($advertId, $this->runningAdvertIdsForCabinet((int) $cabinet->id), true)) {
-            return 'Кампания занята запущенным A/B-тестом. Дождитесь завершения или остановите тест.';
+            return 'Эта кампания уже используется в запущенном эксперименте. Дождитесь завершения или остановите его.';
         }
 
         return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $advert
+     */
+    private function isAdvertUsableForAb(array $advert, int $productNmId): bool
+    {
+        $status = (int) Arr::get($advert, 'status', 0);
+        if (! in_array($status, WbAdvertApiClient::AB_USABLE_ADVERT_STATUSES, true)) {
+            return false;
+        }
+
+        $bidType = strtolower(trim((string) Arr::get($advert, 'bid_type', '')));
+        if (! in_array($bidType, ['unified', 'manual'], true)) {
+            return false;
+        }
+
+        $nmIds = $this->extractAdvertNmIds($advert);
+        $containsProduct = $productNmId > 0 && in_array($productNmId, $nmIds, true);
+
+        if ($this->advertAllowsNmsChange($advert) === false && ! $containsProduct) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $advert
+     */
+    private function advertAllowsNmsChange(array $advert): ?bool
+    {
+        $value = Arr::get($advert, 'restrictions.can_change_nms');
+        if ($value === null) {
+            return null;
+        }
+
+        return (bool) $value;
     }
 
     private function unbindOtherDraftsFromAdvert(
@@ -3041,45 +3220,54 @@ SQL;
      * @param  list<int>  $busyAdvertIds
      * @return array<string, mixed>
      */
-    private function mapRegistryCampaignRow(
-        AbCampaign $registry,
+    private function mapCampaignRow(
+        int $advertId,
         ?array $liveAdvert,
         int $productNmId,
         ?int $selectedAdvertId,
         array $busyAdvertIds,
+        ?AbCampaign $registry = null,
     ): array {
-        $id = (int) $registry->wb_advert_id;
+        $id = $advertId;
         $isBusy = in_array($id, $busyAdvertIds, true);
         $missingOnWb = $liveAdvert === null;
+        $createdByTool = $registry !== null && (int) $registry->created_by_experiment_id > 0;
 
         if ($liveAdvert !== null) {
             $status = (int) Arr::get($liveAdvert, 'status', 0);
             $nmIds = $this->extractAdvertNmIds($liveAdvert);
             $bidType = (string) Arr::get($liveAdvert, 'bid_type', $registry->bid_type ?? '');
             $paymentType = (string) Arr::get($liveAdvert, 'settings.payment_type', $registry->payment_type ?? '');
-            $name = (string) Arr::get($liveAdvert, 'settings.name', $registry->name);
+            $name = (string) Arr::get($liveAdvert, 'settings.name', $registry->name ?? '');
             $placements = Arr::get($liveAdvert, 'settings.placements', []);
+            $allowsNmsChange = $this->advertAllowsNmsChange($liveAdvert);
         } else {
             $status = null;
             $nmIds = [];
             $bidType = (string) ($registry->bid_type ?? '');
             $paymentType = (string) ($registry->payment_type ?? '');
-            $name = $registry->name;
+            $name = (string) ($registry->name ?? '');
             $placements = [];
+            $allowsNmsChange = null;
         }
+
+        $containsProduct = $productNmId > 0 && in_array($productNmId, $nmIds, true);
 
         $canEditNms = ! $missingOnWb
             && ! $isBusy
             && $status !== null
-            && in_array($status, WbAdvertApiClient::SERVICE_NMS_EDITABLE_STATUSES, true);
+            && in_array($status, WbAdvertApiClient::SERVICE_NMS_EDITABLE_STATUSES, true)
+            && $allowsNmsChange !== false;
 
-        $containsProduct = in_array($productNmId, $nmIds, true);
-
-        // Row click attaches campaign to experiment (auto-prepare nms under the hood).
-        $canSelect = $canEditNms;
+        $canSelect = ! $missingOnWb
+            && ! $isBusy
+            && $status !== null
+            && in_array($status, WbAdvertApiClient::AB_USABLE_ADVERT_STATUSES, true)
+            && ($containsProduct || $canEditNms);
 
         $canPause = ! $missingOnWb && ! $isBusy && $status === 9;
-        $canDelete = ! $missingOnWb
+        $canDelete = $createdByTool
+            && ! $missingOnWb
             && ! $isBusy
             && $status !== null
             && $status !== -1;
@@ -3089,20 +3277,22 @@ SQL;
         if ($missingOnWb) {
             $editBlockReason = 'Кампания не найдена в Wildberries';
         } elseif ($isBusy) {
-            $editBlockReason = 'Занята запущенным A/B-тестом';
-        } elseif ($status === 9) {
-            $editBlockReason = 'Активна — сначала поставьте на паузу, чтобы выбрать для эксперимента';
-        } elseif ($status !== null && ! in_array($status, WbAdvertApiClient::SERVICE_NMS_EDITABLE_STATUSES, true)) {
+            $editBlockReason = 'Занята запущенным экспериментом';
+        } elseif ($status === 9 && ! $containsProduct) {
+            $editBlockReason = 'Активна — сначала поставьте на паузу, чтобы добавить товар';
+        } elseif ($allowsNmsChange === false && ! $containsProduct) {
+            $editBlockReason = 'В этой кампании нельзя изменить список товаров';
+        } elseif ($status !== null && ! in_array($status, WbAdvertApiClient::AB_USABLE_ADVERT_STATUSES, true)) {
             $editBlockReason = 'Статус не позволяет привязать кампанию к эксперименту';
         }
 
         return [
             'id' => $id,
-            'registry_id' => $registry->id,
+            'registry_id' => $registry?->id,
             'name' => $name !== '' ? $name : ('Кампания #'.$id),
             'status' => $status,
             'status_label' => $missingOnWb
-                ? 'Не найдена на WB'
+                ? 'Не найдена в Wildberries'
                 : $this->campaignStatusLabel((int) $status),
             'status_variant' => $missingOnWb
                 ? 'destructive'
@@ -3115,9 +3305,10 @@ SQL;
             'nm_ids' => $nmIds,
             'nm_count' => count($nmIds),
             'contains_product' => $containsProduct,
+            'created_by_tool' => $createdByTool,
             'can_edit_nms' => $canEditNms,
             'can_select' => $canSelect,
-            'can_prepare' => $canEditNms,
+            'can_prepare' => $canSelect,
             'can_pause' => $canPause,
             'can_delete' => $canDelete,
             'can_deposit' => $canDeposit,

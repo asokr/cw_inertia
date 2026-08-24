@@ -75,6 +75,109 @@ class OzonPerformanceApiService
     }
 
     /**
+     * Sync JSON той же статистики (from/to RFC 3339 или dateFrom/dateTo).
+     *
+     * @param  array<string, scalar|list<scalar>|null>  $query
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getCampaignProductStatisticsJson(string $accessToken, array $query): array
+    {
+        return $this->request('GET', 'api/client/statistics/campaign/product/json', [
+            'query' => $query,
+        ], $accessToken);
+    }
+
+    /**
+     * Sync-статистика по SKU кампаний «Оплата за клик».
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getProductSkuStatistics(string $accessToken, array $payload): array
+    {
+        return $this->request('POST', 'api/client/statistics/products/sku', [
+            'json' => $payload,
+        ], $accessToken);
+    }
+
+    /**
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getCampaignObjects(string $accessToken, int|string $campaignId): array
+    {
+        return $this->request(
+            'GET',
+            'api/client/campaign/'.rawurlencode((string) $campaignId).'/objects',
+            [],
+            $accessToken,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function createCpcProductCampaign(string $accessToken, array $payload): array
+    {
+        return $this->request('POST', 'api/client/campaign/cpc/v2/product', [
+            'json' => $payload,
+        ], $accessToken);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function addCampaignProducts(string $accessToken, int|string $campaignId, array $payload): array
+    {
+        return $this->request(
+            'POST',
+            'api/client/campaign/'.rawurlencode((string) $campaignId).'/products',
+            ['json' => $payload],
+            $accessToken,
+        );
+    }
+
+    /**
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function activateCampaign(string $accessToken, int|string $campaignId): array
+    {
+        return $this->request(
+            'POST',
+            'api/client/campaign/'.rawurlencode((string) $campaignId).'/activate',
+            ['json' => new \stdClass],
+            $accessToken,
+        );
+    }
+
+    /**
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function deactivateCampaign(string $accessToken, int|string $campaignId): array
+    {
+        return $this->request(
+            'POST',
+            'api/client/campaign/'.rawurlencode((string) $campaignId).'/deactivate',
+            ['json' => new \stdClass],
+            $accessToken,
+        );
+    }
+
+    /**
+     * Async JSON-отчёт за произвольный from/to (RFC 3339).
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function requestStatisticsJson(string $accessToken, array $payload): array
+    {
+        return $this->request('POST', 'api/client/statistics/json', [
+            'json' => $payload,
+        ], $accessToken);
+    }
+
+    /**
      * Async: запросить отчёт (fallback).
      *
      * @param  array<string, mixed>  $payload

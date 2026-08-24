@@ -22,6 +22,30 @@ class OzonApiService
         return $this->post('v3/product/info/list', $apiKey, $clientId, $payload);
     }
 
+    /**
+     * Загрузить/обновить изображения карточки. Каждый вызов затирает предыдущий набор.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function importProductPictures(string $apiKey, string $clientId, array $payload): array
+    {
+        return $this->post('v1/product/pictures/import', $apiKey, $clientId, $payload);
+    }
+
+    /**
+     * Статус загрузки изображений.
+     *
+     * @param  list<int|string>  $productIds
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getProductPicturesInfo(string $apiKey, string $clientId, array $productIds): array
+    {
+        return $this->post('v2/product/pictures/info', $apiKey, $clientId, [
+            'product_id' => array_values($productIds),
+        ]);
+    }
+
     public function getAnalyticsAverageDeliveryTime(string $apiKey, string $clientId, array $payload): array
     {
         return $this->post('v1/analytics/average-delivery-time/summary', $apiKey, $clientId, $payload);

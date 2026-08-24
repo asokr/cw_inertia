@@ -93,6 +93,15 @@ const toolCatalog = [
         icon: Warehouse,
         description: "ИИ-отчёты по каталогу и данным кабинета Ozon",
     },
+    {
+        key: "oz_ab_testing",
+        label: "A/B-тестирование",
+        href: "/panel/oz/ab-testing",
+        permission: "subscriber oz ab testing",
+        group: "Ozon",
+        icon: FlaskConical,
+        description: "Тест главной фотографии карточки товара",
+    },
 
     {
         key: "ai_text",
@@ -245,6 +254,7 @@ const availableRoutes = new Set([
     "/panel/wb/price-calc",
     "/panel/oz/price-calc",
     "/panel/oz/ai-cabinet-analyzer",
+    "/panel/oz/ab-testing",
     "/panel/wb/repricer",
     "/panel/wb/profitability",
     "/panel/wb/ai-cabinet-analyzer",

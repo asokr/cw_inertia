@@ -181,7 +181,7 @@ const columns = computed(() => [
     },
     {
         accessorKey: "id",
-        header: "ID WB",
+        header: "ID кампании",
         enableSorting: false,
         cell: ({ row }) =>
             h(

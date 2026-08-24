@@ -16,7 +16,7 @@
 - Фундамент инструмента в панели
 - **Flat workspace** (без wizard-шагов 3–5):
   - **Товары** → клик → **эксперименты товара** → клик → **workspace** (РК, настройки, фото, запуск/стоп, статистика, история)
-- Одновременно **running** — не больше одного на товар
+- Одновременно **running** — не больше одного на товар и не больше одного на одну рекламную кампанию (`wb_advert_id`)
 - **Фото:** 2–6 (private disk); настройки сохраняются кнопкой
 - **`stopped`:** редактируемый + повторный запуск
 - **Движок (фон):** schedule + queue — ротация фото, циклы, статистика, завершение
@@ -83,15 +83,15 @@ Prefix: `/panel/wb/ab-testing` · name: `subscriber.wb.ab-testing.*`
 | POST | `/experiments/{id}/start` | `experiments.start` | Запуск эксперимента (проверки + campaign + photo + cycle) |
 | POST | `/experiments/{id}/stop` | `experiments.stop` | Остановка running → `stopped` |
 | POST | `/experiments/{id}/campaign` | `experiments.campaign.bind` | Привязать кампанию (JSON; add product if needed) |
-| GET | `/campaigns?experiment_id=` | `campaigns.index` | Список **наших** кампаний кабинета (JSON) |
+| GET | `/campaigns?experiment_id=` | `campaigns.index` | Список **доступных** РК кабинета WB (JSON) |
 | POST | `/campaigns` | `campaigns.store` | Создать кампанию WB + запись в реестр + bind (**без start**) |
-| POST | `/campaigns/{advertId}/prepare` | `campaigns.prepare` | Swap nm под текущий товар + bind (клик по строке в UI) |
+| POST | `/campaigns/{advertId}/prepare` | `campaigns.prepare` | Добавить nm если нет + bind (клик по строке в UI; чужие товары не удаляются) |
 | POST | `/campaigns/{advertId}/nms` | `campaigns.nms.add` | Добавить товар (legacy/API) |
 | DELETE | `/campaigns/{advertId}/nms` | `campaigns.nms.remove` | Удалить товар (legacy/API) |
 | POST | `/campaigns/{advertId}/pause` | `campaigns.pause` | Пауза РК на WB |
 | GET | `/campaigns/{advertId}/budget` | `campaigns.budget` | Текущий бюджет РК (`budget_total`) |
 | POST | `/campaigns/{advertId}/deposit` | `campaigns.deposit` | Пополнение `{ sum }` → `budget_total`, `deposited_sum` + toast/статус в UI |
-| DELETE | `/campaigns/{advertId}` | `campaigns.destroy` | Удалить РК на WB + из реестра |
+| DELETE | `/campaigns/{advertId}` | `campaigns.destroy` | Удалить РК на WB + из реестра (только созданные инструментом) |
 | GET | `/media/{photo}` | `media.show` | Auth-gated превью (private disk); `?download=1` → `Content-Disposition: attachment` |
 | GET | `/experiments/{id}/photos` | `photos.index` | Список фото (JSON) |
 | POST | `/experiments/{id}/photos` | `photos.store` | Multipart upload (`photos[]`) |
@@ -167,7 +167,7 @@ FK: `cabinet_id` → `wb_cabinets.id`
 | Таблица | Назначение |
 |--------|------------|
 | `wb_ab_products` | Кэш номенклатуры кабинета |
-| `wb_ab_campaigns` | Реестр «наших» РК |
+| `wb_ab_campaigns` | Снимок выбранных/созданных РК (`created_by_experiment_id` — только созданные инструментом) |
 | `wb_ab_experiment_photos` | Варианты фото (private disk) |
 | `wb_ab_experiment_cycles` | История раундов (views/clicks/spend start–end) |
 | `wb_ab_experiment_events` | Журнал событий |
@@ -200,7 +200,7 @@ FK: `cabinet_id` → `wb_cabinets.id`
 
 ### Движок эксперимента
 
-**Запуск (HTTP):** проверки (draft, settings, ≥2 фото, campaign, nm в РК, статус РК 4/9/11) → `GET /adv/v1/budget` (total &lt; 1 ₽ → понятная RU-ошибка) → `GET /adv/v0/start` (если не 9) → `POST content/v3/media/file` (главное фото #1) → baseline `fullstats` → cycle #1 → `status=running`.
+**Запуск (HTTP):** проверки (draft, settings, ≥2 фото, campaign, nm в РК, статус РК 4/9/11, нет другого running на этот товар **и** на этот `wb_advert_id`) → `GET /adv/v1/budget` (total &lt; 1 ₽ → понятная RU-ошибка) → `GET /adv/v0/start` (если не 9) → `POST content/v3/media/file` (главное фото #1) → baseline `fullstats` → cycle #1 (`views_start`/`clicks_start`/…) → `status=running`. Статистика эксперимента — **дельта** относительно этого снимка, не история РК.
 
 **Фон (primary):** после `start` сразу `ProcessAbExperimentJob` → `process` → self-reschedule через 60 с, пока `running`.  
 **Fallback:** `subscriber:wb-ab-testing-tick` каждые **2** минуты (если цепочка job оборвалась).
@@ -224,7 +224,20 @@ FK: `cabinet_id` → `wb_cabinets.id`
 
 ### Шаг 3 — рекламная кампания
 
-**Принцип:** не выводим весь рекламный кабинет WB. Ведём реестр **своих** кампаний (`wb_ab_campaigns`) — только их показываем и ими управляем (в т.ч. для другого nm в том же кабинете).
+**Принцип:** показываем **доступные** рекламные кампании текущего кабинета WB (не только созданные инструментом). Реестр `wb_ab_campaigns` — overlay (снимок имени/ставки, флаг «создана инструментом»).
+
+#### Фильтр списка (Promotion API)
+
+`GET /adv/v1/promotion/count` → `GET /api/advert/v2/adverts?ids=`
+
+| Показывать | Не показывать |
+|------------|---------------|
+| Статусы **4** (готова), **9** (активна), **11** (пауза) | **-1** удаляется, **7** завершена, **8** отклонена |
+| Типы **8** (историческая авто) и **9** (seacat/аукцион) | Медиа и прочие типы |
+| `bid_type` ∈ `{unified, manual}` (ответ v2/adverts) | Кампании без единой/ручной ставки |
+| `restrictions.can_change_nms=false` **и** товар уже в РК | `can_change_nms=false` и товара нет — использовать нельзя |
+
+Активная (9): выбрать можно, **если товар уже в кампании** (без правки nms). Чтобы добавить товар — сначала пауза.
 
 #### Таблица `wb_ab_campaigns`
 
@@ -233,7 +246,7 @@ FK: `cabinet_id` → `wb_cabinets.id`
 | cabinet_id | FK кабинет |
 | wb_advert_id | ID кампании WB (unique per cabinet) |
 | name / bid_type / payment_type | snapshot |
-| created_by_experiment_id | кто создал (nullable) |
+| created_by_experiment_id | кто **создал** через инструмент (nullable; у выбранных существующих РК — `null`) |
 
 #### API WB
 
@@ -241,35 +254,41 @@ FK: `cabinet_id` → `wb_cabinets.id`
 
 | Операция | Endpoint |
 |----------|----------|
-| Детали наших ID | `GET /api/advert/v2/adverts?ids=` |
+| Список ID | `GET /adv/v1/promotion/count` (статусы 4/9/11, типы 8/9) |
+| Детали | `GET /api/advert/v2/adverts?ids=` |
 | Создать | `POST /adv/v2/seacat/save-ad` |
-| Товары ± / prepare | `PATCH /adv/v0/auction/nms` |
+| Товары ± / prepare | `PATCH /adv/v0/auction/nms` — **только add**, чужие nm не удаляем |
 | Бюджет | optional `POST /adv/v1/budget/deposit` (type=1 баланс; в UI пополнение **включено по умолчанию**, min 1000 ₽) |
 | Бюджет (чтение) | `GET /adv/v1/budget` — preflight перед стартом эксперимента |
 | Старт | **не** на шаге 3; на шаге 5 engine проверяет budget > 0 |
 
-**Не** используем `promotion/count` для списка A/B.
+#### Выбор / prepare
 
-#### can_edit_nms / prepare
+Клик по строке → `prepare`:
 
-Разрешено только если:
+1. Товар уже в РК → bind, без `PATCH nms` (в т.ч. для активной status 9).
+2. Товара нет и статус 4/11 → `PATCH nms` **add** текущего nm, остальные товары не трогаем, bind.
+3. Товара нет и статус 9 → отказ: сначала пауза.
+4. После bind — `updateOrCreate` в `wb_ab_campaigns` **без** перезаписи `created_by_experiment_id`.
 
-1. Кампания есть в `wb_ab_campaigns` этого кабинета  
-2. WB-статус ∈ `{4, 11}` (готова / на паузе) — **не** `9` (активна)  
-3. Нет эксперимента `status=running` с этим `wb_advert_id`
+Нельзя выбрать РК, если другой эксперимент `running` уже держит этот `wb_advert_id`. Старт тоже блокируется (pause/complete останавливают всю РК).
 
-**UI действия (колонка «Действия»):** Пауза · Пополнить · Удалить (не действия с товаром).  
-**Выбор кампании:** клик по строке → `prepare` (подставить nm эксперимента + bind).
+**UI действия (колонка «Действия»):** Пауза · Пополнить · Удалить (только кампании, созданные инструментом).  
+**Выбор кампании:** клик по строке → `prepare`.
 
 **Сценарии:**
 
-1. **Создать** → save-ad + запись в реестр + bind (+ optional deposit; fail deposit → `budget_deposited: false`, кампания всё равно привязана)
-2. **Клик по строке** (`prepare`) → swap nm под товар эксперимента + bind  
-3. **Пауза** — активная (status 9), не занята running A/B  
-4. **Пополнить** — deposit min 1000 ₽  
-5. **Удалить** — pause если active → delete на WB → unbind drafts → удалить из `wb_ab_campaigns`
+1. **Создать** → save-ad + запись в реестр (`created_by_experiment_id`) + bind (+ optional deposit; fail deposit → `budget_deposited: false`, кампания всё равно привязана)
+2. **Клик по строке** (`prepare`) → add nm при необходимости + bind
+3. **Пауза** — активная (status 9), не занята running A/B
+4. **Пополнить** — deposit min 1000 ₽
+5. **Удалить** — только если `created_by_experiment_id` задан: pause если active → delete на WB → unbind drafts → удалить из `wb_ab_campaigns`
 
-CTR/CPM в таблице не грузятся.
+#### Baseline статистики
+
+При старте `fetchStatsSnapshot` пишется в первый цикл: `views_start`, `clicks_start`, `spend_start`, `orders_start`. Показы/клики/CTR эксперимента — `max(0, current − start)` по циклам. Если в fullstats есть разбивка по nm — берём только nm эксперимента (нет строк = 0), не итоги всей РК.
+
+CTR/CPM в таблице кампаний не грузятся.
 
 Клиент: `App\Services\Wb\WbAdvertApiClient`.
 

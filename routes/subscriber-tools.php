@@ -20,12 +20,14 @@
 | - 3b.10 AI Marketplace     → /panel/ai
 | - 3b.11 WB A/B Testing     → /panel/wb/ab-testing
 | - 3b.12 Ozon AI Cabinet Analyzer → /panel/oz/ai-cabinet-analyzer
+| - 3b.13 Ozon A/B Testing   → /panel/oz/ab-testing
 |
 */
 
 use App\Http\Controllers\Web\Subscriber\Oz\Cabinets\CabinetsController as OzCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Oz\AiCabinetAnalyzer\AiAnalysesController as OzAiCabinetAnalyzerAiAnalysesController;
 use App\Http\Controllers\Web\Subscriber\Oz\AiCabinetAnalyzer\WorkspaceController as OzAiCabinetAnalyzerWorkspaceController;
+use App\Http\Controllers\Web\Subscriber\Oz\AbTesting\WorkspaceController as OzAbTestingWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Oz\PriceCalc\WorkspaceController as OzPriceCalcWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Wb\PriceCalc\CabinetsController as WbPriceCalcCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Wb\PriceCalc\WorkspaceController as WbPriceCalcWorkspaceController;
@@ -158,6 +160,58 @@ Route::middleware(['permission:subscriber oz ai cabinet analyzer'])
         Route::post('/ai-analyses/{analysis}/regenerate', [OzAiCabinetAnalyzerAiAnalysesController::class, 'regenerate'])->name('ai-analyses.regenerate');
         Route::get('/ai-analyses/{analysis}', [OzAiCabinetAnalyzerAiAnalysesController::class, 'show'])->name('ai-analyses.show');
         Route::get('/ai-analyses/{analysis}/download', [OzAiCabinetAnalyzerAiAnalysesController::class, 'download'])->name('ai-analyses.download');
+    });
+
+Route::middleware(['permission:subscriber oz ab testing'])
+    ->prefix('oz/ab-testing')
+    ->name('subscriber.oz.ab-testing.')
+    ->group(function () {
+        Route::get('/', [OzAbTestingWorkspaceController::class, 'show'])->name('index');
+        Route::post('/sync', [OzAbTestingWorkspaceController::class, 'sync'])->name('sync');
+        Route::post('/experiments', [OzAbTestingWorkspaceController::class, 'storeExperiment'])->name('experiments.store');
+        Route::patch('/experiments/{experiment}', [OzAbTestingWorkspaceController::class, 'updateExperiment'])
+            ->whereNumber('experiment')
+            ->name('experiments.update');
+        Route::patch('/experiments/{experiment}/settings', [OzAbTestingWorkspaceController::class, 'updateSettings'])
+            ->whereNumber('experiment')
+            ->name('experiments.settings');
+        Route::post('/experiments/{experiment}/start', [OzAbTestingWorkspaceController::class, 'startExperiment'])
+            ->whereNumber('experiment')
+            ->name('experiments.start');
+        Route::post('/experiments/{experiment}/stop', [OzAbTestingWorkspaceController::class, 'stopExperiment'])
+            ->whereNumber('experiment')
+            ->name('experiments.stop');
+        Route::get('/campaigns', [OzAbTestingWorkspaceController::class, 'listCampaigns'])->name('campaigns.index');
+        Route::post('/campaigns', [OzAbTestingWorkspaceController::class, 'storeCampaign'])->name('campaigns.store');
+        Route::post('/campaigns/{campaignId}/prepare', [OzAbTestingWorkspaceController::class, 'prepareCampaign'])
+            ->whereNumber('campaignId')
+            ->name('campaigns.prepare');
+        Route::post('/campaigns/{campaignId}/pause', [OzAbTestingWorkspaceController::class, 'pauseCampaign'])
+            ->whereNumber('campaignId')
+            ->name('campaigns.pause');
+        Route::delete('/campaigns/{campaignId}', [OzAbTestingWorkspaceController::class, 'deleteCampaign'])
+            ->whereNumber('campaignId')
+            ->name('campaigns.destroy');
+        Route::get('/media/{photo}', [OzAbTestingWorkspaceController::class, 'showMedia'])
+            ->whereNumber('photo')
+            ->name('media.show');
+        Route::get('/experiments/{experiment}/photos', [OzAbTestingWorkspaceController::class, 'listPhotos'])
+            ->whereNumber('experiment')
+            ->name('photos.index');
+        Route::post('/experiments/{experiment}/photos', [OzAbTestingWorkspaceController::class, 'storePhotos'])
+            ->whereNumber('experiment')
+            ->name('photos.store');
+        Route::post('/experiments/{experiment}/photos/{photo}', [OzAbTestingWorkspaceController::class, 'replacePhoto'])
+            ->whereNumber('experiment')
+            ->whereNumber('photo')
+            ->name('photos.replace');
+        Route::delete('/experiments/{experiment}/photos/{photo}', [OzAbTestingWorkspaceController::class, 'destroyPhoto'])
+            ->whereNumber('experiment')
+            ->whereNumber('photo')
+            ->name('photos.destroy');
+        Route::patch('/experiments/{experiment}/photos/reorder', [OzAbTestingWorkspaceController::class, 'reorderPhotos'])
+            ->whereNumber('experiment')
+            ->name('photos.reorder');
     });
 
 Route::middleware(['permission:subscriber wb repricer'])
