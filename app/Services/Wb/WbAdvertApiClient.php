@@ -3,6 +3,7 @@
 namespace App\Services\Wb;
 
 use App\Http\Traits\GuzzleTrait;
+use App\Support\Wb\WbRateLimitHeaders;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 
@@ -19,6 +20,9 @@ class WbAdvertApiClient
     public const BASE_URL = 'https://advert-api.wildberries.ru';
 
     public const ADVERT_BATCH_SIZE = 50;
+
+    /** GET /adv/v3/fullstats: максимум id в одном запросе. */
+    public const FULLSTATS_MAX_IDS = 50;
 
     /**
      * Budget deposit source (POST /adv/v1/budget/deposit).
@@ -322,10 +326,15 @@ class WbAdvertApiClient
      * не подставляя итоги всей кампании: иначе чужие товары раздуют статистику A/B.
      *
      * @param  list<array<string, mixed>>  $rows
+     * @param  string|null  $fromDate  YYYY-MM-DD: суммировать дни с этой даты (пакетный запрос с общим периодом)
      * @return array{views:int,clicks:int,spend:float,orders:int,ctr:float}
      */
-    public function extractStatsForAdvert(array $rows, int $advertId, ?int $nmId = null): array
-    {
+    public function extractStatsForAdvert(
+        array $rows,
+        int $advertId,
+        ?int $nmId = null,
+        ?string $fromDate = null,
+    ): array {
         $empty = ['views' => 0, 'clicks' => 0, 'spend' => 0.0, 'orders' => 0, 'ctr' => 0.0];
 
         foreach ($rows as $row) {
@@ -339,7 +348,12 @@ class WbAdvertApiClient
             }
 
             if ($nmId !== null && $nmId > 0 && $this->fullstatsRowHasNmBreakdown($row)) {
-                return $this->sumNmStatsFromFullstatsRow($row, $nmId) ?? $empty;
+                return $this->sumNmStatsFromFullstatsRow($row, $nmId, $fromDate) ?? $empty;
+            }
+
+            $fromDays = $this->sumCampaignDaysFromFullstatsRow($row, $fromDate);
+            if ($fromDays !== null) {
+                return $fromDays;
             }
 
             return $this->normalizeFullstatsRow($row);
@@ -393,7 +407,7 @@ class WbAdvertApiClient
      * @param  array<string, mixed>  $row
      * @return array{views:int,clicks:int,spend:float,orders:int,ctr:float}|null
      */
-    private function sumNmStatsFromFullstatsRow(array $row, int $nmId): ?array
+    private function sumNmStatsFromFullstatsRow(array $row, int $nmId, ?string $fromDate = null): ?array
     {
         $views = 0;
         $clicks = 0;
@@ -436,7 +450,7 @@ class WbAdvertApiClient
         }
 
         foreach ($days as $day) {
-            if (! is_array($day)) {
+            if (! is_array($day) || ! $this->isFullstatsDayOnOrAfter($day, $fromDate)) {
                 continue;
             }
             $apps = Arr::get($day, 'apps', [$day]);
@@ -479,6 +493,83 @@ class WbAdvertApiClient
             'orders' => $orders,
             'ctr' => $views > 0 ? round(($clicks / $views) * 100, 4) : 0.0,
         ];
+    }
+
+    /**
+     * Итоги кампании по дням (без nm), с отсечением дат до fromDate.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array{views:int,clicks:int,spend:float,orders:int,ctr:float}|null
+     */
+    private function sumCampaignDaysFromFullstatsRow(array $row, ?string $fromDate): ?array
+    {
+        $days = Arr::get($row, 'days', []);
+        if (! is_array($days) || $days === []) {
+            return null;
+        }
+
+        $views = 0;
+        $clicks = 0;
+        $spend = 0.0;
+        $orders = 0;
+        $used = false;
+
+        foreach ($days as $day) {
+            if (! is_array($day) || ! $this->isFullstatsDayOnOrAfter($day, $fromDate)) {
+                continue;
+            }
+            $used = true;
+            $views += (int) Arr::get($day, 'views', Arr::get($day, 'viewsCount', 0));
+            $clicks += (int) Arr::get($day, 'clicks', Arr::get($day, 'clicksCount', 0));
+            $spend += (float) Arr::get($day, 'sum', Arr::get($day, 'spend', 0));
+            $orders += (int) Arr::get($day, 'orders', Arr::get($day, 'orderCount', 0));
+        }
+
+        if (! $used) {
+            return null;
+        }
+
+        return [
+            'views' => $views,
+            'clicks' => $clicks,
+            'spend' => $spend,
+            'orders' => $orders,
+            'ctr' => $views > 0 ? round(($clicks / $views) * 100, 4) : 0.0,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $day
+     */
+    private function isFullstatsDayOnOrAfter(array $day, ?string $fromDate): bool
+    {
+        if ($fromDate === null || $fromDate === '') {
+            return true;
+        }
+
+        $date = $this->fullstatsDayDate($day);
+        if ($date === null) {
+            return true;
+        }
+
+        return $date >= $fromDate;
+    }
+
+    /**
+     * @param  array<string, mixed>  $day
+     */
+    private function fullstatsDayDate(array $day): ?string
+    {
+        $raw = Arr::get($day, 'date', Arr::get($day, 'day', Arr::get($day, 'dt')));
+        if (! is_string($raw) || $raw === '') {
+            return null;
+        }
+
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $raw, $matches) === 1) {
+            return $matches[1];
+        }
+
+        return null;
     }
 
     /**
@@ -750,24 +841,7 @@ class WbAdvertApiClient
      */
     private function extractRetryAfterSeconds(?array $headers): ?int
     {
-        if ($headers === null || $headers === []) {
-            return null;
-        }
-
-        foreach (['X-Ratelimit-Retry', 'x-ratelimit-retry', 'Retry-After', 'retry-after'] as $name) {
-            if (! array_key_exists($name, $headers)) {
-                continue;
-            }
-            $value = $headers[$name];
-            if (is_array($value)) {
-                $value = $value[0] ?? null;
-            }
-            if (is_numeric($value)) {
-                return max(0, (int) $value);
-            }
-        }
-
-        return null;
+        return WbRateLimitHeaders::retryAfterSeconds($headers);
     }
 
     private function extractErrorMessage(mixed $decoded, mixed $rawBody, int $code): string
@@ -833,6 +907,22 @@ class WbAdvertApiClient
             || (str_contains($normalized, 'bid_type') && str_contains($normalized, 'manual') && str_contains($normalized, 'cpc'))
         ) {
             return 'Для кампаний с оплатой CPC (за клики) доступна только ручная ставка. Выберите «Ручная ставка» или смените тип оплаты на CPM.';
+        }
+
+        if (preg_match('/minimum deposit amount is\s+(\d+)/i', $detail, $matches)) {
+            $amount = (int) $matches[1];
+
+            return 'Минимальная сумма пополнения бюджета кампании — '.$amount.' ₽.';
+        }
+
+        if (str_contains($normalized, 'failed to create/update a bid')) {
+            return 'Wildberries не принял пополнение бюджета: кампания ещё не готова или нет ставки. Подождите минуту и попробуйте снова.';
+        }
+
+        if (str_contains($normalized, 'status unchanged')
+            && (str_contains($normalized, 'not allowed') || str_contains($normalized, 'advert status'))
+        ) {
+            return 'Сейчас нельзя изменить статус кампании в Wildberries. Если кампанию только что ставили на паузу — подождите около минуты и повторите.';
         }
 
         return null;

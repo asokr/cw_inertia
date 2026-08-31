@@ -3,13 +3,14 @@
 namespace App\Services\Subscriber\Wb\AbTesting;
 
 use App\Enums\WbAbTestStatus;
-use App\Jobs\Wb\AbTesting\ProcessAbExperimentJob;
+use App\Jobs\Wb\AbTesting\ProcessAbCabinetTickJob;
 use App\Models\Subscribers\Wb\AbTesting\AbCampaign;
 use App\Models\Subscribers\Wb\AbTesting\AbExperiment;
 use App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle;
 use App\Models\Subscribers\Wb\AbTesting\AbExperimentPhoto;
 use App\Models\Subscribers\Wb\AbTesting\AbProduct;
 use App\Models\Subscribers\Wb\WbCabinet;
+use App\Services\Subscriber\Wb\WbAbTestingService;
 use App\Services\Wb\WbAdvertApiClient;
 use App\Services\Wb\WbContentMediaClient;
 use App\Support\Wb\WbAdvertFullstatsGuard;
@@ -33,6 +34,9 @@ class WbAbExperimentEngine
 
     /** WB statuses we can run with: ready, active, paused. */
     public const STARTABLE_ADVERT_STATUSES = [4, 9, 11];
+
+    /** Сколько секунд HTTP-старт может подождать throttle fullstats. */
+    public const START_FULLSTATS_MAX_WAIT_SECONDS = 25;
 
     public function __construct(
         private readonly WbAdvertApiClient $advertApi,
@@ -184,7 +188,7 @@ class WbAbExperimentEngine
                     'success' => false,
                     'messages' => [
                         'У рекламной кампании нет бюджета. Пополните бюджет в кабинете Wildberries '
-                        .'(минимум 1000 ₽) или создайте кампанию с пополнением — иначе WB не запустит РК.',
+                        .'(минимум '.$this->minBudgetDepositRub().' ₽) или создайте кампанию с пополнением — иначе WB не запустит РК.',
                     ],
                 ];
             }
@@ -261,8 +265,47 @@ class WbAbExperimentEngine
                 ['photo_id' => $firstPhoto->id, 'sort_order' => $firstPhoto->sort_order],
             );
 
-            // 3) Baseline stats
-            $snapshot = $this->fetchStatsSnapshot($apiKey, $advertId, $nmId, now());
+            // 3) Baseline stats. Старт часто упирается в лимит fullstats (3/мин, интервал 20 с).
+            try {
+                $snapshot = $this->fetchStatsSnapshot($apiKey, $advertId, $nmId, now(), true);
+            } catch (Throwable $e) {
+                if ($this->isRateLimitThrowable($e)) {
+                    $retryAfter = $this->retryAfterFromThrowable($e);
+                    Log::warning('[WbAbExperimentEngine] start blocked by fullstats throttle', [
+                        'experiment_id' => $experiment->id,
+                        'retry_after' => $retryAfter,
+                    ]);
+                    if ($campaignStarted) {
+                        $this->safePauseAdvert($apiKey, $advertId);
+                    }
+
+                    return [
+                        'success' => false,
+                        'messages' => [
+                            'Wildberries временно ограничивает запросы статистики. Повторите запуск через '
+                            .$retryAfter.' сек.',
+                        ],
+                    ];
+                }
+
+                // Для только что созданной РК (статус 4) fullstats часто отдаёт 400 — статистики ещё нет.
+                if ($advertStatus === 4 && $this->isEmptyStatsThrowable($e)) {
+                    Log::warning('[WbAbExperimentEngine] start fullstats unavailable, zero baseline', [
+                        'experiment_id' => $experiment->id,
+                        'advert_id' => $advertId,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $this->journal->log(
+                        $experiment,
+                        WbAbExperimentJournal::TYPE_API_RETRY,
+                        'Стартовая статистика кампании недоступна, эксперимент запущен с нулевого снимка.',
+                        ['error' => $e->getMessage()],
+                    );
+                    $snapshot = ['views' => 0, 'clicks' => 0, 'spend' => 0.0, 'orders' => 0];
+                } else {
+                    throw $e;
+                }
+            }
 
             // 4–6) DB transition (draft first start or re-start from stopped)
             $experiment = DB::transaction(function () use (
@@ -344,8 +387,8 @@ class WbAbExperimentEngine
                 ['advert_id' => $advertId, 'restart' => $isRestart],
             );
 
-            // Primary loop: first process ASAP, then job self-reschedules every minute.
-            ProcessAbExperimentJob::dispatchFor((int) $experiment->id);
+            // Тик кабинета: один fullstats на все running-РК. Если цепочка уже есть — новый тест попадёт в неё.
+            $this->ensureCabinetTickScheduled((int) $experiment->cabinet_id, (int) $experiment->id);
 
             return [
                 'success' => true,
@@ -355,18 +398,32 @@ class WbAbExperimentEngine
         } catch (ValidationException $e) {
             throw $e;
         } catch (Throwable $e) {
-            Log::error('[WbAbExperimentEngine] start failed', [
-                'experiment_id' => $experiment->id,
-                'error' => $e->getMessage(),
-            ]);
+            $isRateLimit = $this->isRateLimitThrowable($e);
+            if ($isRateLimit) {
+                Log::warning('[WbAbExperimentEngine] start blocked by fullstats throttle', [
+                    'experiment_id' => $experiment->id,
+                    'error' => $e->getMessage(),
+                ]);
+            } else {
+                Log::error('[WbAbExperimentEngine] start failed', [
+                    'experiment_id' => $experiment->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
 
             if ($campaignStarted) {
                 $this->safePauseAdvert($apiKey, $advertId);
             }
 
+            $retryAfter = $isRateLimit ? $this->retryAfterFromThrowable($e) : null;
+
             return [
                 'success' => false,
-                'messages' => ['Не удалось запустить эксперимент: '.$e->getMessage()],
+                'messages' => [
+                    $isRateLimit
+                        ? 'Wildberries временно ограничивает запросы статистики. Повторите запуск через '.$retryAfter.' сек.'
+                        : 'Не удалось запустить эксперимент: '.$e->getMessage(),
+                ],
             ];
         }
     }
@@ -437,11 +494,121 @@ class WbAbExperimentEngine
     }
 
     /**
+     * Тик кабинета: один fullstats на все running-кампании, затем обработка каждого эксперимента.
+     *
+     * @return array{success: bool, reschedule: bool, processed?: int, retry_after?: int, messages?: list<string>}
+     */
+    public function processCabinet(int $cabinetId): array
+    {
+        $experiments = AbExperiment::query()
+            ->with(['photos', 'product', 'cabinet'])
+            ->where('cabinet_id', $cabinetId)
+            ->where('status', WbAbTestStatus::Running->value)
+            ->orderBy('id')
+            ->get();
+
+        if ($experiments->isEmpty()) {
+            return ['success' => true, 'reschedule' => false, 'processed' => 0];
+        }
+
+        /** @var WbCabinet|null $cabinet */
+        $cabinet = $experiments->first()?->cabinet ?? WbCabinet::query()->find($cabinetId);
+        if (! $cabinet || empty($cabinet->apikey)) {
+            foreach ($experiments as $experiment) {
+                $this->failExperiment($experiment, 'Нет API-ключа кабинета для обработки эксперимента.');
+            }
+
+            return ['success' => false, 'reschedule' => false, 'messages' => ['Нет API-ключа']];
+        }
+
+        $apiKey = trim((string) $cabinet->apikey);
+
+        try {
+            $rows = $this->fetchCabinetFullstatsRows($apiKey, $experiments);
+        } catch (Throwable $e) {
+            if ($this->isRateLimitThrowable($e)) {
+                return [
+                    'success' => false,
+                    'reschedule' => true,
+                    'retry_after' => $this->retryAfterFromThrowable($e),
+                    'messages' => [$e->getMessage()],
+                ];
+            }
+
+            if ($this->isEmptyStatsThrowable($e)) {
+                foreach ($experiments as $experiment) {
+                    if ($this->isRecentlyStarted($experiment)) {
+                        $this->process($experiment, ['views' => 0, 'clicks' => 0, 'spend' => 0.0, 'orders' => 0]);
+                    } else {
+                        $this->handleRateLimitFailure(
+                            $experiment,
+                            $e->getMessage(),
+                            WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429,
+                        );
+                    }
+                }
+
+                $stillRunning = AbExperiment::query()
+                    ->where('cabinet_id', $cabinetId)
+                    ->where('status', WbAbTestStatus::Running->value)
+                    ->exists();
+
+                return [
+                    'success' => true,
+                    'reschedule' => $stillRunning,
+                    'processed' => $experiments->count(),
+                    'messages' => [$e->getMessage()],
+                ];
+            }
+
+            foreach ($experiments as $experiment) {
+                $advertId = (int) $experiment->wb_advert_id;
+                $this->handleTransientFailure($experiment, $e->getMessage(), $apiKey, $advertId);
+            }
+
+            return [
+                'success' => false,
+                'reschedule' => true,
+                'messages' => [$e->getMessage()],
+            ];
+        }
+
+        $processed = 0;
+        foreach ($experiments as $experiment) {
+            $advertId = (int) $experiment->wb_advert_id;
+            $nmId = (int) ($experiment->product?->nm_id ?? 0);
+            $fromDate = $this->experimentStatsFromDate($experiment);
+            $stats = $this->advertApi->extractStatsForAdvert(
+                $rows,
+                $advertId,
+                $nmId > 0 ? $nmId : null,
+                $fromDate,
+            );
+            $snapshot = [
+                'views' => (int) $stats['views'],
+                'clicks' => (int) $stats['clicks'],
+                'spend' => (float) $stats['spend'],
+                'orders' => (int) $stats['orders'],
+            ];
+            $this->process($experiment, $snapshot);
+            $processed++;
+        }
+
+        $stillRunning = AbExperiment::query()
+            ->where('cabinet_id', $cabinetId)
+            ->where('status', WbAbTestStatus::Running->value)
+            ->exists();
+
+        return ['success' => true, 'reschedule' => $stillRunning, 'processed' => $processed];
+    }
+
+    /**
      * One background tick for a running experiment.
      *
+     * @param  array{views:int,clicks:int,spend:float,orders:int}|null  $prefetchedSnapshot
      * @return array{success: bool, action?: string, messages: list<string>}
      */
-    public function process(AbExperiment $experiment): array
+    public function process(AbExperiment $experiment, ?array $prefetchedSnapshot = null): array
     {
         $cabinet = $experiment->relationLoaded('cabinet')
             ? $experiment->cabinet
@@ -471,7 +638,7 @@ class WbAbExperimentEngine
         }
 
         try {
-            $snapshot = $this->fetchStatsSnapshot(
+            $snapshot = $prefetchedSnapshot ?? $this->fetchStatsSnapshot(
                 $apiKey,
                 $advertId,
                 $nmId,
@@ -483,6 +650,15 @@ class WbAbExperimentEngine
                     $experiment,
                     $e->getMessage(),
                     $this->retryAfterFromThrowable($e),
+                );
+            }
+
+            // Сразу после старта WB часто отдаёт 400 (РК ещё не в 9/11) — не копим consecutive_failures.
+            if ($this->isEmptyStatsThrowable($e) && $this->isRecentlyStarted($experiment)) {
+                return $this->handleRateLimitFailure(
+                    $experiment,
+                    $e->getMessage(),
+                    WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429,
                 );
             }
 
@@ -1120,13 +1296,44 @@ class WbAbExperimentEngine
             || str_contains($msg, 'too many requests');
     }
 
-    private function retryAfterFromThrowable(Throwable $e): int
+    private function isEmptyStatsThrowable(Throwable $e): bool
     {
-        if (preg_match('/retry_after=(\d+)/i', $e->getMessage(), $m)) {
-            return max(1, (int) $m[1]);
+        if ((int) $e->getCode() === 400) {
+            return true;
         }
 
-        return WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429;
+        $msg = mb_strtolower($e->getMessage());
+
+        return str_contains($msg, 'некорректный запрос')
+            || str_contains($msg, 'no statistics')
+            || str_contains($msg, 'stats not available');
+    }
+
+    private function isRecentlyStarted(AbExperiment $experiment): bool
+    {
+        $started = $experiment->started_at;
+        if ($started === null) {
+            return false;
+        }
+
+        $at = $started instanceof Carbon ? $started : Carbon::parse($started);
+
+        return $at->greaterThan(now()->subMinutes(15));
+    }
+
+    private function minBudgetDepositRub(): int
+    {
+        return WbAbTestingService::MIN_BUDGET_DEPOSIT;
+    }
+
+    private function retryAfterFromThrowable(Throwable $e): int
+    {
+        $parsed = WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429;
+        if (preg_match('/retry_after=(\d+)/i', $e->getMessage(), $m)) {
+            $parsed = (int) $m[1];
+        }
+
+        return WbAdvertFullstatsGuard::clampRetryAfter($parsed);
     }
 
     /**
@@ -1419,54 +1626,126 @@ class WbAbExperimentEngine
         int $advertId,
         int $nmId,
         Carbon|string|null $startedAt,
+        bool $allowWait = false,
     ): array {
-        $wait = $this->fullstatsGuard->waitSeconds($apiKey);
-        if ($wait > 0) {
-            throw new \RuntimeException(
-                'rate_limited: fullstats throttle, retry_after='.$wait,
-                429,
-            );
+        [$begin, $end] = $this->fullstatsDateRange($startedAt);
+        $rows = $this->requestFullstats($apiKey, [$advertId], $begin, $end, $allowWait);
+        $stats = $this->advertApi->extractStatsForAdvert(
+            $rows,
+            $advertId,
+            $nmId > 0 ? $nmId : null,
+            $begin->toDateString(),
+        );
+
+        return [
+            'views' => (int) $stats['views'],
+            'clicks' => (int) $stats['clicks'],
+            'spend' => (float) $stats['spend'],
+            'orders' => (int) $stats['orders'],
+        ];
+    }
+
+    /**
+     * Один (или пачка до 50 id) fullstats на кабинет. Период — от самого раннего started_at.
+     * Показы каждого эксперимента отсекаются по его дате старта в extractStatsForAdvert.
+     *
+     * @param  Collection<int, AbExperiment>  $experiments
+     * @return list<array<string, mixed>>
+     */
+    private function fetchCabinetFullstatsRows(string $apiKey, Collection $experiments): array
+    {
+        $advertIds = $experiments
+            ->map(fn (AbExperiment $experiment): int => (int) $experiment->wb_advert_id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($advertIds === []) {
+            return [];
         }
 
-        // WB fullstats max period is 31 days.
-        $end = Carbon::now('Europe/Moscow')->startOfDay();
-        $begin = Carbon::parse($startedAt ?? now(), 'Europe/Moscow')->startOfDay();
-        if ($begin->diffInDays($end) > 30) {
-            $begin = $end->copy()->subDays(30);
+        $earliest = null;
+        foreach ($experiments as $experiment) {
+            $started = $experiment->started_at ?? now();
+            $at = $started instanceof Carbon ? $started->copy() : Carbon::parse($started);
+            if ($earliest === null || $at->lt($earliest)) {
+                $earliest = $at;
+            }
+        }
+
+        [$begin, $end] = $this->fullstatsDateRange($earliest ?? now());
+
+        $rows = [];
+        foreach (array_chunk($advertIds, WbAdvertApiClient::FULLSTATS_MAX_IDS) as $index => $chunk) {
+            $allowWait = $index > 0;
+            $rows = array_merge($rows, $this->requestFullstats($apiKey, $chunk, $begin, $end, $allowWait));
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  list<int>  $advertIds
+     * @return list<array<string, mixed>>
+     */
+    private function requestFullstats(
+        string $apiKey,
+        array $advertIds,
+        Carbon $begin,
+        Carbon $end,
+        bool $allowWait = false,
+    ): array {
+        $wait = $this->fullstatsGuard->waitSeconds($apiKey);
+        $maxWait = $allowWait
+            ? max(self::START_FULLSTATS_MAX_WAIT_SECONDS, WbAdvertFullstatsGuard::MIN_INTERVAL_SECONDS)
+            : 0;
+        // На старте ждём короткое окно (остаток интервала/минуты), а не падаем с «через 1 сек».
+        if ($wait > 0 && $allowWait && $wait <= $maxWait && ! app()->runningUnitTests()) {
+            $deadline = time() + $maxWait;
+            while ($wait > 0 && time() < $deadline) {
+                sleep(max(1, min($wait, $deadline - time())));
+                $wait = $this->fullstatsGuard->waitSeconds($apiKey);
+            }
+        }
+        if ($wait > 0) {
+            throw new \RuntimeException(
+                'rate_limited: fullstats throttle, retry_after='
+                .WbAdvertFullstatsGuard::clampRetryAfter($wait),
+                429,
+            );
         }
 
         $this->fullstatsGuard->markAttempt($apiKey);
 
         $result = $this->withRetries(
-            function () use ($apiKey, $advertId, $begin, $end) {
+            function () use ($apiKey, $advertIds, $begin, $end) {
                 $response = $this->advertApi->fullstats(
                     $apiKey,
-                    [$advertId],
+                    $advertIds,
                     $begin->toDateString(),
                     $end->toDateString(),
                 );
-                // On 429 do not burn retries with sub-second sleeps — respect interval.
                 if ((int) ($response['code'] ?? 0) === 429) {
                     $retryAfter = (int) ($response['retry_after']
                         ?? WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429);
-                    $this->fullstatsGuard->setCooldownAfter429($apiKey, max(1, $retryAfter));
-
-                    return $response;
+                    $this->fullstatsGuard->setCooldownAfter429($apiKey, $retryAfter);
                 }
 
                 return $response;
             },
             'fullstats',
-            1, // single attempt: backoff is job-level via rate_limited reschedule
+            1,
         );
 
         if (! ($result['success'] ?? false)) {
             $code = (int) ($result['code'] ?? 0);
             $message = (string) ($result['message'] ?? 'Ошибка получения статистики кампании');
             if ($code === 429) {
-                $retryAfter = (int) ($result['retry_after']
-                    ?? WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429);
-                $this->fullstatsGuard->setCooldownAfter429($apiKey, max(1, $retryAfter));
+                $retryAfter = WbAdvertFullstatsGuard::clampRetryAfter(
+                    (int) ($result['retry_after'] ?? WbAdvertFullstatsGuard::DEFAULT_RETRY_AFTER_429),
+                );
+                $this->fullstatsGuard->setCooldownAfter429($apiKey, $retryAfter);
                 throw new \RuntimeException(
                     'rate_limited: '.$message.'; retry_after='.$retryAfter,
                     429,
@@ -1476,18 +1755,54 @@ class WbAbExperimentEngine
             throw new \RuntimeException($message, $code > 0 ? $code : 0);
         }
 
-        $stats = $this->advertApi->extractStatsForAdvert(
-            $result['rows'] ?? [],
-            $advertId,
-            $nmId > 0 ? $nmId : null,
-        );
+        $rows = $result['rows'] ?? [];
 
-        return [
-            'views' => (int) $stats['views'],
-            'clicks' => (int) $stats['clicks'],
-            'spend' => (float) $stats['spend'],
-            'orders' => (int) $stats['orders'],
-        ];
+        return is_array($rows) ? $rows : [];
+    }
+
+    /**
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function fullstatsDateRange(Carbon|string|null $startedAt): array
+    {
+        $end = Carbon::now('Europe/Moscow')->startOfDay();
+        $started = $startedAt instanceof Carbon
+            ? $startedAt->copy()
+            : Carbon::parse($startedAt ?? now());
+        $begin = $started->timezone('Europe/Moscow')->startOfDay();
+        if ($begin->greaterThan($end)) {
+            $begin = $end->copy();
+        }
+        if ($begin->diffInDays($end) > 30) {
+            $begin = $end->copy()->subDays(30);
+        }
+
+        return [$begin, $end];
+    }
+
+    private function experimentStatsFromDate(AbExperiment $experiment): string
+    {
+        [$begin] = $this->fullstatsDateRange($experiment->started_at ?? now());
+
+        return $begin->toDateString();
+    }
+
+    private function ensureCabinetTickScheduled(int $cabinetId, int $justStartedExperimentId): void
+    {
+        $othersRunning = AbExperiment::query()
+            ->where('cabinet_id', $cabinetId)
+            ->where('status', WbAbTestStatus::Running->value)
+            ->where('id', '!=', $justStartedExperimentId)
+            ->exists();
+
+        if ($othersRunning) {
+            return;
+        }
+
+        ProcessAbCabinetTickJob::dispatchFor(
+            $cabinetId,
+            WbAdvertFullstatsGuard::MIN_INTERVAL_SECONDS,
+        );
     }
 
     /**
@@ -1555,7 +1870,7 @@ class WbAbExperimentEngine
             || str_contains($lower, 'нет бюджета')
         ) {
             return 'У рекламной кампании нет бюджета. Пополните бюджет в кабинете Wildberries '
-                .'(минимум 1000 ₽) или создайте кампанию с пополнением — иначе WB не запустит РК.';
+                .'(минимум '.$this->minBudgetDepositRub().' ₽) или создайте кампанию с пополнением — иначе WB не запустит РК.';
         }
 
         if (str_contains($lower, 'status unchanged')) {

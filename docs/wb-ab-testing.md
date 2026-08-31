@@ -56,8 +56,8 @@
 - `app/Services/Wb/WbContentMediaClient.php` — Content API `POST /content/v3/media/file`
 - Models: `AbProduct`, `AbExperiment`, `AbCampaign`, `AbExperimentPhoto`, `AbExperimentCycle`, `AbExperimentEvent`
 - `app/Enums/WbAbTestStatus.php` — draft / running / completed / **stopped** / error
-- Jobs: `EnrichAbProductRatingsJob`, **`ProcessAbExperimentJob`**
-- Command: `subscriber:wb-ab-testing-tick` (every minute in Kernel)
+- Jobs: `EnrichAbProductRatingsJob`, **`ProcessAbCabinetTickJob`** (тик кабинета). `ProcessAbExperimentJob` — shim для старой очереди.
+- Command: `subscriber:wb-ab-testing-tick` (every two minutes in Kernel)
 
 ### UI
 
@@ -202,8 +202,10 @@ FK: `cabinet_id` → `wb_cabinets.id`
 
 **Запуск (HTTP):** проверки (draft, settings, ≥2 фото, campaign, nm в РК, статус РК 4/9/11, нет другого running на этот товар **и** на этот `wb_advert_id`) → `GET /adv/v1/budget` (total &lt; 1 ₽ → понятная RU-ошибка) → `GET /adv/v0/start` (если не 9) → `POST content/v3/media/file` (главное фото #1) → baseline `fullstats` → cycle #1 (`views_start`/`clicks_start`/…) → `status=running`. Статистика эксперимента — **дельта** относительно этого снимка, не история РК.
 
-**Фон (primary):** после `start` сразу `ProcessAbExperimentJob` → `process` → self-reschedule через 60 с, пока `running`.  
-**Fallback:** `subscriber:wb-ab-testing-tick` каждые **2** минуты (если цепочка job оборвалась).
+Если `fullstats` на старте упирается в throttle (3 req/min, interval 20 s) — HTTP-старт **ждёт до 25 с**, иначе возвращает понятную RU-ошибку «повторите через N сек» (не `error`, не ERROR-лог). **N не меньше 20 с** (интервал метода): каждый старт делает свой baseline-fullstats, поэтому 4-й запуск в ту же минуту часто упирается в лимит 3/мин. Для **новой РК в статусе 4** ответ 400 от fullstats (статистики ещё нет) → нулевой baseline, эксперимент всё равно запускается.
+
+**Фон (primary):** после `start` `ProcessAbCabinetTickJob` (один job на кабинет) с delay **20 с**, если это первый running на кабинете. Следующие running **не** поднимают отдельную цепочку — попадают в тот же тик. Self-reschedule через 60 с, пока есть running.  
+**Fallback:** `subscriber:wb-ab-testing-tick` каждые **2** минуты — по одному job на кабинет (если цепочка оборвалась).
 
 **Смена фото (что раньше):** `delta_views ≥ impressions_per_round` **или** `elapsed ≥ round_minutes`. Не «минимум времени» — время это **верхняя** граница круга; показы могут сменить фото раньше. Порядок по `sort_order`, кольцо.
 
@@ -212,9 +214,10 @@ FK: `cabinet_id` → `wb_cabinets.id`
 Черновик: setup-ступени 30/50/70 (готовность wizard), не смешиваются с running.
 
 **Завершение:** каждая фотография набрала `impressions_per_photo` (сумма Δ views по **всем** циклам) → pause РК → winner (max CTR) → **установка победителя главным фото** (`POST content/v3/media/file`, photo #1) → `completed` + `finished_at`. Если upload победителя упал — эксперимент всё равно `completed`, в journal/error_message — предупреждение.  
-**Стоп пользователем:** pause РК → `stopped` + `finished_at` (не error).  
+**Стоп пользователем:** кнопка «Остановить» открывает модальное окно (не `window.confirm`) → pause РК → `stopped` + `finished_at` (не error).  
 **Ошибки API:** `consecutive_failures`, после 5 non-rate-limit сбоев → `error` + `finished_at` + pause.  
-**429 fullstats:** soft — `api.rate_limited`, **не** terminal; job reschedule по `retry_after` (≥20 с). Лимит WB: 3 req/min, interval 20 s, burst 1.  
+**429 fullstats:** soft на уровне кабинета — тик не копирует `consecutive_failures`, reschedule ≥60 с. Лимит WB: 3 req/min, interval 20 s, burst 1, **до 50 id в одном запросе**. Несколько A/B на одном ключе = **один** `GET /adv/v3/fullstats` за тик (период от самого раннего `started_at`, показы каждого эксперимента отсекаются по его дате старта). Перед запросом `WbAdvertFullstatsGuard` проверяет интервал, окно 3/мин и cooldown из `X-RateLimit-Retry` предыдущего 429 (разбор без учёта регистра); если ждать ещё нельзя — запрос не отправляется.  
+**400 fullstats** в первые 15 мин после старта (РК ещё не в 9/11): тоже soft, без `consecutive_failures`.  
 **История UI:** last 100 cycles + `total_rounds`; агрегаты/progress **всегда** по всем cycles (не по limit 100).
 
 **Open cycle:** единственный cycle с `ended_at IS NULL` (текущее фото = `ab_experiment_photo_id` цикла).  
@@ -258,7 +261,7 @@ FK: `cabinet_id` → `wb_cabinets.id`
 | Детали | `GET /api/advert/v2/adverts?ids=` |
 | Создать | `POST /adv/v2/seacat/save-ad` |
 | Товары ± / prepare | `PATCH /adv/v0/auction/nms` — **только add**, чужие nm не удаляем |
-| Бюджет | optional `POST /adv/v1/budget/deposit` (type=1 баланс; в UI пополнение **включено по умолчанию**, min 1000 ₽) |
+| Бюджет | optional `POST /adv/v1/budget/deposit` (type=1 баланс; в UI пополнение **включено по умолчанию**, min **1200** ₽) |
 | Бюджет (чтение) | `GET /adv/v1/budget` — preflight перед стартом эксперимента |
 | Старт | **не** на шаге 3; на шаге 5 engine проверяет budget > 0 |
 
@@ -281,8 +284,8 @@ FK: `cabinet_id` → `wb_cabinets.id`
 1. **Создать** → save-ad + запись в реестр (`created_by_experiment_id`) + bind (+ optional deposit; fail deposit → `budget_deposited: false`, кампания всё равно привязана)
 2. **Клик по строке** (`prepare`) → add nm при необходимости + bind
 3. **Пауза** — активная (status 9), не занята running A/B
-4. **Пополнить** — deposit min 1000 ₽
-5. **Удалить** — только если `created_by_experiment_id` задан: pause если active → delete на WB → unbind drafts → удалить из `wb_ab_campaigns`
+4. **Пополнить** — deposit min **1200** ₽ (лимит WB Advert API). Сразу после создания РК WB иногда отвечает «failed to create/update a bid» — одна повторная попытка через 2 с.
+5. **Удалить** — только если `created_by_experiment_id` задан: pause если active → delete на WB → unbind drafts → удалить из `wb_ab_campaigns`. Если WB отвечает `Status Unchanged` (статус ещё не применился, до ~1 мин) — понятная RU-ошибка, повтор через минуту.
 
 #### Baseline статистики
 
@@ -326,7 +329,7 @@ CTR/CPM в таблице кампаний не грузятся.
 Сценарий: убрать вариант с низким CTR, чтобы показы шли на оставшиеся.
 
 1. Проверки: статус `running`, ≥2 фото до удаления (после — ≥1), ownership.
-2. `lockForUpdate` на эксперименте (без гонки с `ProcessAbExperimentJob`).
+2. `lockForUpdate` на эксперименте (без гонки с `ProcessAbCabinetTickJob`).
 3. Если удаляемое = текущее (`open cycle`):
    - upload следующего оставшегося варианта в WB (`content/v3/media/file`, photo #1);
    - закрыть open cycle с `end_reason=photo_removed`;
@@ -366,18 +369,20 @@ php artisan queue:work --queue=wb_ab_testing,default
 | Job / command | Очередь | Назначение |
 |---------------|---------|------------|
 | `EnrichAbProductRatingsJob` | `default` | Рейтинги товаров |
-| `ProcessAbExperimentJob` | **`wb_ab_testing`** | Тик одного running-эксперимента + self-reschedule 60 с |
-| `subscriber:wb-ab-testing-tick` | — (schedule) | **everyTwoMinutes**, fallback после очистки очереди |
+| `ProcessAbCabinetTickJob` | **`wb_ab_testing`** | Тик **кабинета**: один fullstats на все running-РК + обработка экспериментов; self-reschedule 60 с |
+| `ProcessAbExperimentJob` | **`wb_ab_testing`** | Shim: старые payload в очереди перекладывают в cabinet tick |
+| `subscriber:wb-ab-testing-tick` | — (schedule) | **everyTwoMinutes**, fallback: по одному job на кабинет |
 
-### Что делает `ProcessAbExperimentJob`
+### Что делает `ProcessAbCabinetTickJob`
 
-Один job = **один** эксперимент `running` (`ShouldBeUniqueUntilProcessing` по experiment id).
+Один job = **один кабинет** с running-экспериментами (`ShouldBeUniqueUntilProcessing` по `wb-ab-cabinet-{id}`).
 
-1. Старт эксперимента (HTTP) → **сразу** `dispatchFor(id)`.
-2. `handle` → `WbAbExperimentEngine::process` (fullstats, смена фото, complete, journal).
-3. Если статус всё ещё `running` → `dispatchFor(id, delay=60)`.
-4. Fallback tick раз в 2 мин снова кладёт job, если цепочка потеряна.
-5. Worker: `queue:work --queue=wb_ab_testing,default`.
+1. Старт первого running на кабинете → `dispatchFor(cabinetId, delay=20)`.
+2. `handle` → `WbAbExperimentEngine::processCabinet`: `GET /adv/v3/fullstats?ids=` все `wb_advert_id` кабинета (пачки по 50), затем `process` каждого эксперимента с готовым снимком.
+3. Пока есть running → `dispatchFor(cabinetId, delay=60)` (при 429 — `max(60, retry_after)`).
+4. Новый эксперимент на уже крутящемся кабинете в отдельную цепочку **не** ставится — попадёт в следующий тик.
+5. Fallback tick раз в 2 мин снова кладёт job на кабинет, если цепочка потеряна.
+6. Worker: `queue:work --queue=wb_ab_testing,default`.
 
 ## Связанные документы
 

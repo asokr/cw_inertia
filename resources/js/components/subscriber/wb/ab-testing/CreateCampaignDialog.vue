@@ -6,8 +6,9 @@ import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
 import Select from "@/components/ui/Select.vue";
 import Checkbox from "@/components/ui/Checkbox.vue";
+import { MIN_BUDGET_DEPOSIT } from "./abTestingSettings";
 
-const MIN_DEPOSIT = 1000;
+const MIN_DEPOSIT = MIN_BUDGET_DEPOSIT;
 
 const props = defineProps({
     open: {

@@ -13,9 +13,11 @@ use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
 use App\Services\Subscriber\Wb\WbAbTestingService;
 use App\Services\Wb\WbAdvertApiClient;
+use App\Support\Wb\WbAdvertFullstatsGuard;
 use App\Services\Wb\WbPriceCalculationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -2303,9 +2305,9 @@ class WbAbTestingTest extends WebAuthTestCase
             ->assertJsonPath('experiment.progress_mode', 'pending');
 
         \Illuminate\Support\Facades\Queue::assertPushed(
-            \App\Jobs\Wb\AbTesting\ProcessAbExperimentJob::class,
-            function ($job) use ($experiment) {
-                return (int) $job->experimentId === (int) $experiment->id;
+            \App\Jobs\Wb\AbTesting\ProcessAbCabinetTickJob::class,
+            function ($job) use ($cabinet) {
+                return (int) $job->cabinetId === (int) $cabinet->id;
             },
         );
 
@@ -2326,6 +2328,329 @@ class WbAbTestingTest extends WebAuthTestCase
         $this->assertDatabaseHas('wb_ab_experiment_events', [
             'ab_experiment_id' => $experiment->id,
             'type' => 'experiment.started',
+        ]);
+    }
+
+    public function test_start_rate_limited_fullstats_returns_friendly_message(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Start Throttle');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        [$product, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+        $experiment->update([
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+            'progress' => 70,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/a.jpg', 'fake-image-a');
+        Storage::disk('private')->put('wb/ab-testing/b.jpg', 'fake-image-b');
+
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/a.jpg',
+            'original_name' => 'a.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/b.jpg',
+            'original_name' => 'b.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+
+        $advertId = (int) $experiment->wb_advert_id;
+        $nmId = (int) $product->nm_id;
+
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        [
+                            'id' => $advertId,
+                            'status' => 4,
+                            'nm_settings' => [['nm_id' => $nmId]],
+                        ],
+                    ],
+                ],
+            ]);
+        $advertApi->shouldReceive('getBudget')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => ['total' => 1200, 'cash' => 1200],
+            ]);
+        $advertApi->shouldReceive('extractBudgetTotal')
+            ->once()
+            ->andReturn(1200.0);
+        $advertApi->shouldReceive('startAdvert')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+        $advertApi->shouldReceive('fullstats')->never();
+        $advertApi->shouldReceive('pauseAdvert')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+
+        $mediaApi = Mockery::mock(\App\Services\Wb\WbContentMediaClient::class);
+        $mediaApi->shouldReceive('uploadMediaFile')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+
+        $guard = new WbAdvertFullstatsGuard();
+        $scope = $guard->tokenScope('test-api-key');
+        // Последний fullstats 3 с назад → waitSeconds = 17 (интервал 20 с).
+        Cache::put($guard->intervalKey($scope), time() - 3, 120);
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+        $this->app->instance(\App\Services\Wb\WbContentMediaClient::class, $mediaApi);
+
+        $response = $this->actingAs($user)
+            ->postJson("/panel/wb/ab-testing/experiments/{$experiment->id}/start")
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $message = (string) ($response->json('messages.0') ?? '');
+        $this->assertStringContainsString('статистики', mb_strtolower($message));
+        $this->assertMatchesRegularExpression('/через\s+\d+\s+сек/u', $message);
+        $this->assertSame(WbAbTestStatus::Draft, $experiment->fresh()->status);
+    }
+
+    public function test_start_fullstats_one_second_wait_is_not_shown_as_one_sec(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Start Throttle 1s');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        [$product, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+        $experiment->update([
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+            'progress' => 70,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/a.jpg', 'fake-image-a');
+        Storage::disk('private')->put('wb/ab-testing/b.jpg', 'fake-image-b');
+
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/a.jpg',
+            'original_name' => 'a.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/b.jpg',
+            'original_name' => 'b.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+
+        $advertId = (int) $experiment->wb_advert_id;
+        $nmId = (int) $product->nm_id;
+
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        [
+                            'id' => $advertId,
+                            'status' => 4,
+                            'nm_settings' => [['nm_id' => $nmId]],
+                        ],
+                    ],
+                ],
+            ]);
+        $advertApi->shouldReceive('getBudget')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => ['total' => 1200, 'cash' => 1200],
+            ]);
+        $advertApi->shouldReceive('extractBudgetTotal')
+            ->once()
+            ->andReturn(1200.0);
+        $advertApi->shouldReceive('startAdvert')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+        $advertApi->shouldReceive('fullstats')->never();
+        $advertApi->shouldReceive('pauseAdvert')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+
+        $mediaApi = Mockery::mock(\App\Services\Wb\WbContentMediaClient::class);
+        $mediaApi->shouldReceive('uploadMediaFile')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+
+        $guard = new WbAdvertFullstatsGuard();
+        $scope = $guard->tokenScope('test-api-key');
+        $now = time();
+        // Три baseline-fullstats за минуту (как три предыдущих старта).
+        // До окна ~10 с — раньше тост писал «через 10 сек» / «через 1 сек».
+        Cache::put($guard->windowKey($scope), [$now - 50, $now - 30, $now - 15], 120);
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+        $this->app->instance(\App\Services\Wb\WbContentMediaClient::class, $mediaApi);
+
+        $response = $this->actingAs($user)
+            ->postJson("/panel/wb/ab-testing/experiments/{$experiment->id}/start")
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $message = (string) ($response->json('messages.0') ?? '');
+        $this->assertDoesNotMatchRegularExpression('/через\s+1\s+сек/u', $message);
+        $this->assertDoesNotMatchRegularExpression('/через\s+1[0-9]\s+сек/u', $message);
+        $this->assertMatchesRegularExpression('/через\s+(\d+)\s+сек/u', $message, $message);
+        preg_match('/через\s+(\d+)\s+сек/u', $message, $matches);
+        $this->assertGreaterThanOrEqual(
+            WbAdvertFullstatsGuard::MIN_INTERVAL_SECONDS,
+            (int) ($matches[1] ?? 0),
+        );
+        $this->assertSame(WbAbTestStatus::Draft, $experiment->fresh()->status);
+    }
+
+    public function test_start_fullstats_400_on_ready_campaign_uses_zero_baseline(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Start Fullstats 400');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        [$product, $experiment] = $this->createDraftExperimentWithCampaign($cabinet);
+        $experiment->update([
+            'impressions_per_photo' => 1000,
+            'impressions_per_round' => 100,
+            'round_minutes' => 60,
+            'cpm' => 350,
+            'progress' => 70,
+        ]);
+
+        Storage::disk('private')->put('wb/ab-testing/a.jpg', 'fake-image-a');
+        Storage::disk('private')->put('wb/ab-testing/b.jpg', 'fake-image-b');
+
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/a.jpg',
+            'original_name' => 'a.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/b.jpg',
+            'original_name' => 'b.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 10,
+        ]);
+
+        $advertId = (int) $experiment->wb_advert_id;
+        $nmId = (int) $product->nm_id;
+
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        [
+                            'id' => $advertId,
+                            'status' => 4,
+                            'nm_settings' => [['nm_id' => $nmId]],
+                        ],
+                    ],
+                ],
+            ]);
+        $advertApi->shouldReceive('getBudget')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => ['total' => 1200, 'cash' => 1200],
+            ]);
+        $advertApi->shouldReceive('extractBudgetTotal')
+            ->once()
+            ->andReturn(1200.0);
+        $advertApi->shouldReceive('startAdvert')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+        $advertApi->shouldReceive('fullstats')
+            ->once()
+            ->andReturn([
+                'success' => false,
+                'code' => 400,
+                'rows' => [],
+                'message' => 'Некорректный запрос к API продвижения Wildberries.',
+            ]);
+        $advertApi->shouldReceive('extractStatsForAdvert')->never();
+        $advertApi->shouldReceive('pauseAdvert')->never();
+
+        $mediaApi = Mockery::mock(\App\Services\Wb\WbContentMediaClient::class);
+        $mediaApi->shouldReceive('uploadMediaFile')
+            ->once()
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+        $this->app->instance(\App\Services\Wb\WbContentMediaClient::class, $mediaApi);
+
+        \Illuminate\Support\Facades\Queue::fake();
+
+        $this->actingAs($user)
+            ->postJson("/panel/wb/ab-testing/experiments/{$experiment->id}/start")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('experiment.status', 'running');
+
+        $this->assertSame(WbAbTestStatus::Running, $experiment->fresh()->status);
+        $this->assertDatabaseHas('wb_ab_experiment_cycles', [
+            'ab_experiment_id' => $experiment->id,
+            'sequence' => 1,
+            'views_start' => 0,
         ]);
     }
 
@@ -2461,10 +2786,10 @@ class WbAbTestingTest extends WebAuthTestCase
             ->withArgs(function (string $apiKey, int $advertId, int $sum, int $type) {
                 return $apiKey === 'test-api-key'
                     && $advertId === 555777
-                    && $sum === 1000
+                    && $sum === 1200
                     && $type === WbAdvertApiClient::BUDGET_DEPOSIT_TYPE_BALANCE;
             })
-            ->andReturn(['success' => true, 'code' => 200, 'data' => ['total' => 1000]]);
+            ->andReturn(['success' => true, 'code' => 200, 'data' => ['total' => 1200]]);
 
         $this->app->instance(WbAdvertApiClient::class, $client);
 
@@ -2474,7 +2799,7 @@ class WbAbTestingTest extends WebAuthTestCase
                 'name' => 'A/B тест — DEP-SKU',
                 'bid_type' => 'unified',
                 'payment_type' => 'cpm',
-                'budget_deposit' => 1000,
+                'budget_deposit' => 1200,
             ])
             ->assertOk()
             ->assertJsonPath('success', true)
@@ -2528,7 +2853,7 @@ class WbAbTestingTest extends WebAuthTestCase
                 'name' => 'A/B тест — DEP-FAIL',
                 'bid_type' => 'unified',
                 'payment_type' => 'cpm',
-                'budget_deposit' => 1000,
+                'budget_deposit' => 1200,
             ])
             ->assertOk()
             ->assertJsonPath('success', true)
@@ -2640,6 +2965,21 @@ class WbAbTestingTest extends WebAuthTestCase
             ->assertJsonPath('deposited_sum', 1500);
     }
 
+    public function test_deposit_rejects_sum_below_wb_minimum(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->createUnifiedCabinet($user, 'Min Deposit');
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldNotReceive('depositBudget');
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $this->actingAs($user)
+            ->postJson('/panel/wb/ab-testing/campaigns/333002/deposit', ['sum' => 1000])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['sum']);
+    }
+
     public function test_get_campaign_budget(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
@@ -2739,6 +3079,79 @@ class WbAbTestingTest extends WebAuthTestCase
         $this->assertDatabaseHas('wb_ab_experiments', [
             'id' => $experiment->id,
             'wb_advert_id' => null,
+        ]);
+    }
+
+    public function test_delete_status_unchanged_returns_friendly_message(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Delete Unchanged');
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 900021,
+            'vendor_code' => 'DEL-UNCHANGED',
+            'title' => 'Delete unchanged product',
+        ]);
+
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Bound draft',
+            'status' => WbAbTestStatus::Draft,
+            'wb_advert_id' => 333013,
+            'wb_advert_name' => 'To delete later',
+            'progress' => 30,
+        ]);
+
+        AbCampaign::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 333013,
+            'name' => 'To delete later',
+            'bid_type' => 'unified',
+            'payment_type' => 'cpm',
+            'created_by_experiment_id' => $experiment->id,
+        ]);
+
+        $client = Mockery::mock(WbAdvertApiClient::class);
+        $client->shouldReceive('getAdverts')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    'adverts' => [
+                        ['id' => 333013, 'status' => 9, 'settings' => ['name' => 'To delete later']],
+                    ],
+                ],
+            ]);
+        $client->shouldReceive('pauseAdvert')
+            ->once()
+            ->with('test-api-key', 333013)
+            ->andReturn(['success' => true, 'code' => 200, 'data' => null]);
+        $client->shouldReceive('deleteAdvert')
+            ->once()
+            ->with('test-api-key', 333013)
+            ->andReturn([
+                'success' => false,
+                'code' => 400,
+                'data' => null,
+                'message' => 'advertChangeStatusViaGRPC: Status Unchanged: advert status change is not allowed in current state',
+            ]);
+
+        $this->app->instance(WbAdvertApiClient::class, $client);
+
+        $response = $this->actingAs($user)
+            ->deleteJson('/panel/wb/ab-testing/campaigns/333013?experiment_id='.$experiment->id)
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $message = (string) ($response->json('messages.0') ?? '');
+        $this->assertStringContainsString('подождите', mb_strtolower($message));
+
+        $this->assertDatabaseHas('wb_ab_campaigns', [
+            'cabinet_id' => $cabinet->id,
+            'wb_advert_id' => 333013,
         ]);
     }
 
@@ -3082,6 +3495,193 @@ class WbAbTestingTest extends WebAuthTestCase
             'sequence' => 2,
             'ab_experiment_photo_id' => $photo2->id,
         ]);
+    }
+
+    public function test_process_cabinet_fetches_fullstats_once_for_two_experiments(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Cabinet Tick Batch');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $makeRunning = function (int $nmId, int $advertId) use ($cabinet) {
+            $product = AbProduct::query()->create([
+                'cabinet_id' => $cabinet->id,
+                'nm_id' => $nmId,
+                'vendor_code' => 'BATCH-'.$nmId,
+                'title' => 'Batch '.$nmId,
+            ]);
+            $experiment = AbExperiment::query()->create([
+                'ab_product_id' => $product->id,
+                'cabinet_id' => $cabinet->id,
+                'name' => 'Batch exp '.$advertId,
+                'status' => WbAbTestStatus::Running,
+                'progress' => 0,
+                'wb_advert_id' => $advertId,
+                'started_at' => now()->subHour(),
+                'impressions_per_photo' => 10000,
+                'impressions_per_round' => 1000,
+                'round_minutes' => 60,
+                'cpm' => 350,
+            ]);
+            $photo = AbExperimentPhoto::query()->create([
+                'ab_experiment_id' => $experiment->id,
+                'cabinet_id' => $cabinet->id,
+                'sort_order' => 0,
+                'disk' => 'private',
+                'path' => 'wb/ab-testing/batch-'.$advertId.'.jpg',
+                'mime' => 'image/jpeg',
+                'size' => 1,
+            ]);
+            AbExperimentPhoto::query()->create([
+                'ab_experiment_id' => $experiment->id,
+                'cabinet_id' => $cabinet->id,
+                'sort_order' => 1,
+                'disk' => 'private',
+                'path' => 'wb/ab-testing/batch-'.$advertId.'-b.jpg',
+                'mime' => 'image/jpeg',
+                'size' => 1,
+            ]);
+            \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+                'ab_experiment_id' => $experiment->id,
+                'cabinet_id' => $cabinet->id,
+                'ab_experiment_photo_id' => $photo->id,
+                'sequence' => 1,
+                'started_at' => now()->subMinutes(10),
+                'views_start' => 0,
+                'clicks_start' => 0,
+                'spend_start' => 0,
+                'orders_start' => 0,
+            ]);
+
+            return $experiment;
+        };
+
+        $expA = $makeRunning(920101, 810101);
+        $expB = $makeRunning(920102, 810102);
+
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('fullstats')
+            ->once()
+            ->withArgs(function (string $apiKey, array $ids) {
+                sort($ids);
+
+                return $apiKey === 'test-api-key' && $ids === [810101, 810102];
+            })
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'rows' => [
+                    ['advertId' => 810101, 'views' => 40, 'clicks' => 2, 'sum' => 1, 'orders' => 0],
+                    ['advertId' => 810102, 'views' => 70, 'clicks' => 3, 'sum' => 2, 'orders' => 0],
+                ],
+            ]);
+        $advertApi->shouldReceive('extractStatsForAdvert')
+            ->twice()
+            ->andReturnUsing(function (array $rows, int $advertId) {
+                foreach ($rows as $row) {
+                    if ((int) ($row['advertId'] ?? 0) === $advertId) {
+                        return [
+                            'views' => (int) $row['views'],
+                            'clicks' => (int) $row['clicks'],
+                            'spend' => (float) ($row['sum'] ?? 0),
+                            'orders' => 0,
+                            'ctr' => 0.0,
+                        ];
+                    }
+                }
+
+                return ['views' => 0, 'clicks' => 0, 'spend' => 0.0, 'orders' => 0, 'ctr' => 0.0];
+            });
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+
+        $engine = app(\App\Services\Subscriber\Wb\AbTesting\WbAbExperimentEngine::class);
+        $result = $engine->processCabinet((int) $cabinet->id);
+
+        $this->assertTrue($result['success']);
+        $this->assertTrue($result['reschedule']);
+        $this->assertSame(2, $result['processed']);
+        $this->assertNotNull($expA->fresh()->last_processed_at);
+        $this->assertNotNull($expB->fresh()->last_processed_at);
+    }
+
+    public function test_process_cabinet_skips_fullstats_when_retry_header_cooldown_active(): void
+    {
+        Storage::fake('private');
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Cabinet Tick Cooldown');
+        $cabinet->apikey = 'test-api-key';
+        $cabinet->save();
+
+        $product = AbProduct::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 930101,
+            'vendor_code' => 'CD-930101',
+            'title' => 'Cooldown product',
+        ]);
+        $experiment = AbExperiment::query()->create([
+            'ab_product_id' => $product->id,
+            'cabinet_id' => $cabinet->id,
+            'name' => 'Cooldown exp',
+            'status' => WbAbTestStatus::Running,
+            'progress' => 0,
+            'wb_advert_id' => 830101,
+            'started_at' => now()->subHour(),
+            'impressions_per_photo' => 10000,
+            'impressions_per_round' => 1000,
+            'round_minutes' => 60,
+            'cpm' => 350,
+        ]);
+        $photo = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/cooldown.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'private',
+            'path' => 'wb/ab-testing/cooldown-b.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 1,
+        ]);
+        \App\Models\Subscribers\Wb\AbTesting\AbExperimentCycle::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'ab_experiment_photo_id' => $photo->id,
+            'sequence' => 1,
+            'started_at' => now()->subMinutes(10),
+            'views_start' => 0,
+            'clicks_start' => 0,
+            'spend_start' => 0,
+            'orders_start' => 0,
+        ]);
+
+        $guard = new WbAdvertFullstatsGuard();
+        $guard->setCooldownAfter429('test-api-key', 90);
+
+        $advertApi = Mockery::mock(WbAdvertApiClient::class);
+        $advertApi->shouldReceive('fullstats')->never();
+
+        $this->app->instance(WbAdvertApiClient::class, $advertApi);
+
+        $engine = app(\App\Services\Subscriber\Wb\AbTesting\WbAbExperimentEngine::class);
+        $result = $engine->processCabinet((int) $cabinet->id);
+
+        $this->assertFalse($result['success']);
+        $this->assertTrue($result['reschedule']);
+        $this->assertGreaterThanOrEqual(89, (int) ($result['retry_after'] ?? 0));
+        $this->assertSame(WbAbTestStatus::Running, $experiment->fresh()->status);
+        $this->assertSame(0, (int) $experiment->fresh()->consecutive_failures);
     }
 
     public function test_engine_complete_applies_winner_as_main_photo(): void
@@ -3485,6 +4085,41 @@ class WbAbTestingTest extends WebAuthTestCase
         ], 1, 222);
         $this->assertSame(50, $noBreakdown['views']);
         $this->assertSame(2, $noBreakdown['clicks']);
+    }
+
+    public function test_extract_stats_for_advert_from_date_skips_earlier_days(): void
+    {
+        $client = new WbAdvertApiClient;
+
+        $rows = [
+            [
+                'advertId' => 10,
+                'views' => 900,
+                'clicks' => 90,
+                'sum' => 9,
+                'days' => [
+                    [
+                        'date' => '2026-08-01',
+                        'apps' => [
+                            ['nms' => [['nmId' => 111, 'views' => 800, 'clicks' => 80, 'sum' => 8, 'orders' => 1]]],
+                        ],
+                    ],
+                    [
+                        'date' => '2026-08-20',
+                        'apps' => [
+                            ['nms' => [['nmId' => 111, 'views' => 100, 'clicks' => 10, 'sum' => 1, 'orders' => 0]]],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $fromStart = $client->extractStatsForAdvert($rows, 10, 111, '2026-08-20');
+        $this->assertSame(100, $fromStart['views']);
+        $this->assertSame(10, $fromStart['clicks']);
+
+        $allDays = $client->extractStatsForAdvert($rows, 10, 111);
+        $this->assertSame(900, $allDays['views']);
     }
 
     public function test_map_experiment_exposes_photo_stats_and_action_history(): void

@@ -74,8 +74,8 @@ class WbAbTestingService
         'image/webp',
     ];
 
-    /** Minimum campaign budget deposit per WB (rubles). */
-    public const MIN_BUDGET_DEPOSIT = 1000;
+    /** Минимальное пополнение бюджета РК по WB Advert API (₽). */
+    public const MIN_BUDGET_DEPOSIT = 1200;
 
     public function __construct(
         private readonly WbPriceCalculationService $wbPriceCalculationService,
@@ -1978,12 +1978,7 @@ SQL;
 
         if ($depositSum > 0) {
             // WB: type 1 = balance (most common for promo), type 0 = account.
-            $deposit = $this->advertApi->depositBudget(
-                $apiKey,
-                $advertId,
-                $depositSum,
-                WbAdvertApiClient::BUDGET_DEPOSIT_TYPE_BALANCE,
-            );
+            $deposit = $this->depositBudgetWithRetry($apiKey, $advertId, $depositSum);
             if ($deposit['success'] ?? false) {
                 $budgetDeposited = true;
                 $messages = [
@@ -2444,9 +2439,20 @@ SQL;
         if ($advert !== null && $status !== -1) {
             $deleted = $this->advertApi->deleteAdvert($apiKey, $advertId);
             if (! ($deleted['success'] ?? false)) {
+                $raw = (string) ($deleted['message'] ?? '');
+                if ($this->isAdvertStatusUnchangedError($raw)) {
+                    return [
+                        'success' => false,
+                        'messages' => [
+                            'Wildberries ещё не обновил статус кампании, удаление сейчас недоступно. '
+                            .'Подождите около минуты и повторите.',
+                        ],
+                    ];
+                }
+
                 return [
                     'success' => false,
-                    'messages' => [$deleted['message'] ?? 'Не удалось удалить кампанию в Wildberries'],
+                    'messages' => [$raw !== '' ? $raw : 'Не удалось удалить кампанию в Wildberries'],
                 ];
             }
         }
@@ -2557,12 +2563,7 @@ SQL;
             return ['success' => false, 'messages' => ['Нельзя пополнить бюджет удалённой кампании']];
         }
 
-        $deposit = $this->advertApi->depositBudget(
-            $apiKey,
-            $advertId,
-            $sum,
-            WbAdvertApiClient::BUDGET_DEPOSIT_TYPE_BALANCE,
-        );
+        $deposit = $this->depositBudgetWithRetry($apiKey, $advertId, $sum);
 
         if (! ($deposit['success'] ?? false)) {
             Log::warning('WB A/B testing: deposit on existing campaign failed', [
@@ -2608,6 +2609,55 @@ SQL;
                     : 'Бюджет кампании пополнен на '.number_format($sum, 0, ',', ' ').' ₽',
             ],
         ];
+    }
+
+    /**
+     * Пополнение сразу после создания РК иногда падает с «failed to create/update a bid».
+     *
+     * @return array{success: bool, code?: int, data?: mixed, message?: string}
+     */
+    private function depositBudgetWithRetry(string $apiKey, int $advertId, int $sum): array
+    {
+        $deposit = $this->advertApi->depositBudget(
+            $apiKey,
+            $advertId,
+            $sum,
+            WbAdvertApiClient::BUDGET_DEPOSIT_TYPE_BALANCE,
+        );
+        if (($deposit['success'] ?? false) || app()->runningUnitTests()) {
+            return $deposit;
+        }
+
+        $message = (string) ($deposit['message'] ?? '');
+        if (! $this->isTransientWbDepositError($message)) {
+            return $deposit;
+        }
+
+        usleep(2_000_000);
+
+        return $this->advertApi->depositBudget(
+            $apiKey,
+            $advertId,
+            $sum,
+            WbAdvertApiClient::BUDGET_DEPOSIT_TYPE_BALANCE,
+        );
+    }
+
+    private function isTransientWbDepositError(string $message): bool
+    {
+        $lower = mb_strtolower($message);
+
+        return str_contains($lower, 'failed to create/update a bid')
+            || str_contains($lower, 'кампания ещё не готова или нет ставки');
+    }
+
+    private function isAdvertStatusUnchangedError(string $message): bool
+    {
+        $lower = mb_strtolower($message);
+
+        return str_contains($lower, 'status unchanged')
+            || str_contains($lower, 'advert status change is not allowed')
+            || str_contains($lower, 'нельзя изменить статус кампании');
     }
 
     /**

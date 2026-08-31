@@ -13,6 +13,7 @@ import SelectedProductCard from "./SelectedProductCard.vue";
 import ExperimentActionHistory from "./ExperimentActionHistory.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
+import Dialog from "@/components/ui/Dialog.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
@@ -40,6 +41,7 @@ const emit = defineEmits(["experiment-updated"]);
 const { showError, showSuccess } = useFlashToast();
 
 const busy = ref(false);
+const stopDialogOpen = ref(false);
 
 const status = computed(() => props.experiment?.status ?? "draft");
 const isRunning = computed(() => status.value === "running");
@@ -144,12 +146,22 @@ async function start() {
     }
 }
 
-async function stop() {
-    if (!stopUrl.value || !canStop.value) {
+function askStop() {
+    if (!canStop.value) {
         return;
     }
+    stopDialogOpen.value = true;
+}
 
-    if (!window.confirm("Остановить эксперимент? Кампания будет приостановлена, статистика сохранится.")) {
+function closeStopDialog() {
+    if (busy.value) {
+        return;
+    }
+    stopDialogOpen.value = false;
+}
+
+async function stop() {
+    if (!stopUrl.value || !canStop.value) {
         return;
     }
 
@@ -163,6 +175,7 @@ async function stop() {
             );
             return;
         }
+        stopDialogOpen.value = false;
         if (data.experiment) {
             emit("experiment-updated", data.experiment);
         }
@@ -294,9 +307,8 @@ async function stop() {
                         {{ new Date(experiment.last_processed_at).toLocaleString("ru-RU") }}
                     </p>
                 </div>
-                <Button variant="destructive" size="sm" :disabled="!canStop" @click="stop">
-                    <Loader2 v-if="busy" class="mr-1.5 h-4 w-4 animate-spin" />
-                    <Square v-else class="mr-1.5 h-3.5 w-3.5" />
+                <Button variant="destructive" size="sm" :disabled="!canStop" @click="askStop">
+                    <Square class="mr-1.5 h-3.5 w-3.5" />
                     Остановить
                 </Button>
             </div>
@@ -432,5 +444,22 @@ async function stop() {
             :rows="actionHistory"
             :meta="actionHistoryMeta"
         />
+
+        <Dialog
+            :open="stopDialogOpen"
+            title="Остановить эксперимент?"
+            description="Рекламная кампания будет поставлена на паузу. Набранная статистика сохранится, эксперимент можно запустить снова."
+            @update:open="(open) => { if (!open) closeStopDialog(); }"
+        >
+            <template #footer>
+                <Button variant="outline" :disabled="busy" @click="closeStopDialog">
+                    Отмена
+                </Button>
+                <Button variant="destructive" :disabled="busy" @click="stop">
+                    <Loader2 v-if="busy" class="mr-1.5 h-4 w-4 animate-spin" />
+                    {{ busy ? "Остановка…" : "Остановить" }}
+                </Button>
+            </template>
+        </Dialog>
     </div>
 </template>

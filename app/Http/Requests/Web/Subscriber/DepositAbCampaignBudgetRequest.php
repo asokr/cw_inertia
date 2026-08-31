@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Web\Subscriber;
 
+use App\Services\Subscriber\Wb\WbAbTestingService;
 use Illuminate\Foundation\Http\FormRequest;
 
 class DepositAbCampaignBudgetRequest extends FormRequest
@@ -17,7 +18,7 @@ class DepositAbCampaignBudgetRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'sum' => ['required', 'integer', 'min:1000'],
+            'sum' => ['required', 'integer', 'min:'.WbAbTestingService::MIN_BUDGET_DEPOSIT],
             'experiment_id' => ['nullable', 'integer', 'min:1'],
         ];
     }
@@ -27,9 +28,11 @@ class DepositAbCampaignBudgetRequest extends FormRequest
      */
     public function messages(): array
     {
+        $min = WbAbTestingService::MIN_BUDGET_DEPOSIT;
+
         return [
             'sum.required' => 'Укажите сумму пополнения.',
-            'sum.min' => 'Минимальная сумма пополнения — 1000 ₽.',
+            'sum.min' => 'Минимальная сумма пополнения — '.$min.' ₽.',
         ];
     }
 }

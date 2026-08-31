@@ -1,3 +1,6 @@
+/** Минимальное пополнение бюджета РК в WB Advert API (₽). */
+export const MIN_BUDGET_DEPOSIT = 1200;
+
 export const SETTINGS_DEFAULTS = {
     impressions_per_photo: 100000,
     impressions_per_round: 10000,

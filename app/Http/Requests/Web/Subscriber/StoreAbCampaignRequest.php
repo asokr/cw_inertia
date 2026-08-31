@@ -2,8 +2,10 @@
 
 namespace App\Http\Requests\Web\Subscriber;
 
+use App\Services\Subscriber\Wb\WbAbTestingService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class StoreAbCampaignRequest extends FormRequest
 {
@@ -38,5 +40,29 @@ class StoreAbCampaignRequest extends FormRequest
             'bid_type.in' => 'Некорректный тип ставки.',
             'payment_type.in' => 'Некорректный тип оплаты.',
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $sum = (int) $this->input('budget_deposit', 0);
+            if ($sum <= 0) {
+                return;
+            }
+
+            $min = WbAbTestingService::MIN_BUDGET_DEPOSIT;
+            if ($sum < $min) {
+                $validator->errors()->add(
+                    'budget_deposit',
+                    'Минимальная сумма пополнения бюджета — '.$min.' ₽',
+                );
+            }
+            if ($sum % 50 !== 0) {
+                $validator->errors()->add(
+                    'budget_deposit',
+                    'Сумма пополнения бюджета должна быть кратна 50 ₽',
+                );
+            }
+        });
     }
 }

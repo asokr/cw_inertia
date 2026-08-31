@@ -17,6 +17,15 @@ final class WbAdvertFullstatsGuard
 
     public const DEFAULT_RETRY_AFTER_429 = 20;
 
+    /**
+     * Нижняя граница паузы для тоста / reschedule: WB fullstats burst=1, interval 20 с.
+     * «Через 1 сек» нельзя показывать — пользователь сразу жмёт повтор и снова ловит 429.
+     */
+    public static function clampRetryAfter(int $seconds): int
+    {
+        return max(self::MIN_INTERVAL_SECONDS, $seconds);
+    }
+
     public function tokenScope(string $apiKey): string
     {
         return hash('sha256', trim($apiKey));
@@ -94,7 +103,11 @@ final class WbAdvertFullstatsGuard
     public function setCooldownAfter429(string $apiKey, ?int $retryAfterSeconds = null): void
     {
         $scope = $this->tokenScope($apiKey);
-        $seconds = max(1, $retryAfterSeconds ?? self::DEFAULT_RETRY_AFTER_429);
+        // WB при burst=1 часто отдаёт X-RateLimit-Retry: 1 — это меньше интервала метода.
+        $seconds = max(
+            self::MIN_INTERVAL_SECONDS,
+            $retryAfterSeconds ?? self::DEFAULT_RETRY_AFTER_429,
+        );
         $until = time() + $seconds;
         Cache::put($this->cooldownKey($scope), $until, $seconds + 5);
     }

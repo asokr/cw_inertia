@@ -9,6 +9,7 @@ import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
 import { resolveCampaignStatus } from "./campaignStatus";
+import { MIN_BUDGET_DEPOSIT } from "./abTestingSettings";
 
 const props = defineProps({
     experiment: {
@@ -28,7 +29,7 @@ const { showError, showSuccess } = useFlashToast();
 const busy = ref(false);
 const deleteOpen = ref(false);
 const depositOpen = ref(false);
-const depositSum = ref(1000);
+const depositSum = ref(MIN_BUDGET_DEPOSIT);
 const depositError = ref("");
 
 /** Live flags from last pause response or optimistic defaults. */
@@ -99,7 +100,7 @@ const budgetTone = computed(() => {
     if (budgetTotal.value < 1) {
         return "danger";
     }
-    if (budgetTotal.value < 1000) {
+    if (budgetTotal.value < MIN_BUDGET_DEPOSIT) {
         return "warn";
     }
     return "ok";
@@ -185,7 +186,7 @@ async function pauseCampaign() {
 }
 
 function openDeposit() {
-    depositSum.value = 1000;
+    depositSum.value = MIN_BUDGET_DEPOSIT;
     depositError.value = "";
     depositOpen.value = true;
 }
@@ -204,8 +205,8 @@ async function confirmDeposit() {
     }
 
     const sum = Number(depositSum.value);
-    if (!Number.isFinite(sum) || sum < 1000) {
-        depositError.value = "Минимальная сумма — 1000 ₽";
+    if (!Number.isFinite(sum) || sum < MIN_BUDGET_DEPOSIT) {
+        depositError.value = `Минимальная сумма — ${MIN_BUDGET_DEPOSIT} ₽`;
         return;
     }
     if (sum % 50 !== 0) {
@@ -441,13 +442,13 @@ onMounted(() => {
             v-else-if="budgetTone === 'danger' && !budgetLoading"
             class="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100"
         >
-            Бюджет пуст — WB не запустит кампанию. Пополните минимум на 1000 ₽.
+            Бюджет пуст — WB не запустит кампанию. Пополните минимум на {{ MIN_BUDGET_DEPOSIT }} ₽.
         </p>
 
         <Dialog
             :open="depositOpen"
             title="Пополнить бюджет"
-            description="Средства списываются с рекламного баланса продавца на WB. Минимум 1000 ₽, кратно 50 ₽."
+            :description="`Средства списываются с рекламного баланса продавца на WB. Минимум ${MIN_BUDGET_DEPOSIT} ₽, кратно 50 ₽.`"
             @update:open="(v) => { if (!v) closeDeposit() }"
         >
             <div class="space-y-3">
@@ -466,7 +467,7 @@ onMounted(() => {
                         id="bound-campaign-deposit-sum"
                         v-model.number="depositSum"
                         type="number"
-                        min="1000"
+                        :min="MIN_BUDGET_DEPOSIT"
                         step="50"
                         :disabled="busy"
                         class="max-w-[12rem]"

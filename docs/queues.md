@@ -38,7 +38,7 @@ Jobs: [`app/Jobs/`](../app/Jobs/).
 | `price_calc` | WB Ценообразование V3 | `ProcessPriceCalcJob` | Долгие sync/import |
 | `profitability` | WB Рентабельность | `ProcessProfitabilityReport`, `ExportProfitabilityReportJob` | |
 | `repricer_stocks` | WB Репрайсер (остатки / strategy one) | `UpdateRepricerStocksJob`, `ApplyRepricerStrategyOneJob` | Unique jobs |
-| `wb_ab_testing` | WB A/B-тесты | `ProcessAbExperimentJob` | Unique until processing |
+| `wb_ab_testing` | WB A/B-тесты | `ProcessAbCabinetTickJob` | Unique until processing, один job на кабинет |
 | `oz_ab_testing` | Ozon A/B-тесты | `ProcessOzAbCabinetTickJob` | Unique until processing, один job на кабинет |
 | `wb_ai_cabinet_analyzer` | WB AI Cabinet Analyzer | report + AI analysis jobs | timeout 3600 |
 | `oz_ai_cabinet_analyzer` | Ozon AI Cabinet Analyzer | report + AI analysis jobs | timeout 3600 |
@@ -96,9 +96,11 @@ Ozon Price Calc: batch names вида `ozon_fbo_*_{cabinetId}` / `ozon_fbs_*_{ca
 
 | Job | Timeout | Tries | Unique | Где задаётся очередь |
 |-----|---------|-------|--------|----------------------|
-| `App\Jobs\Wb\AbTesting\ProcessAbExperimentJob` | 120 | 1 | `ShouldBeUniqueUntilProcessing` (`uniqueFor` 120) | `$this->onQueue('wb_ab_testing')` |
+| `App\Jobs\Wb\AbTesting\ProcessAbCabinetTickJob` | 120 | 1 | `ShouldBeUniqueUntilProcessing` (`uniqueFor` 180, id `wb-ab-cabinet-{cabinetId}`) | `$this->onQueue('wb_ab_testing')` |
+| `App\Jobs\Wb\AbTesting\ProcessAbExperimentJob` | 30 | 1 | shim: перекладывает в cabinet tick | `$this->onQueue('wb_ab_testing')` |
 
-Диспатч: `WbAbExperimentEngine`, `WbAbTestingTickCommand`, self-dispatch с delay.  
+Диспатч: первый running-эксперимент кабинета → `ProcessAbCabinetTickJob`; следующие running только добавляются в тот же тик. Self-dispatch с delay **60 сек**. Один `GET /adv/v3/fullstats` на кабинет (до 50 id).  
+Fallback-команда: каждые 2 минуты, по одному job на кабинет.  
 `EnrichAbProductRatingsJob` — в `default` (см. выше).  
 Документация: [wb-ab-testing.md](wb-ab-testing.md).
 

@@ -11,6 +11,7 @@ import Dialog from "@/components/ui/Dialog.vue";
 import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
+import { MIN_BUDGET_DEPOSIT } from "./abTestingSettings";
 
 const props = defineProps({
     product: {
@@ -46,7 +47,7 @@ const defaultCampaignName = ref("");
 const deleteTarget = ref(null);
 const deleting = ref(false);
 const depositTarget = ref(null);
-const depositSum = ref(1000);
+const depositSum = ref(MIN_BUDGET_DEPOSIT);
 const depositing = ref(false);
 const depositError = ref("");
 
@@ -244,7 +245,7 @@ async function confirmDeleteCampaign() {
 
 function openDeposit(campaign) {
     depositTarget.value = campaign;
-    depositSum.value = 1000;
+    depositSum.value = MIN_BUDGET_DEPOSIT;
     depositError.value = "";
 }
 
@@ -263,8 +264,8 @@ async function confirmDeposit() {
     }
 
     const sum = Number(depositSum.value);
-    if (!Number.isFinite(sum) || sum < 1000) {
-        depositError.value = "Минимальная сумма — 1000 ₽";
+    if (!Number.isFinite(sum) || sum < MIN_BUDGET_DEPOSIT) {
+        depositError.value = `Минимальная сумма — ${MIN_BUDGET_DEPOSIT} ₽`;
         return;
     }
     if (sum % 50 !== 0) {
@@ -491,7 +492,7 @@ onMounted(() => {
         <Dialog
             :open="!!depositTarget"
             title="Пополнить бюджет"
-            description="Средства списываются с рекламного баланса продавца на WB. Минимум 1000 ₽, кратно 50 ₽."
+            :description="`Средства списываются с рекламного баланса продавца на WB. Минимум ${MIN_BUDGET_DEPOSIT} ₽, кратно 50 ₽.`"
             @update:open="(v) => { if (!v) closeDeposit() }"
         >
             <div v-if="depositTarget" class="space-y-3">
@@ -506,7 +507,7 @@ onMounted(() => {
                         id="ab-campaign-deposit-sum"
                         v-model.number="depositSum"
                         type="number"
-                        min="1000"
+                        :min="MIN_BUDGET_DEPOSIT"
                         step="50"
                         :disabled="depositing"
                         class="max-w-[12rem]"
