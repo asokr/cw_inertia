@@ -60,6 +60,7 @@ class OzAiCabinetAnalyzerAiAnalysisService
         $totalTokens = 0;
         $usedProviders = [];
         $usedModels = [];
+        $calls = [];
 
         foreach ($batches as $index => $batch) {
             $batchResult = $this->runBatchAnalysis(
@@ -78,6 +79,7 @@ class OzAiCabinetAnalyzerAiAnalysisService
             $totalTokens += (int) $batchResult['total_tokens'];
             $usedProviders[] = (string) ($batchResult['provider'] ?? 'gemini');
             $usedModels[] = (string) ($batchResult['model'] ?? $model);
+            $calls[] = $this->usageCall($batchResult, $model);
         }
 
         if ($isMarkdown) {
@@ -102,6 +104,7 @@ class OzAiCabinetAnalyzerAiAnalysisService
                 $totalTokens += $finalTotalTokens;
                 $usedProviders[] = (string) ($finalResult['provider'] ?? 'gemini');
                 $usedModels[] = (string) ($finalResult['model'] ?? $model);
+                $calls[] = $this->usageCall($finalResult, $model);
             }
 
             $usedProviders = array_values(array_unique(array_filter($usedProviders)));
@@ -117,6 +120,8 @@ class OzAiCabinetAnalyzerAiAnalysisService
                 'total_tokens' => $totalTokens,
                 'max_output_tokens' => $this->resolveMaxOutputTokens(true),
                 'model' => $finalModel,
+                'provider' => count($usedProviders) === 1 ? $usedProviders[0] : 'mixed',
+                'calls' => $calls,
             ];
         }
 
@@ -145,6 +150,7 @@ class OzAiCabinetAnalyzerAiAnalysisService
             $totalTokens += $finalTotalTokens;
             $usedProviders[] = (string) ($finalResult['provider'] ?? 'gemini');
             $usedModels[] = (string) ($finalResult['model'] ?? $model);
+            $calls[] = $this->usageCall($finalResult, $model);
         }
 
         $usedProviders = array_values(array_unique(array_filter($usedProviders)));
@@ -167,6 +173,62 @@ class OzAiCabinetAnalyzerAiAnalysisService
             'total_tokens' => $totalTokens,
             'max_output_tokens' => $this->resolveMaxOutputTokens(false),
             'model' => $finalModel,
+            'provider' => count($usedProviders) === 1 ? $usedProviders[0] : 'mixed',
+            'calls' => $calls,
+        ];
+    }
+
+    /**
+     * Оценка вызовов ИИ для резерва кредитов (без запроса к провайдеру).
+     *
+     * @return list<array{provider: string, model: string, input_tokens: int, output_tokens: int}>
+     */
+    public function estimateCalls(OzAiCabinetAnalyzerReport $report, OzAiCabinetAnalyzerTemplate $template): array
+    {
+        $dataSources = $template->resolvedDataSources();
+        $normalizedDataset = $this->filterDatasetBySources(
+            $this->normalizeDataset((array) ($report->result_json ?? [])),
+            $dataSources,
+        );
+        $model = $this->resolveModel('gemini');
+        $batches = $this->buildBatches($normalizedDataset);
+        $isMarkdown = ((string) ($template->response_format ?? 'json')) === 'markdown';
+        $maxOutput = $this->resolveMaxOutputTokens($isMarkdown);
+
+        $calls = [];
+        foreach ($batches as $batch) {
+            $json = json_encode($batch, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $calls[] = [
+                'provider' => 'gemini',
+                'model' => $model,
+                'input_tokens' => $this->estimateTokensByLength(is_string($json) ? $json : ''),
+                'output_tokens' => $maxOutput,
+            ];
+        }
+
+        if (count($batches) > 1) {
+            $calls[] = [
+                'provider' => 'gemini',
+                'model' => $model,
+                'input_tokens' => $maxOutput,
+                'output_tokens' => $maxOutput,
+            ];
+        }
+
+        return $calls;
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     * @return array{provider: string, model: string, input_tokens: int, output_tokens: int}
+     */
+    private function usageCall(array $result, string $fallbackModel): array
+    {
+        return [
+            'provider' => (string) ($result['provider'] ?? 'gemini'),
+            'model' => (string) ($result['model'] ?? $fallbackModel),
+            'input_tokens' => (int) ($result['input_tokens'] ?? 0),
+            'output_tokens' => (int) ($result['output_tokens'] ?? 0),
         ];
     }
 
@@ -1208,23 +1270,28 @@ class OzAiCabinetAnalyzerAiAnalysisService
     private function resolveModel(string $requestedModel): string
     {
         $defaultModel = (string) config('services.gemini.pro_model', 'gemini-3.1-pro-preview');
+        $requestedModel = trim($requestedModel);
+
+        if ($requestedModel === '' || strcasecmp($requestedModel, 'gemini') === 0) {
+            return $defaultModel;
+        }
+
+        // Ответ Gemini иногда приходит как "models/gemini-..."
+        $normalized = preg_replace('#^models/#i', '', $requestedModel) ?? $requestedModel;
 
         $allowedModels = array_values(array_unique(array_filter([
-            'gemini',
             $defaultModel,
             'gemini-3.1-pro-preview',
         ])));
 
-        $requestedModel = trim($requestedModel);
-        if ($requestedModel === '' || $requestedModel === 'gemini') {
-            return $defaultModel;
+        if (in_array($normalized, $allowedModels, true)) {
+            return $normalized;
         }
 
-        if (!in_array($requestedModel, $allowedModels, true)) {
-            throw new RuntimeException('Указана неподдерживаемая модель Gemini.');
-        }
-
-        return $requestedModel;
+        // Повторный запуск часто приносит modelVersion прошлого ответа
+        // (gpt-4.1 после fallback, gemini-2.5-pro и т.д.) — для нового запроса
+        // всегда берём текущую модель из конфига, GPT остаётся fallback.
+        return $defaultModel;
     }
 
     private function resolveMaxOutputTokens(bool $isMarkdown): int

@@ -29,7 +29,6 @@ class PromptController extends Controller
                 'is_active' => $template->is_active,
                 'response_format' => $template->response_format,
                 'data_sources' => $template->resolvedDataSources(),
-                'credits_cost' => $template->creditsCost(),
                 'created_at' => $template->created_at,
                 'updated_at' => $template->updated_at,
             ];

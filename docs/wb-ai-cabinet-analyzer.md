@@ -79,7 +79,7 @@ Prefix: `/panel/wb/ai-cabinet-analyzer` · name: `subscriber.wb.ai-cabinet-analy
 ## Admin (web)
 
 - `/cw-page/services/ai-cabinet/*` — кабинеты, шаблоны промптов
-- У шаблона поле `credits_cost` (default **10** кредитов) — стоимость одной AI-генерации. Редактируется в форме промпта, не на `/cw-page/credit-pricing`. Резерв при запуске, списание когда job ставит анализ в `done`.
+- Стоимость AI-генерации — динамическая, по токенам. Ставки: `/cw-page/credit-pricing`, блок «ИИ-анализ кабинета». Резерв по оценке snapshot при запуске, списание фактической суммы когда job ставит анализ в `done`. История расчётов — там же.
 
 ## Технические детали
 
@@ -103,8 +103,9 @@ Prefix: `/panel/wb/ai-cabinet-analyzer` · name: `subscriber.wb.ai-cabinet-analy
 - `cabinet_id` в reports = `wb_cabinets.id` (после миграции; legacy FK на analyzer-cabinets снят/переписан).
 - AI-анализ только по snapshot в `result_json` (без повторных WB-запросов).
 - Шаблоны: `wb_ai_cabinet_analyzer_templates`.
-- У шаблона поле `credits_cost` (unsigned int, default 10) — сколько кредитов списывается за генерацию. Snapshot не тарифицируется.
-- При старте/перегенерации: `CreditBillingService::reserve` на сумму шаблона. Как только job получил ответ ИИ и поставил `done` — `captureOpenHold`. При failed job — `releaseOpenHold`.
+- Стоимость генерации считается по фактическим `input_tokens` / `output_tokens` и ставкам `ai_cabinet_analyzer_credit_tariffs` (`AiCabinetAnalyzerCreditCalculator`). Snapshot не тарифицируется.
+- При старте/перегенерации: оценка вызовов (`estimateCalls`) → `reserve` с запасом 1.3. Как только job получил ответ ИИ и поставил `done` — `settleOpenHold` на фактическую сумму + запись в `ai_cabinet_analyzer_credit_charges`. При failed job — `releaseOpenHold`.
+- На анализе сохраняются `provider`, `credits_charged`, `billing_snapshot` (применённые ставки, без пересчёта в будущем).
 - У шаблона поле `data_sources` (JSON-массив): `ads` | `reviews` | `funnel` — какие блоки snapshot отдавать ИИ.
   - `ads` — `campaigns[]` и рекламные метрики в `items[]`
   - `funnel` — `items[].funnel`
@@ -114,7 +115,7 @@ Prefix: `/panel/wb/ai-cabinet-analyzer` · name: `subscriber.wb.ai-cabinet-analy
   - Пустое/null → все три источника (обратная совместимость)
 - AI-анализы: `wb_ai_cabinet_analyzer_ai_analyses` (`processing|done|failed`).
 - AI: `GeminiApiClient` + fallback GPT (`APP_GPT_KEY`), очередь **`wb_ai_cabinet_analyzer`** (и snapshot-report, и AI-analysis job).
-- Модель по умолчанию: `gemini`.
+- Модель по умолчанию: `gemini` → `GEMINI_PRO_MODEL`. После ответа в анализе сохраняется фактический `modelVersion` (или GPT при fallback) для биллинга/лога. Перегенерация снова запрашивает текущий Gemini, а не сохранённый id.
 - Пустой итоговый AI-результат → `failed`, не `done`.
 - Зависшие `processing` отчёты (>70 мин) при открытии workspace помечаются `failed`.
 - Большие отчёты: батчинг dataset → единый результат.

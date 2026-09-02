@@ -8,7 +8,9 @@ use App\Jobs\Oz\AiCabinetAnalyzer\ProcessOzAiCabinetAnalyzerAiAnalysisJob;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerTemplate;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerReport;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysis;
+use App\Services\Credits\AiCabinetAnalyzerCreditCalculator;
 use App\Services\Credits\CreditBillingService;
+use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysisService;
 use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerPdfGenerator;
 use App\Services\Subscriber\Concerns\ChargesAiCabinetAnalyzerCredits;
 use Illuminate\Http\Request;
@@ -21,12 +23,19 @@ class OzAiCabinetAnalyzerAiAnalysesService
 
     public function __construct(
         private readonly CreditBillingService $creditBilling,
+        private readonly AiCabinetAnalyzerCreditCalculator $cabinetAnalyzerCreditCalculator,
+        private readonly OzAiCabinetAnalyzerAiAnalysisService $aiAnalysisService,
     ) {
     }
 
     protected function creditBilling(): CreditBillingService
     {
         return $this->creditBilling;
+    }
+
+    protected function cabinetAnalyzerCreditCalculator(): AiCabinetAnalyzerCreditCalculator
+    {
+        return $this->cabinetAnalyzerCreditCalculator;
     }
 
     public function start(Request $request)
@@ -111,12 +120,13 @@ class OzAiCabinetAnalyzerAiAnalysesService
                     'model' => (string) ($request->input('model') ?: 'gemini'),
                 ]);
 
-                $this->reserveTemplateCredits(
+                $this->reserveEstimatedCredits(
                     $request->user(),
                     $template,
                     $analysis,
                     'ozon',
                     (int) $report->id,
+                    $this->aiAnalysisService->estimateCalls($report, $template),
                 );
 
                 ProcessOzAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $analysis->id, (int) $request->user()->id)
@@ -215,24 +225,29 @@ class OzAiCabinetAnalyzerAiAnalysesService
                 }
 
                 $locked->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_PROCESSING;
-                $locked->model = (string) ($request->input('model') ?: $locked->model ?: 'gemini');
+                // Не переиспользуем modelVersion прошлого ответа Gemini/GPT — всегда текущий alias.
+                $locked->model = (string) ($request->input('model') ?: 'gemini');
                 $locked->analysis_json = null;
                 $locked->analysis_text = null;
                 $locked->analysis_markdown = null;
                 $locked->input_tokens = 0;
                 $locked->output_tokens = 0;
                 $locked->total_tokens = 0;
+                $locked->credits_charged = null;
+                $locked->billing_snapshot = null;
+                $locked->provider = null;
                 $locked->error_message = null;
                 $locked->started_at = null;
                 $locked->finished_at = null;
                 $locked->save();
 
-                $this->reserveTemplateCredits(
+                $this->reserveEstimatedCredits(
                     $request->user(),
                     $template,
                     $locked,
                     'ozon',
                     (int) $locked->report_id,
+                    $this->aiAnalysisService->estimateCalls($locked->report, $template),
                 );
 
                 ProcessOzAiCabinetAnalyzerAiAnalysisJob::dispatch((int) $locked->id, (int) $request->user()->id)
@@ -338,7 +353,6 @@ class OzAiCabinetAnalyzerAiAnalysesService
                     'is_active' => (bool) $template->is_active,
                     'response_format' => (string) ($template->response_format ?? 'json'),
                     'data_sources' => $template->resolvedDataSources(),
-                    'credits_cost' => $template->creditsCost(),
                     'created_at' => $template->created_at,
                     'updated_at' => $template->updated_at,
                 ];
@@ -368,13 +382,14 @@ class OzAiCabinetAnalyzerAiAnalysesService
                 'id' => (int) $template->id,
                 'name' => (string) $template->name,
                 'description' => (string) ($template->description ?? ''),
-                'credits_cost' => $template->creditsCost(),
             ] : null,
             'status' => (string) $analysis->status,
             'response_format' => (string) $responseFormat,
+            'provider' => (string) ($analysis->provider ?? ''),
             'input_tokens' => (int) ($analysis->input_tokens ?? 0),
             'output_tokens' => (int) ($analysis->output_tokens ?? 0),
             'total_tokens' => (int) ($analysis->total_tokens ?? 0),
+            'credits_charged' => $analysis->credits_charged !== null ? (int) $analysis->credits_charged : null,
             'started_at' => $analysis->started_at,
             'finished_at' => $analysis->finished_at,
             'error_message' => (string) ($analysis->error_message ?? ''),

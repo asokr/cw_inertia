@@ -162,7 +162,7 @@ class AdminServicesTest extends WebAuthTestCase
         $this->assertSame(10, $template->creditsCost());
     }
 
-    public function test_super_admin_can_save_prompt_credits_cost(): void
+    public function test_prompt_form_no_longer_requires_credits_cost(): void
     {
         $user = User::factory()->create([
             'password' => Hash::make('password'),
@@ -171,40 +171,21 @@ class AdminServicesTest extends WebAuthTestCase
 
         $this->actingAs($user)
             ->post('/cw-page/services/ai-cabinet/prompts', [
-                'name' => 'Дорогой отчёт',
-                'description' => 'Custom cost',
+                'name' => 'Отчёт без фиксированной цены',
+                'description' => 'Token billing',
                 'system_prompt' => 'Analyze',
                 'sort_order' => 20,
                 'is_active' => true,
                 'response_format' => 'json',
                 'data_sources' => ['ads', 'funnel'],
-                'credits_cost' => 15,
             ])
             ->assertRedirect();
 
         $template = \App\Models\Subscribers\Wb\AiCabinetAnalyzer\AiCabinetAnalyzerTemplate::query()
-            ->where('name', 'Дорогой отчёт')
+            ->where('name', 'Отчёт без фиксированной цены')
             ->first();
 
         $this->assertNotNull($template);
-        $this->assertSame(15, $template->creditsCost());
-
-        $this->actingAs($user)
-            ->from('/cw-page/services/ai-cabinet/prompts')
-            ->put("/cw-page/services/ai-cabinet/prompts/{$template->id}", [
-                'name' => 'Дорогой отчёт',
-                'description' => 'Custom cost',
-                'system_prompt' => 'Analyze',
-                'sort_order' => 20,
-                'is_active' => true,
-                'response_format' => 'json',
-                'data_sources' => ['ads', 'funnel'],
-                'credits_cost' => 0,
-            ])
-            ->assertRedirect('/cw-page/services/ai-cabinet/prompts')
-            ->assertSessionHasErrors('credits_cost');
-
-        $this->assertSame(15, $template->fresh()->creditsCost());
     }
 
     public function test_prompt_requires_at_least_one_data_source(): void

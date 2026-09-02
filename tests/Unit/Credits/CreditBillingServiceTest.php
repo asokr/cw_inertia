@@ -251,6 +251,66 @@ class CreditBillingServiceTest extends TestCase
         $this->assertNull($this->billing->captureOpenHold('missing-key'));
     }
 
+    public function test_settle_open_hold_shrinks_to_actual_amount(): void
+    {
+        $user = $this->makeUser();
+        $this->seedBalances($user, subscription: 30, purchased: 20);
+
+        $this->billing->reserve($user, new CreditSpendRequest(
+            amount: 20,
+            serviceCode: 'wb_ai_cabinet_analyzer',
+            idempotencyKey: 'settle-shrink',
+            operationParams: ['user_label' => 'ИИ-анализ кабинета WB: Тест'],
+        ));
+
+        $ledger = $this->billing->settleOpenHold('settle-shrink', 8);
+
+        $this->assertSame(8, $ledger?->amount);
+        $account = CreditAccount::query()->where('user_id', $user->id)->first();
+        $this->assertSame(42, $account->available());
+        $this->assertSame(0, $account->subscription_held + $account->purchased_held);
+        $this->assertSame(CreditHoldStatus::Captured, CreditHold::query()->where('idempotency_key', 'settle-shrink')->first()?->status);
+        $this->assertSame($ledger?->id, $this->billing->settleOpenHold('settle-shrink', 8)?->id);
+    }
+
+    public function test_settle_open_hold_grows_when_user_has_extra_credits(): void
+    {
+        $user = $this->makeUser();
+        $this->seedBalances($user, subscription: 10, purchased: 10);
+
+        $this->billing->reserve($user, new CreditSpendRequest(
+            amount: 8,
+            serviceCode: 'wb_ai_cabinet_analyzer',
+            idempotencyKey: 'settle-grow',
+        ));
+
+        $ledger = $this->billing->settleOpenHold('settle-grow', 15);
+
+        $this->assertSame(15, $ledger?->amount);
+        $account = CreditAccount::query()->where('user_id', $user->id)->first();
+        $this->assertSame(5, $account->available());
+    }
+
+    public function test_settle_open_hold_caps_when_extra_credits_missing(): void
+    {
+        $user = $this->makeUser();
+        $this->seedBalances($user, subscription: 10, purchased: 0);
+
+        $this->billing->reserve($user, new CreditSpendRequest(
+            amount: 8,
+            serviceCode: 'wb_ai_cabinet_analyzer',
+            idempotencyKey: 'settle-under',
+        ));
+
+        $ledger = $this->billing->settleOpenHold('settle-under', 20, ['requested' => 20]);
+
+        $this->assertSame(8, $ledger?->amount);
+        $params = $ledger?->operation_params ?? [];
+        $this->assertTrue((bool) ($params['undercharged'] ?? false));
+        $account = CreditAccount::query()->where('user_id', $user->id)->first();
+        $this->assertSame(2, $account->available());
+    }
+
     public function test_release_returns_held_credits(): void
     {
         $user = $this->makeUser();

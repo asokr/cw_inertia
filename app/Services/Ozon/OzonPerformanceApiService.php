@@ -61,8 +61,8 @@ class OzonPerformanceApiService
     }
 
     /**
-     * Sync-статистика по товарам кампаний (SKU-level).
-     * Предпочтительный метод для агрегации в snapshot.
+     * Sync-отчёт «Оплата за клик» по кампании (CSV по умолчанию).
+     * Это итоги кампании, без разреза по SKU — для join к товарам не подходит.
      *
      * @param  array<string, scalar|list<scalar>|null>  $query
      * @return array{success: bool, status: int, data: mixed}
@@ -209,6 +209,32 @@ class OzonPerformanceApiService
     }
 
     /**
+     * Async JSON-отчёт по товарам в «Оплате за заказ» (выбранные товары).
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function generateSearchPromoProductsReportJson(string $accessToken, array $payload): array
+    {
+        return $this->request('POST', 'api/client/statistic/products/generate/json', [
+            'json' => $payload,
+        ], $accessToken);
+    }
+
+    /**
+     * Async JSON-отчёт по товарам единой кампании «все товары / оплата за заказ».
+     *
+     * @param  array<string, scalar|null>  $query
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function generateAllSkuPromoProductsReportJson(string $accessToken, array $query): array
+    {
+        return $this->request('GET', 'api/client/statistics/all_sku_promo/products/generate/json', [
+            'query' => $query,
+        ], $accessToken);
+    }
+
+    /**
      * @param  array<string, mixed>  $options
      * @return array{success: bool, status: int, data: mixed}
      */
@@ -223,6 +249,11 @@ class OzonPerformanceApiService
 
         if ($bearer !== null && $bearer !== '') {
             $headers['Authorization'] = 'Bearer '.$bearer;
+        }
+
+        if (isset($options['query']) && is_array($options['query'])) {
+            // Ozon ждёт campaignIds=a&campaignIds=b, а не campaignIds[0]=a (http_build_query).
+            $options['query'] = $this->buildRepeatedQuery($options['query']);
         }
 
         $client = new \GuzzleHttp\Client([
@@ -289,6 +320,32 @@ class OzonPerformanceApiService
             'status' => $status,
             'data' => $decoded,
         ];
+    }
+
+    /**
+     * @param  array<string, scalar|list<scalar>|null>  $query
+     */
+    private function buildRepeatedQuery(array $query): string
+    {
+        $parts = [];
+        foreach ($query as $key => $value) {
+            $name = rawurlencode((string) $key);
+            if (is_array($value)) {
+                foreach ($value as $item) {
+                    if ($item === null) {
+                        continue;
+                    }
+                    $parts[] = $name.'='.rawurlencode((string) $item);
+                }
+                continue;
+            }
+            if ($value === null) {
+                continue;
+            }
+            $parts[] = $name.'='.rawurlencode((string) $value);
+        }
+
+        return implode('&', $parts);
     }
 
     private function throttle(): void

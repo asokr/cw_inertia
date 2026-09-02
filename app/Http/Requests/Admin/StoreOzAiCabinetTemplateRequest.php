@@ -24,7 +24,6 @@ class StoreOzAiCabinetTemplateRequest extends FormRequest
             'response_format' => 'nullable|in:json,markdown',
             'data_sources' => ['required', 'array', 'min:1'],
             'data_sources.*' => ['string', Rule::in(OzAiCabinetAnalyzerTemplate::DATA_SOURCES)],
-            'credits_cost' => ['nullable', 'integer', 'min:1', 'max:1000000'],
         ];
     }
 
@@ -34,8 +33,6 @@ class StoreOzAiCabinetTemplateRequest extends FormRequest
             'data_sources.required' => 'Выберите хотя бы один источник данных для анализа.',
             'data_sources.min' => 'Выберите хотя бы один источник данных для анализа.',
             'data_sources.*.in' => 'Недопустимый источник данных.',
-            'credits_cost.integer' => 'Стоимость отчёта должна быть целым числом.',
-            'credits_cost.min' => 'Стоимость отчёта должна быть не меньше 1 кредита.',
         ];
     }
 }

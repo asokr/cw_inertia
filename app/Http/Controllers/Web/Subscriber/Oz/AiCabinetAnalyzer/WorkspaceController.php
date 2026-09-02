@@ -318,7 +318,6 @@ class WorkspaceController extends SubscriberToolController
                 'id' => $row['id'],
                 'name' => $row['name'],
                 'description' => $row['description'] ?? '',
-                'credits_cost' => (int) ($row['credits_cost'] ?? 0),
                 'data_sources' => array_values(array_filter(
                     (array) ($row['data_sources'] ?? OzAiCabinetAnalyzerTemplate::DATA_SOURCES),
                     static fn ($source) => in_array(

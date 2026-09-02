@@ -35,6 +35,7 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
 
         $this->setupAiCabinetAnalyzerSchema();
         $this->setupCreditBillingSchema();
+        (new \Database\Seeders\AiCabinetAnalyzerCreditTariffSeeder())->run();
 
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
 
@@ -177,8 +178,10 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
         Queue::assertPushed(ProcessAiCabinetAnalyzerAiAnalysisJob::class);
 
         $account = CreditAccount::query()->where('user_id', $user->id)->first();
-        $this->assertSame(15, $account->available());
-        $this->assertSame(10, $account->purchased_held);
+        $reserved = (int) CreditHold::query()->where('user_id', $user->id)->where('status', 'held')->value('amount');
+        $this->assertGreaterThan(0, $reserved);
+        $this->assertSame(25 - $reserved, $account->available());
+        $this->assertSame($reserved, $account->purchased_held);
         $this->assertSame(0, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Capture)->count());
     }
 
@@ -259,7 +262,7 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
         Queue::fake();
 
         $user = $this->createSubscriberUser(withPermission: true);
-        $this->grantCredits($user, 3);
+        $this->grantCredits($user, 0);
         $cabinet = $this->createUnifiedCabinet($user, 'No credits');
         $report = $this->createReport($cabinet);
         $template = $this->createTemplate();
@@ -275,7 +278,7 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
 
         $this->assertDatabaseCount('wb_ai_cabinet_analyzer_ai_analyses', 0);
         Queue::assertNothingPushed();
-        $this->assertSame(3, CreditAccount::query()->where('user_id', $user->id)->first()->available());
+        $this->assertSame(0, CreditAccount::query()->where('user_id', $user->id)->first()->available());
     }
 
     public function test_returning_existing_done_analysis_does_not_charge(): void
@@ -331,10 +334,13 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
             ->assertOk()
             ->assertJsonPath('success', true);
 
+        $reserved = (int) CreditHold::query()->where('user_id', $user->id)->value('amount');
+        $this->assertGreaterThan(0, $reserved);
+
         $account = CreditAccount::query()->where('user_id', $user->id)->first();
-        $this->assertSame(15, $account->available());
+        $this->assertSame(25 - $reserved, $account->available());
         $this->assertSame(0, $account->purchased_held);
-        $this->assertSame(15, $account->purchased_balance);
+        $this->assertSame(25 - $reserved, $account->purchased_balance);
         $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Capture)->count());
 
         $this->actingAs($user)
@@ -342,10 +348,10 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
             ->assertOk();
 
         $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Capture)->count());
-        $this->assertSame(15, $account->fresh()->available());
+        $this->assertSame(25 - $reserved, $account->fresh()->available());
     }
 
-    public function test_regenerate_uses_current_template_cost(): void
+    public function test_regenerate_reserves_estimated_credits_not_template_cost(): void
     {
         Queue::fake();
 
@@ -366,8 +372,35 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
             ->assertSessionHas('success');
 
         $account = CreditAccount::query()->where('user_id', $user->id)->first();
-        $this->assertSame(25, $account->available());
-        $this->assertSame(15, $account->purchased_held);
+        $reserved = (int) CreditHold::query()->where('user_id', $user->id)->where('status', 'held')->value('amount');
+        $this->assertGreaterThan(0, $reserved);
+        $this->assertNotSame(15, $reserved);
+        $this->assertSame(40 - $reserved, $account->available());
+        $this->assertSame($reserved, $account->purchased_held);
+        Queue::assertPushed(ProcessAiCabinetAnalyzerAiAnalysisJob::class);
+    }
+
+    public function test_regenerate_resets_stored_provider_model_to_gemini_alias(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->grantCredits($user, 40);
+        $cabinet = $this->createUnifiedCabinet($user, 'Regen model');
+        $report = $this->createReport($cabinet);
+        $template = $this->createTemplate();
+        $analysis = $this->createAnalysis($report, $template, AiCabinetAnalyzerAiAnalysis::STATUS_DONE);
+        $analysis->model = 'gpt-4.1';
+        $analysis->provider = 'gpt';
+        $analysis->save();
+
+        $this->actingAs($user)
+            ->from('/panel/wb/ai-cabinet-analyzer')
+            ->post("/panel/wb/ai-cabinet-analyzer/ai-analyses/{$analysis->id}/regenerate")
+            ->assertRedirect('/panel/wb/ai-cabinet-analyzer')
+            ->assertSessionHas('success');
+
+        $this->assertSame('gemini', $analysis->fresh()->model);
         Queue::assertPushed(ProcessAiCabinetAnalyzerAiAnalysisJob::class);
     }
 
@@ -564,22 +597,34 @@ class WbAiCabinetAnalyzerTest extends WebAuthTestCase
                 $table->unsignedBigInteger('template_id')->index();
                 $table->string('status', 32)->default('processing')->index();
                 $table->string('model', 120)->nullable();
+                $table->string('provider', 32)->nullable();
                 $table->longText('analysis_json')->nullable();
                 $table->longText('analysis_text')->nullable();
                 $table->longText('analysis_markdown')->nullable();
                 $table->unsignedInteger('input_tokens')->default(0);
                 $table->unsignedInteger('output_tokens')->default(0);
                 $table->unsignedInteger('total_tokens')->default(0);
+                $table->unsignedInteger('credits_charged')->nullable();
+                $table->json('billing_snapshot')->nullable();
                 $table->timestamp('started_at')->nullable();
                 $table->timestamp('finished_at')->nullable();
                 $table->text('error_message')->nullable();
                 $table->string('credit_idempotency_key')->nullable();
                 $table->timestamps();
             });
-        } elseif (! Schema::hasColumn('wb_ai_cabinet_analyzer_ai_analyses', 'credit_idempotency_key')) {
-            Schema::table('wb_ai_cabinet_analyzer_ai_analyses', function (Blueprint $table) {
-                $table->string('credit_idempotency_key')->nullable();
-            });
+        } else {
+            if (! Schema::hasColumn('wb_ai_cabinet_analyzer_ai_analyses', 'credit_idempotency_key')) {
+                Schema::table('wb_ai_cabinet_analyzer_ai_analyses', function (Blueprint $table) {
+                    $table->string('credit_idempotency_key')->nullable();
+                });
+            }
+            if (! Schema::hasColumn('wb_ai_cabinet_analyzer_ai_analyses', 'provider')) {
+                Schema::table('wb_ai_cabinet_analyzer_ai_analyses', function (Blueprint $table) {
+                    $table->string('provider', 32)->nullable();
+                    $table->unsignedInteger('credits_charged')->nullable();
+                    $table->json('billing_snapshot')->nullable();
+                });
+            }
         }
 
         if (! Schema::hasTable('subscribers_plans')) {

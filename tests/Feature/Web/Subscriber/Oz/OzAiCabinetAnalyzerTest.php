@@ -5,6 +5,7 @@ namespace Tests\Feature\Web\Subscriber\Oz;
 use App\Enums\Credits\CreditLedgerType;
 use App\Jobs\Oz\AiCabinetAnalyzer\ProcessOzAiCabinetAnalyzerAiAnalysisJob;
 use App\Jobs\Oz\AiCabinetAnalyzer\ProcessOzAiCabinetAnalyzerReport;
+use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysisService;
 use App\Models\Credits\CreditAccount;
 use App\Models\Credits\CreditHold;
 use App\Models\Credits\CreditLedger;
@@ -35,6 +36,7 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
 
         $this->setupOzAiCabinetAnalyzerSchema();
         $this->setupCreditBillingSchema();
+        (new \Database\Seeders\AiCabinetAnalyzerCreditTariffSeeder())->run();
 
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
 
@@ -185,8 +187,10 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
         Queue::assertPushed(ProcessOzAiCabinetAnalyzerAiAnalysisJob::class);
 
         $account = CreditAccount::query()->where('user_id', $user->id)->first();
-        $this->assertSame(15, $account->available());
-        $this->assertSame(10, $account->purchased_held);
+        $reserved = (int) CreditHold::query()->where('user_id', $user->id)->where('status', 'held')->value('amount');
+        $this->assertGreaterThan(0, $reserved);
+        $this->assertSame(25 - $reserved, $account->available());
+        $this->assertSame($reserved, $account->purchased_held);
         $this->assertSame(0, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Capture)->count());
     }
 
@@ -218,7 +222,7 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
         Queue::fake();
 
         $user = $this->createSubscriberUser(withPermission: true);
-        $this->grantCredits($user, 3);
+        $this->grantCredits($user, 0);
         $cabinet = $this->createUnifiedCabinet($user, 'No credits');
         $report = $this->createReport($cabinet);
         $template = $this->createTemplate();
@@ -234,7 +238,7 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
 
         $this->assertDatabaseCount('oz_ai_cabinet_analyzer_ai_analyses', 0);
         Queue::assertNothingPushed();
-        $this->assertSame(3, CreditAccount::query()->where('user_id', $user->id)->first()->available());
+        $this->assertSame(0, CreditAccount::query()->where('user_id', $user->id)->first()->available());
     }
 
     public function test_returning_existing_done_analysis_does_not_charge(): void
@@ -290,10 +294,13 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
             ->assertOk()
             ->assertJsonPath('success', true);
 
+        $reserved = (int) CreditHold::query()->where('user_id', $user->id)->value('amount');
+        $this->assertGreaterThan(0, $reserved);
+
         $account = CreditAccount::query()->where('user_id', $user->id)->first();
-        $this->assertSame(15, $account->available());
+        $this->assertSame(25 - $reserved, $account->available());
         $this->assertSame(0, $account->purchased_held);
-        $this->assertSame(15, $account->purchased_balance);
+        $this->assertSame(25 - $reserved, $account->purchased_balance);
         $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Capture)->count());
 
         $this->actingAs($user)
@@ -301,10 +308,10 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
             ->assertOk();
 
         $this->assertSame(1, CreditLedger::query()->where('user_id', $user->id)->where('type', CreditLedgerType::Capture)->count());
-        $this->assertSame(15, $account->fresh()->available());
+        $this->assertSame(25 - $reserved, $account->fresh()->available());
     }
 
-    public function test_regenerate_uses_current_template_cost(): void
+    public function test_regenerate_reserves_estimated_credits_not_template_cost(): void
     {
         Queue::fake();
 
@@ -325,9 +332,52 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
             ->assertSessionHas('success');
 
         $account = CreditAccount::query()->where('user_id', $user->id)->first();
-        $this->assertSame(25, $account->available());
-        $this->assertSame(15, $account->purchased_held);
+        $reserved = (int) CreditHold::query()->where('user_id', $user->id)->where('status', 'held')->value('amount');
+        $this->assertGreaterThan(0, $reserved);
+        $this->assertNotSame(15, $reserved);
+        $this->assertSame(40 - $reserved, $account->available());
+        $this->assertSame($reserved, $account->purchased_held);
         Queue::assertPushed(ProcessOzAiCabinetAnalyzerAiAnalysisJob::class);
+    }
+
+    public function test_regenerate_resets_stored_provider_model_to_gemini_alias(): void
+    {
+        Queue::fake();
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->grantCredits($user, 40);
+        $cabinet = $this->createUnifiedCabinet($user, 'Regen model');
+        $report = $this->createReport($cabinet);
+        $template = $this->createTemplate();
+        $analysis = $this->createAnalysis($report, $template, OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE);
+        $analysis->model = 'gpt-4.1';
+        $analysis->provider = 'gpt';
+        $analysis->save();
+
+        $this->actingAs($user)
+            ->from('/panel/oz/ai-cabinet-analyzer')
+            ->post("/panel/oz/ai-cabinet-analyzer/ai-analyses/{$analysis->id}/regenerate")
+            ->assertRedirect('/panel/oz/ai-cabinet-analyzer')
+            ->assertSessionHas('success');
+
+        $this->assertSame('gemini', $analysis->fresh()->model);
+        Queue::assertPushed(ProcessOzAiCabinetAnalyzerAiAnalysisJob::class);
+    }
+
+    public function test_resolve_model_falls_back_to_configured_gemini_for_previous_run_version(): void
+    {
+        $service = app(OzAiCabinetAnalyzerAiAnalysisService::class);
+        $method = (new \ReflectionClass($service))->getMethod('resolveModel');
+        $method->setAccessible(true);
+
+        $default = (string) config('services.gemini.pro_model', 'gemini-3.1-pro-preview');
+
+        $this->assertSame($default, $method->invoke($service, ''));
+        $this->assertSame($default, $method->invoke($service, 'gemini'));
+        $this->assertSame($default, $method->invoke($service, 'gpt-4.1'));
+        $this->assertSame($default, $method->invoke($service, 'gemini-2.5-pro'));
+        $this->assertSame('gemini-3.1-pro-preview', $method->invoke($service, 'models/gemini-3.1-pro-preview'));
+        $this->assertSame($default, $method->invoke($service, $default));
     }
 
     public function test_snapshot_start_does_not_charge_credits(): void
@@ -522,22 +572,34 @@ class OzAiCabinetAnalyzerTest extends WebAuthTestCase
                 $table->unsignedBigInteger('template_id')->index();
                 $table->string('status', 32)->default('processing')->index();
                 $table->string('model', 120)->nullable();
+                $table->string('provider', 32)->nullable();
                 $table->longText('analysis_json')->nullable();
                 $table->longText('analysis_text')->nullable();
                 $table->longText('analysis_markdown')->nullable();
                 $table->unsignedInteger('input_tokens')->default(0);
                 $table->unsignedInteger('output_tokens')->default(0);
                 $table->unsignedInteger('total_tokens')->default(0);
+                $table->unsignedInteger('credits_charged')->nullable();
+                $table->json('billing_snapshot')->nullable();
                 $table->timestamp('started_at')->nullable();
                 $table->timestamp('finished_at')->nullable();
                 $table->text('error_message')->nullable();
                 $table->string('credit_idempotency_key')->nullable();
                 $table->timestamps();
             });
-        } elseif (! Schema::hasColumn('oz_ai_cabinet_analyzer_ai_analyses', 'credit_idempotency_key')) {
-            Schema::table('oz_ai_cabinet_analyzer_ai_analyses', function (Blueprint $table) {
-                $table->string('credit_idempotency_key')->nullable();
-            });
+        } else {
+            if (! Schema::hasColumn('oz_ai_cabinet_analyzer_ai_analyses', 'credit_idempotency_key')) {
+                Schema::table('oz_ai_cabinet_analyzer_ai_analyses', function (Blueprint $table) {
+                    $table->string('credit_idempotency_key')->nullable();
+                });
+            }
+            if (! Schema::hasColumn('oz_ai_cabinet_analyzer_ai_analyses', 'provider')) {
+                Schema::table('oz_ai_cabinet_analyzer_ai_analyses', function (Blueprint $table) {
+                    $table->string('provider', 32)->nullable();
+                    $table->unsignedInteger('credits_charged')->nullable();
+                    $table->json('billing_snapshot')->nullable();
+                });
+            }
         }
 
         if (! Schema::hasTable('subscribers_plans')) {

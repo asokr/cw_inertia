@@ -115,7 +115,10 @@ UI инструментов ходит в **Web/Inertia** (`/panel/*`), не в 
 composer install
 npm install
 
-# Dev frontend
+# Весь локальный стек (artisan serve + Vite + очередь + планировщик)
+node dev.js
+
+# Только фронт (Vite HMR)
 npm run dev
 
 # Production build

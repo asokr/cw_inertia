@@ -2,10 +2,14 @@
 
 namespace App\Jobs\Oz\AiCabinetAnalyzer;
 
+use App\Exceptions\Credits\CreditPriceNotFoundException;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysis;
+use App\Models\User;
+use App\Services\Credits\AiCabinetAnalyzerCreditCalculator;
 use App\Services\Credits\CreditBillingService;
 use App\Services\Oz\AiCabinetAnalyzer\OzAiCabinetAnalyzerAiAnalysisService;
+use App\Services\Subscriber\Concerns\ChargesAiCabinetAnalyzerCredits;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -19,7 +23,12 @@ use Throwable;
 
 class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
 {
+    use ChargesAiCabinetAnalyzerCredits;
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    private CreditBillingService $creditBilling;
+
+    private AiCabinetAnalyzerCreditCalculator $cabinetAnalyzerCreditCalculator;
 
     public int $timeout = 3600;
 
@@ -47,8 +56,24 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
         ];
     }
 
-    public function handle(OzAiCabinetAnalyzerAiAnalysisService $service, CreditBillingService $credits): void
+    protected function creditBilling(): CreditBillingService
     {
+        return $this->creditBilling;
+    }
+
+    protected function cabinetAnalyzerCreditCalculator(): AiCabinetAnalyzerCreditCalculator
+    {
+        return $this->cabinetAnalyzerCreditCalculator;
+    }
+
+    public function handle(
+        OzAiCabinetAnalyzerAiAnalysisService $service,
+        CreditBillingService $credits,
+        AiCabinetAnalyzerCreditCalculator $calculator,
+    ): void {
+        $this->creditBilling = $credits;
+        $this->cabinetAnalyzerCreditCalculator = $calculator;
+
         $analysis = OzAiCabinetAnalyzerAiAnalysis::with(['report.cabinet', 'template'])->find($this->analysisId);
 
         if (! $analysis || ! $analysis->report || ! $analysis->report->cabinet || ! $analysis->template) {
@@ -127,6 +152,7 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
             DB::transaction(function () use ($analysis, $result, $analysisText, $analysisJson, $analysisMarkdown, $credits): void {
                 $analysis->status = OzAiCabinetAnalyzerAiAnalysis::STATUS_DONE;
                 $analysis->model = (string) ($result['model'] ?? $analysis->model);
+                $analysis->provider = (string) ($result['provider'] ?? $analysis->provider ?? '');
                 $analysis->analysis_text = $analysisText ?: null;
                 $analysis->analysis_json = $analysisJson ?: null;
                 $analysis->analysis_markdown = $analysisMarkdown ?: null;
@@ -137,7 +163,7 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
                 $analysis->finished_at = now();
                 $analysis->save();
 
-                $credits->captureOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
+                $this->settleSuccessfulAnalysis($analysis, $result, $credits);
             });
 
             if ($analysisMarkdownLength > 0) {
@@ -180,6 +206,46 @@ class ProcessOzAiCabinetAnalyzerAiAnalysisJob implements ShouldQueue
 
             throw $exception;
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     */
+    private function settleSuccessfulAnalysis(
+        OzAiCabinetAnalyzerAiAnalysis $analysis,
+        array $result,
+        CreditBillingService $credits,
+    ): void {
+        $user = User::query()->find($this->userId);
+        if (! $user) {
+            $credits->captureOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
+
+            return;
+        }
+
+        $calls = (array) ($result['calls'] ?? []);
+        if ($calls === []) {
+            $calls = [[
+                'provider' => (string) ($result['provider'] ?? 'gemini'),
+                'model' => (string) ($result['model'] ?? $analysis->model ?? ''),
+                'input_tokens' => (int) ($result['input_tokens'] ?? 0),
+                'output_tokens' => (int) ($result['output_tokens'] ?? 0),
+            ]];
+        }
+
+        try {
+            $quote = $this->cabinetAnalyzerCreditCalculator()->quoteCalls($calls);
+        } catch (CreditPriceNotFoundException $exception) {
+            Log::warning('[OzAiCabinetAnalyzerAI] Нет тарифа для списания, фиксируем резерв', [
+                'analysis_id' => $analysis->id,
+                'message' => $exception->getMessage(),
+            ]);
+            $credits->captureOpenHold((string) ($analysis->credit_idempotency_key ?? ''));
+
+            return;
+        }
+
+        $this->settleAnalysisCredits($user, $analysis, 'ozon', $quote);
     }
 
     private function isFinalAttempt(): bool

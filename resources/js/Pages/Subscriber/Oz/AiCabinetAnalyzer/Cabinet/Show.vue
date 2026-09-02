@@ -1,6 +1,7 @@
 <script setup>
 import { computed, unref } from "vue";
 import { Head } from "@inertiajs/vue3";
+import { CircleHelp } from "lucide-vue-next";
 import AiAnalysisSection from "@/components/subscriber/oz/ai-cabinet-analyzer/AiAnalysisSection.vue";
 import ProductsTable from "@/components/subscriber/oz/ai-cabinet-analyzer/ProductsTable.vue";
 import ReportRunPanel from "@/components/subscriber/oz/ai-cabinet-analyzer/ReportRunPanel.vue";
@@ -8,6 +9,54 @@ import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useAiCabinetReportPoll } from "@/composables/useAiCabinetReportPoll";
 import { useFlashToast } from "@/composables/useFlashToast";
+
+const SELLER_RATING_STATUS_LABELS = {
+    OK: "норма",
+    WARNING: "внимание",
+    CRITICAL: "критично",
+};
+
+/** Сырой UNKNOWN_STATUS с API не показываем; остальные статусы — понятными словами. */
+function sellerRatingStatusLabel(status) {
+    if (status === null || status === undefined || status === "") {
+        return null;
+    }
+    const key = String(status).trim().toUpperCase();
+    if (key === "UNKNOWN_STATUS" || key === "UNKNOWN") {
+        return null;
+    }
+
+    return SELLER_RATING_STATUS_LABELS[key] ?? null;
+}
+
+function formatSellerRatingValue(item) {
+    const raw = item?.current_value;
+    if (raw === null || raw === undefined || raw === "") {
+        return null;
+    }
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric)) {
+        return String(raw);
+    }
+
+    const valueType = String(item?.value_type || "").toUpperCase();
+    const name = String(item?.name || "");
+    const isPercent = valueType === "PERCENT"
+        || (valueType !== "INDEX" && valueType !== "TIME" && valueType !== "RATIO" && /процент/i.test(name));
+
+    if (isPercent) {
+        const percent = Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+        const rounded = Number.isInteger(percent) ? percent : Number(percent.toFixed(1));
+
+        return `${rounded}%`;
+    }
+
+    if (Number.isInteger(numeric)) {
+        return String(numeric);
+    }
+
+    return String(Number(numeric.toFixed(4)));
+}
 
 const props = defineProps({
     cabinet: { type: Object, required: true },
@@ -54,7 +103,11 @@ const sellerRating = computed(() => {
     for (const group of Array.isArray(summary.groups) ? summary.groups : []) {
         for (const item of Array.isArray(group.items) ? group.items : []) {
             if (item?.name) {
-                items.push(item);
+                items.push({
+                    ...item,
+                    displayValue: formatSellerRatingValue(item),
+                    statusLabel: sellerRatingStatusLabel(item.status),
+                });
             }
         }
     }
@@ -104,13 +157,45 @@ watchPropToast(() => warnings.value, "default");
             <template v-if="hasMeta">
                 <div v-if="isReportDone" class="space-y-3">
                     <p v-if="productsCount !== null" class="text-sm text-muted-foreground">
-                        Товаров в snapshot: <span class="font-medium text-foreground">{{ productsCount }}</span>
+                        Товаров: <span class="font-medium text-foreground">{{ productsCount }}</span>
                     </p>
                     <div
                         v-if="sellerRating"
-                        class="rounded-lg border p-4 text-sm"
+                        class="overflow-visible rounded-lg border p-4 text-sm"
                     >
-                        <p class="mb-2 font-medium">Рейтинги продавца</p>
+                        <div class="mb-2 flex items-center gap-1.5">
+                            <p class="font-medium">Рейтинги продавца</p>
+                            <span
+                                class="group/hint relative inline-flex shrink-0"
+                                tabindex="0"
+                                aria-label="Что означают рейтинги продавца"
+                            >
+                                <CircleHelp
+                                    class="h-4 w-4 cursor-help text-muted-foreground/70 transition-colors group-hover/hint:text-foreground group-focus-within/hint:text-foreground"
+                                    aria-hidden="true"
+                                />
+                                <span
+                                    role="tooltip"
+                                    class="pointer-events-none invisible absolute left-0 top-full z-50 mt-1.5 w-80 max-w-[calc(100vw-3rem)] rounded-md bg-zinc-900 px-3 py-2.5 text-left text-xs font-normal leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover/hint:visible group-hover/hint:opacity-100 group-focus-within/hint:visible group-focus-within/hint:opacity-100"
+                                >
+                                    Показатели качества вашего магазина в Ozon. По ним маркетплейс решает, насколько охотно показывать ваши товары покупателям.
+                                    <br><br>
+                                    Premium и Premium Plus — платные подписки Ozon с дополнительными возможностями в кабинете.
+                                    <br><br>
+                                    Штрафные баллы — если лимит превышен, часть функций кабинета могут ограничить.
+                                    <br><br>
+                                    Цветные зоны по индексу цен — доля товаров с выгодной (зелёная и супервыгодная), средней (жёлтая) и завышенной (красная) ценой относительно рынка. Чем больше товаров в зелёной зоне, тем лучше они продвигаются.
+                                    <br><br>
+                                    Оценка товаров — средняя оценка карточек от покупателей.
+                                    <br><br>
+                                    Просрочки отгрузки — доля заказов, которые отправили позже срока.
+                                    <br><br>
+                                    Рейтинг по прогрессивной шкале — общий показатель качества работы продавца.
+                                    <br><br>
+                                    Жалобы по FBO — претензии покупателей по товарам, которые хранятся на складе Ozon.
+                                </span>
+                            </span>
+                        </div>
                         <p class="mb-3 text-xs text-muted-foreground">
                             Premium: {{ sellerRating.premium ? "да" : "нет" }}
                             · Premium Plus: {{ sellerRating.premiumPlus ? "да" : "нет" }}
@@ -123,10 +208,12 @@ watchPropToast(() => warnings.value, "default");
                                 class="text-muted-foreground"
                             >
                                 <span class="text-foreground">{{ item.name }}</span>
-                                <span v-if="item.current_value !== null && item.current_value !== undefined">
-                                    — {{ item.current_value }}
+                                <span v-if="item.displayValue">
+                                    — {{ item.displayValue }}
                                 </span>
-                                <span v-if="item.status"> ({{ item.status }})</span>
+                                <span v-if="item.statusLabel">
+                                    ({{ item.statusLabel }})
+                                </span>
                             </li>
                         </ul>
                     </div>

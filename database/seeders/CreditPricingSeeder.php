@@ -23,6 +23,7 @@ class CreditPricingSeeder extends Seeder
 
         $this->seedRublesPerCredit();
         $this->seedServices();
+        (new AiCabinetAnalyzerCreditTariffSeeder())->run();
     }
 
     private function seedRublesPerCredit(): void

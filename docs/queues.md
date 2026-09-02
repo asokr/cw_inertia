@@ -176,6 +176,8 @@ php artisan queue:work --queue=wb_ab_testing,oz_ab_testing,price_calc,profitabil
 
 Для локальной отладки без воркеров: `QUEUE_CONNECTION=sync` (jobs выполняются синхронно; batch/delay ведут себя иначе).
 
+Локально все процессы сразу (artisan serve + Vite + очередь + планировщик): `node dev.js` — см. [local-dev.md](local-dev.md).
+
 ---
 
 ## Как обновлять этот файл

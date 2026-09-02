@@ -3,6 +3,7 @@
 namespace Tests\Feature\Web\Admin;
 
 use App\Enums\Credits\CreditServiceCode;
+use App\Models\Credits\AiCabinetAnalyzerCreditTariff;
 use App\Models\Credits\CreditService;
 use App\Models\Credits\CreditSetting;
 use App\Models\User;
@@ -54,7 +55,46 @@ class AdminCreditPricingTest extends WebAuthTestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Admin/CreditPricing/Index')
                 ->where('rubles_per_credit', '2.00')
-                ->has('services'));
+                ->has('services')
+                ->has('cabinet_analyzer_models')
+                ->has('cabinet_analyzer_tariffs')
+                ->has('cabinet_analyzer_charges'));
+    }
+
+    public function test_admin_can_create_and_update_cabinet_analyzer_tariff(): void
+    {
+        $admin = $this->makeSuperAdmin();
+
+        $this->actingAs($admin)
+            ->post('/cw-page/credit-pricing/cabinet-analyzer-tariffs', [
+                'provider' => 'gemini',
+                'model' => 'gemini-test-model',
+                'input_credits_per_1k' => 0.05,
+                'output_credits_per_1k' => 0.2,
+                'coefficient' => 1.5,
+                'is_default' => false,
+                'is_active' => true,
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $tariff = AiCabinetAnalyzerCreditTariff::query()->where('model', 'gemini-test-model')->first();
+        $this->assertNotNull($tariff);
+
+        $this->actingAs($admin)
+            ->put("/cw-page/credit-pricing/cabinet-analyzer-tariffs/{$tariff->id}", [
+                'provider' => 'gemini',
+                'model' => 'gemini-test-model',
+                'input_credits_per_1k' => 0.08,
+                'output_credits_per_1k' => 0.2,
+                'coefficient' => 1.5,
+                'is_default' => false,
+                'is_active' => true,
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertSame('0.080000', (string) $tariff->fresh()->input_credits_per_1k);
     }
 
     public function test_extra_limits_url_redirects_to_credit_pricing(): void

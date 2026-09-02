@@ -17,6 +17,7 @@ import {
     formatAnalysisDate,
     formatAnalysisTime,
 } from "@/utils/aiCabinetAnalysisDisplay";
+import { formatCredits } from "@/utils/credits";
 
 const props = defineProps({
     items: { type: Array, default: () => [] },
@@ -151,6 +152,12 @@ function changePage(page) {
                                 {{ displayDate(item) }}
                             </span>
                             <span class="tabular-nums">{{ displayTime(item) }}</span>
+                            <span
+                                v-if="item.status === 'done' && item.credits_charged"
+                                class="tabular-nums"
+                            >
+                                Списано {{ formatCredits(item.credits_charged) }}
+                            </span>
                         </div>
 
                         <p

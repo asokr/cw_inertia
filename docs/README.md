@@ -59,7 +59,7 @@ Legacy API-роуты `/subscriber/*` для инструментов сняты
 
 Ключевые маршруты:
 
-- `/cw-page/subscribers`, `/cw-page/plans`, `/cw-page/credit-pricing`, `/cw-page/coupons` — подписчики, тарифы, стоимость кредитов
+- `/cw-page/subscribers`, `/cw-page/plans`, `/cw-page/credit-pricing`, `/cw-page/coupons` — подписчики, тарифы, стоимость кредитов (включая ставки ИИ-анализа кабинета по токенам)
 - `/cw-page/services/feedbacks/*` — отзывы WB
 - `/cw-page/services/repricer/*` — репрайсер
 - `/cw-page/services/ai-cabinet/*` — ИИ-анализ кабинета
@@ -146,6 +146,7 @@ Ozon использует **единый** кабинет (`oz_cabinets`) — с
 
 | Документ | Описание |
 |----------|----------|
+| [local-dev.md](local-dev.md) | Локальный запуск одной командой (`node dev.js`: artisan serve, Vite, очередь, планировщик) |
 | [credits-billing.md](credits-billing.md) | Единый баланс кредитов; AI-анализ кабинета, ответы на отзывы WB и AI Инструменты списывают кредиты |
 | [queues.md](queues.md) | Все очереди и jobs проекта (обновлять при изменении/добавлении) |
 | [wb-ai-cabinet-analyzer-sales-funnel-fields.md](wb-ai-cabinet-analyzer-sales-funnel-fields.md) | Маппинг полей WB Sales Funnel |

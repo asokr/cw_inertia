@@ -853,6 +853,129 @@ class CreditBillingService
     }
 
     /**
+     * Списывает резерв на фактическую сумму: меньше — возвращает разницу,
+     * больше — добирает с доступного остатка, если хватает.
+     *
+     * @param  array<string, mixed>  $extraParams
+     */
+    public function settleOpenHold(string $idempotencyKey, int $actualAmount, array $extraParams = []): ?CreditLedger
+    {
+        if ($idempotencyKey === '' || ! $this->isReady()) {
+            return null;
+        }
+
+        $hold = $this->findHoldByIdempotency($idempotencyKey);
+        if (! $hold) {
+            return null;
+        }
+
+        if ($hold->status === CreditHoldStatus::Captured) {
+            return $this->findByIdempotency('capture:'.$hold->id);
+        }
+
+        if (! $hold->isActive()) {
+            return null;
+        }
+
+        if ($actualAmount < 1) {
+            return $this->release($hold);
+        }
+
+        $user = $hold->user;
+        if ($user instanceof User && ($this->bypassesCharges($user) || (int) $hold->amount === 0)) {
+            $this->mergeHoldParams($hold, $extraParams);
+
+            return $this->capture($hold);
+        }
+
+        return DB::transaction(function () use ($hold, $actualAmount, $extraParams) {
+            /** @var CreditHold $locked */
+            $locked = CreditHold::query()->lockForUpdate()->findOrFail($hold->id);
+
+            if ($locked->status === CreditHoldStatus::Captured) {
+                return $this->findByIdempotency('capture:'.$locked->id);
+            }
+
+            if (! $locked->isActive()) {
+                return null;
+            }
+
+            $params = is_array($locked->operation_params) ? $locked->operation_params : [];
+            $params = array_merge($params, $extraParams);
+
+            $account = $this->lockAccount($locked->user);
+
+            if ($actualAmount < (int) $locked->amount) {
+                $this->shrinkHoldTo($account, $locked, $actualAmount);
+            } elseif ($actualAmount > (int) $locked->amount) {
+                $extra = $actualAmount - (int) $locked->amount;
+                if ($account->available() < $extra) {
+                    $params['undercharged'] = true;
+                    $params['requested_credits'] = $actualAmount;
+                } else {
+                    $this->growHoldBy($account, $locked, $extra);
+                }
+            }
+
+            $locked->operation_params = $params;
+            $locked->save();
+
+            return $this->capture($locked);
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $extraParams
+     */
+    private function mergeHoldParams(CreditHold $hold, array $extraParams): void
+    {
+        if ($extraParams === []) {
+            return;
+        }
+
+        $params = is_array($hold->operation_params) ? $hold->operation_params : [];
+        $hold->operation_params = array_merge($params, $extraParams);
+        $hold->save();
+    }
+
+    private function shrinkHoldTo(CreditAccount $account, CreditHold $hold, int $actualAmount): void
+    {
+        $reduce = (int) $hold->amount - $actualAmount;
+        if ($reduce <= 0) {
+            return;
+        }
+
+        $fromPurchased = min((int) $hold->purchased_reserved, $reduce);
+        $fromSubscription = $reduce - $fromPurchased;
+
+        $account->purchased_held -= $fromPurchased;
+        $account->subscription_held -= $fromSubscription;
+        $account->save();
+
+        $hold->purchased_reserved -= $fromPurchased;
+        $hold->subscription_reserved -= $fromSubscription;
+        $hold->amount = $actualAmount;
+    }
+
+    private function growHoldBy(CreditAccount $account, CreditHold $hold, int $extra): void
+    {
+        if ($extra <= 0) {
+            return;
+        }
+
+        $fromSubscription = min($account->availableSubscription(), $extra);
+        $fromPurchased = $extra - $fromSubscription;
+
+        $account->subscription_held += $fromSubscription;
+        $account->purchased_held += $fromPurchased;
+        $account->save();
+
+        $hold->subscription_reserved += $fromSubscription;
+        $hold->purchased_reserved += $fromPurchased;
+        $hold->amount += $extra;
+    }
+
+    /**
      * Списывает активный резерв по ключу. Повторный вызов идемпотентен.
      */
     public function captureOpenHold(string $idempotencyKey): ?CreditLedger

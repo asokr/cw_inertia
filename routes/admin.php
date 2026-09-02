@@ -102,6 +102,14 @@ Route::middleware(['admin.access', 'verified'])
             Route::delete('credit-pricing/tiers/{tier}', [CreditPricingController::class, 'destroyTier'])
                 ->whereNumber('tier')
                 ->name('credit-pricing.tiers.destroy');
+            Route::post('credit-pricing/cabinet-analyzer-tariffs', [CreditPricingController::class, 'storeCabinetAnalyzerTariff'])
+                ->name('credit-pricing.cabinet-analyzer-tariffs.store');
+            Route::put('credit-pricing/cabinet-analyzer-tariffs/{tariff}', [CreditPricingController::class, 'updateCabinetAnalyzerTariff'])
+                ->whereNumber('tariff')
+                ->name('credit-pricing.cabinet-analyzer-tariffs.update');
+            Route::delete('credit-pricing/cabinet-analyzer-tariffs/{tariff}', [CreditPricingController::class, 'destroyCabinetAnalyzerTariff'])
+                ->whereNumber('tariff')
+                ->name('credit-pricing.cabinet-analyzer-tariffs.destroy');
 
             Route::redirect('extra-limits', '/cw-page/credit-pricing')->name('extra-limits.index');
 

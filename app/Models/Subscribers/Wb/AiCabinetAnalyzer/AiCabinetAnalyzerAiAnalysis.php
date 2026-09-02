@@ -19,12 +19,15 @@ class AiCabinetAnalyzerAiAnalysis extends Model
         'template_id',
         'status',
         'model',
+        'provider',
         'analysis_json',
         'analysis_text',
         'analysis_markdown',
         'input_tokens',
         'output_tokens',
         'total_tokens',
+        'credits_charged',
+        'billing_snapshot',
         'started_at',
         'finished_at',
         'error_message',
@@ -33,6 +36,8 @@ class AiCabinetAnalyzerAiAnalysis extends Model
 
     protected $casts = [
         'analysis_json' => 'array',
+        'billing_snapshot' => 'array',
+        'credits_charged' => 'integer',
         'started_at' => 'datetime',
         'finished_at' => 'datetime',
     ];

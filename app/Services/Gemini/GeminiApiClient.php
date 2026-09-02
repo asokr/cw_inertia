@@ -30,10 +30,6 @@ class GeminiApiClient
         $this->baseUrl = rtrim((string) ($baseUrl ?? config('services.gemini.base_url')), '/');
         $this->apiVersion = (string) ($apiVersion ?? config('services.gemini.api_version', 'v1beta'));
         $this->proxy = $proxy ?? config('services.proxy');
-
-        if ($this->apiKey === '') {
-            throw new RuntimeException('Не задан GEMINI_API_KEY');
-        }
     }
 
     public function generateProText(string $prompt, array $options = []): array
@@ -349,6 +345,10 @@ class GeminiApiClient
 
     private function requestGenerateContent(string $model, array $payload): array
     {
+        if ($this->apiKey === '') {
+            throw new RuntimeException('Не задан GEMINI_API_KEY');
+        }
+
         $url = $this->baseUrl . '/' . $this->apiVersion . '/models/' . $model . ':generateContent';
         $sanitizedRequestPayload = $this->sanitizePayloadForLog($payload);
 

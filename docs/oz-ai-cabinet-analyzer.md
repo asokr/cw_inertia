@@ -23,7 +23,7 @@
    - **контент-рейтинг** карточек;
    - **рейтинги продавца**;
    - **акции** Ozon;
-   - **реклама** (Performance API) — если заданы Performance-ключи.
+   - **реклама** (Performance API) — если заданы Performance-ключи: CPC по SKU за период + оплата за заказ.
 3. Данные **агрегируются в одну запись на product_id**.
 4. Snapshot сохраняется в `oz_ai_cabinet_analyzer_reports.result_json`.
 
@@ -40,6 +40,8 @@
 2. Открыть `/panel/oz/ai-cabinet-analyzer`.
 3. Запустить сбор за период.
 4. После `done` — таблица товаров (каталог + аналитика + реклама) + ИИ-анализ по шаблону.
+
+На workspace после `done` сверху показывается счётчик «Товаров» и блок «Рейтинги продавца» (Premium / Premium Plus, штрафные баллы и показатели Ozon). Сырой статус API `UNKNOWN_STATUS` не выводится; `OK` / `WARNING` / `CRITICAL` показываются как «норма» / «внимание» / «критично». Рядом с заголовком блока — иконка-подсказка, что означают показатели.
 
 ## Ключевые файлы
 
@@ -101,10 +103,15 @@
 
 Методы сбора:
 
-- `GET /api/client/campaign`
-- `GET /api/client/statistics/campaign/product` (sync, SKU-level: views, clicks, expense, orders, sales, toCart)
+- `GET /api/client/campaign` — список кампаний (все типы).
+- **Оплата за клик** (`advObjectType=SKU`): `POST /api/client/statistics/json` (пачки до 10 id, период до 62 дней) → poll `GET /api/client/statistics/{UUID}` → `GET /api/client/statistics/report?UUID=`. В отчёте строки по SKU: views, clicks, expense/moneySpent, orders, sales, toCart.
+- **Оплата за заказ** (`SEARCH_PROMO` / единая кампания «все товары»): `POST /api/client/statistic/products/generate/json` (`from`/`to` RFC 3339). Если в списке нет SEARCH_PROMO или generate пустой — `GET /api/client/statistics/all_sku_promo/products/generate/json`.
 
-Без ключей: `advertising_status = skipped_no_credentials`, snapshot всё равно `done`.
+`GET /api/client/statistics/campaign/product` **не используем** для join к товарам: это CSV/итог кампании без разреза по SKU.
+
+`POST /api/client/statistics/products/sku` даёт SKU-строки, но `dateFrom` не раньше вчера — для периода snapshot не подходит (им пользуется A/B-тик).
+
+Без ключей: `advertising_status = skipped_no_credentials`, snapshot всё равно `done`. После смены ключей нужно **пересобрать snapshot**, а не только перегенерировать ИИ.
 
 ## Snapshot `result_json`
 
@@ -157,9 +164,11 @@ Join: analytics/ads/stocks по **SKU** → `products[].skus.all`.
 - `ads_vs_analytics` в LLM только если выбраны analytics **и** advertising
 - `meta.seller_rating` / `meta.actions` в LLM только при выбранных `seller_rating` / `promos`
 - Выбор источников — в админке `/cw-page/services/oz-ai-cabinet/prompts`
-- У шаблона поле `credits_cost` (default **10** кредитов) — стоимость одной AI-генерации. Редактируется в форме промпта, не на `/cw-page/credit-pricing`. Резерв при запуске, списание когда job ставит анализ в `done`.
-- При старте/перегенерации: `CreditBillingService::reserve`. Как только job получил ответ ИИ и поставил `done` — `captureOpenHold`. Failed job — `releaseOpenHold`. Snapshot не тарифицируется.
+- Стоимость AI-генерации — динамическая, по токенам. Ставки общие с WB: `/cw-page/credit-pricing`, блок «ИИ-анализ кабинета». Поле шаблона `credits_cost` больше не используется для списания.
+- При старте/перегенерации: оценка snapshot → `reserve` с запасом 1.3. Как только job получил ответ ИИ и поставил `done` — `settleOpenHold` на фактическую сумму + запись в `ai_cabinet_analyzer_credit_charges`. Failed job — `releaseOpenHold`. Snapshot не тарифицируется.
+- На анализе сохраняются `provider`, `credits_charged`, `billing_snapshot`.
 - AI: Gemini + GPT fallback, `AiTaskType::OZ_AI_CABINET_ANALYZER_AI`
+- Запрос к ИИ всегда идёт в модель из `GEMINI_PRO_MODEL` (alias `gemini`). После ответа в анализе сохраняется фактический `modelVersion` (или GPT при fallback) — это для биллинга/лога, не для следующего запуска. Перегенерация снова запрашивает текущий Gemini, а не сохранённый id.
 
 ## Очереди
 
