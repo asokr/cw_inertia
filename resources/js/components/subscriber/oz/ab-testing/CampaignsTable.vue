@@ -20,7 +20,7 @@ const props = defineProps({
     },
 });
 
-const emit = defineEmits(["select", "pause", "delete", "deposit"]);
+const emit = defineEmits(["select", "pause", "delete"]);
 
 function statusCell(row) {
     const status = resolveCampaignStatus(row.status);
@@ -74,16 +74,6 @@ function actionsCell(row) {
                 variant: "outline",
                 disabled: busy,
                 onClick: () => emit("pause", row),
-            }),
-        );
-    }
-
-    if (row.can_deposit) {
-        nodes.push(
-            actionButton("Пополнить", {
-                variant: "outline",
-                disabled: busy,
-                onClick: () => emit("deposit", row),
             }),
         );
     }

@@ -17,16 +17,16 @@ class AiCabinetAnalyzerCreditTariffSeeder extends Seeder
         $this->seedTariff(
             provider: AiCabinetAnalyzerCreditTariff::PROVIDER_GEMINI,
             model: (string) config('services.gemini.pro_model', 'gemini-3.1-pro-preview'),
-            input: '0.030000',
-            output: '0.180000',
+            input: '0.5',
+            output: '1.2',
             isDefault: true,
         );
 
         $this->seedTariff(
             provider: AiCabinetAnalyzerCreditTariff::PROVIDER_GPT,
             model: (string) config('services.gpt.model', 'gpt-4.1'),
-            input: '0.040000',
-            output: '0.240000',
+            input: '0.01',
+            output: '0.24',
             isDefault: true,
         );
     }

@@ -489,12 +489,13 @@ class OzAbTestingService
      */
     public function listCampaignsForExperiment(OzCabinet $cabinet, AbExperiment $experiment): array
     {
-        $token = $this->experimentEngine->accessToken($cabinet);
+        $tokenResult = $this->experimentEngine->accessTokenResult($cabinet);
+        $token = $tokenResult['token'];
         if ($token === null) {
             return [
                 'success' => false,
                 'items' => [],
-                'messages' => ['Укажите ключи рекламы Performance API в кабинете Ozon.'],
+                'messages' => [$tokenResult['error'] ?? OzAbExperimentEngine::MSG_MISSING_PERFORMANCE_CREDENTIALS],
             ];
         }
 
@@ -553,7 +554,7 @@ class OzAbTestingService
             }
 
             $state = (string) ($campaign['state'] ?? '');
-            $skus = $this->experimentEngine->extractCampaignSkus($token, $id, $campaign);
+            $skus = $this->experimentEngine->extractCampaignSkus($token, $id, $campaign, fetchObjects: false);
             $contains = $sku > 0 && in_array($sku, $skus, true);
             $busy = in_array($id, $busyIds, true);
             $auto = strtoupper((string) ($campaign['productCampaignMode'] ?? '')) === 'PRODUCT_CAMPAIGN_MODE_AUTO';
@@ -1260,7 +1261,7 @@ class OzAbTestingService
         return match ($state) {
             'CAMPAIGN_STATE_RUNNING' => 'Активна',
             'CAMPAIGN_STATE_INACTIVE' => 'Остановлена',
-            'CAMPAIGN_STATE_STOPPED' => 'Нет бюджета',
+            'CAMPAIGN_STATE_STOPPED' => 'Остановлена',
             'CAMPAIGN_STATE_PLANNED' => 'Запланирована',
             'CAMPAIGN_STATE_ARCHIVED' => 'В архиве',
             'CAMPAIGN_STATE_FINISHED' => 'Завершена',
@@ -1292,14 +1293,14 @@ class OzAbTestingService
 
     private function requireToken(OzCabinet $cabinet): string
     {
-        $token = $this->experimentEngine->accessToken($cabinet);
-        if ($token === null) {
+        $tokenResult = $this->experimentEngine->accessTokenResult($cabinet);
+        if ($tokenResult['token'] === null) {
             throw ValidationException::withMessages([
-                'campaign' => 'Укажите ключи рекламы Performance API в кабинете Ozon.',
+                'campaign' => $tokenResult['error'] ?? OzAbExperimentEngine::MSG_MISSING_PERFORMANCE_CREDENTIALS,
             ]);
         }
 
-        return $token;
+        return $tokenResult['token'];
     }
 
     private function assertEditableExperiment(AbExperiment $experiment): void

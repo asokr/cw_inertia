@@ -58,7 +58,7 @@ Prefix: `/panel/oz/cabinets` · name: `subscriber.oz.cabinets.*`
 | `name` | Отображаемое имя |
 | `client_id` | Ozon Client ID Seller API (unique per user) |
 | `apikey` | Зашифрованный Seller API-ключ (`EncryptCast`) |
-| `performance_client_id` | Опционально: Client ID Performance API (реклама) |
+| `performance_client_id` | Опционально: Client ID Performance API (реклама). В ЛК Ozon выглядит как `12345` или `12345@advertising.performance.ozon.ru`; при запросе токена суффикс добавляется сам |
 | `performance_client_secret` | Опционально: Client Secret Performance API (`EncryptCast`) |
 | `last_sync_error` | Ошибка последней синхронизации price-calc |
 

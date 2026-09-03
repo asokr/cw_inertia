@@ -2,7 +2,9 @@
 
 namespace App\Services\Ozon;
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -23,30 +25,70 @@ class OzonPerformanceApiService
 {
     private const BASE_URL = 'https://api-performance.ozon.ru/';
 
-    private const MIN_INTERVAL_MS = 400;
+    public const CLIENT_ID_SUFFIX = '@advertising.performance.ozon.ru';
 
-    private float $lastRequestAt = 0.0;
+    /** Ozon: один активный запрос на аккаунт; пауза между вызовами в одном процессе. */
+    private const MIN_INTERVAL_MS = 1000;
+
+    private const MAX_429_RETRIES = 3;
+
+    /** @var list<int> паузы перед повтором после 429, мс */
+    private const RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+    private const LOCK_SECONDS = 45;
+
+    private const LOCK_WAIT_SECONDS = 20;
+
+    private static float $lastRequestAt = 0.0;
+
+    private ?string $accountLockKey = null;
+
+    /**
+     * Ozon ждёт client_id в формате digits@advertising.performance.ozon.ru.
+     * В ЛК копируют и полный id, и только цифры — приводим к одному виду.
+     */
+    public static function normalizeClientId(string $clientId): string
+    {
+        $clientId = trim($clientId);
+        $suffix = self::CLIENT_ID_SUFFIX;
+        if ($clientId !== '' && str_ends_with(strtolower($clientId), strtolower($suffix))) {
+            $clientId = trim(substr($clientId, 0, -strlen($suffix)));
+        }
+
+        if ($clientId === '') {
+            return '';
+        }
+
+        return $clientId.$suffix;
+    }
 
     /**
      * @return array{success: bool, status: int, data: mixed}
      */
     public function getAccessToken(string $clientId, string $clientSecret): array
     {
-        // client_id в ЛК иногда приходит с суффиксом @advertising.performance.ozon.ru
-        $clientId = trim(str_replace('@advertising.performance.ozon.ru', '', $clientId));
+        $normalizedId = self::normalizeClientId($clientId);
+        $this->accountLockKey = 'oz-perf:'.sha1($normalizedId);
 
-        return $this->request(
+        $result = $this->request(
             'POST',
             'api/client/token',
             [
                 'json' => [
-                    'client_id' => $clientId,
-                    'client_secret' => $clientSecret,
+                    'client_id' => $normalizedId,
+                    'client_secret' => trim($clientSecret),
                     'grant_type' => 'client_credentials',
                 ],
             ],
             bearer: null,
         );
+
+        $token = (string) Arr::get($result, 'data.access_token', '');
+        if ($token !== '') {
+            Cache::put('oz-perf-token:'.sha1($token), $this->accountLockKey, 1800);
+        }
+
+        return $result;
     }
 
     /**
@@ -240,6 +282,55 @@ class OzonPerformanceApiService
      */
     private function request(string $method, string $uri, array $options = [], ?string $bearer = null): array
     {
+        if (isset($options['query']) && is_array($options['query'])) {
+            // Ozon ждёт campaignIds=a&campaignIds=b, а не campaignIds[0]=a (http_build_query).
+            $options['query'] = $this->buildRepeatedQuery($options['query']);
+        }
+
+        $lock = Cache::lock($this->accountLockKey($bearer, $options), self::LOCK_SECONDS);
+
+        try {
+            $lock->block(self::LOCK_WAIT_SECONDS);
+        } catch (LockTimeoutException) {
+            return [
+                'success' => false,
+                'status' => 429,
+                'data' => ['error' => 'rate_limited'],
+            ];
+        }
+
+        try {
+            $attempt = 0;
+            $result = [
+                'success' => false,
+                'status' => 429,
+                'data' => ['error' => 'rate_limited'],
+            ];
+
+            while ($attempt <= self::MAX_429_RETRIES) {
+                $result = $this->sendOnce($method, $uri, $options, $bearer);
+                $status = (int) ($result['status'] ?? 0);
+                if ($status !== 429 || $attempt === self::MAX_429_RETRIES) {
+                    return $result;
+                }
+
+                $delayMs = self::RETRY_DELAYS_MS[$attempt] ?? 4000;
+                $attempt++;
+                usleep($delayMs * 1000);
+            }
+
+            return $result;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    private function sendOnce(string $method, string $uri, array $options, ?string $bearer): array
+    {
         $this->throttle();
 
         $headers = [
@@ -249,11 +340,6 @@ class OzonPerformanceApiService
 
         if ($bearer !== null && $bearer !== '') {
             $headers['Authorization'] = 'Bearer '.$bearer;
-        }
-
-        if (isset($options['query']) && is_array($options['query'])) {
-            // Ozon ждёт campaignIds=a&campaignIds=b, а не campaignIds[0]=a (http_build_query).
-            $options['query'] = $this->buildRepeatedQuery($options['query']);
         }
 
         $client = new \GuzzleHttp\Client([
@@ -323,6 +409,37 @@ class OzonPerformanceApiService
     }
 
     /**
+     * @param  array<string, mixed>  $options
+     */
+    /**
+     * @param  array<string, mixed>  $options
+     */
+    private function accountLockKey(?string $bearer, array $options): string
+    {
+        if ($this->accountLockKey !== null) {
+            return $this->accountLockKey;
+        }
+
+        if ($bearer !== null && $bearer !== '') {
+            $mapped = Cache::get('oz-perf-token:'.sha1($bearer));
+            if (is_string($mapped) && $mapped !== '') {
+                $this->accountLockKey = $mapped;
+
+                return $mapped;
+            }
+
+            $this->accountLockKey = 'oz-perf:'.sha1($bearer);
+
+            return $this->accountLockKey;
+        }
+
+        $clientId = (string) Arr::get($options, 'json.client_id', '');
+        $this->accountLockKey = 'oz-perf:'.sha1($clientId !== '' ? $clientId : 'anon');
+
+        return $this->accountLockKey;
+    }
+
+    /**
      * @param  array<string, scalar|list<scalar>|null>  $query
      */
     private function buildRepeatedQuery(array $query): string
@@ -351,13 +468,13 @@ class OzonPerformanceApiService
     private function throttle(): void
     {
         $now = microtime(true);
-        if ($this->lastRequestAt > 0) {
-            $elapsedMs = ($now - $this->lastRequestAt) * 1000;
+        if (self::$lastRequestAt > 0) {
+            $elapsedMs = ($now - self::$lastRequestAt) * 1000;
             $waitMs = self::MIN_INTERVAL_MS - $elapsedMs;
             if ($waitMs > 0) {
                 usleep((int) ($waitMs * 1000));
             }
         }
-        $this->lastRequestAt = microtime(true);
+        self::$lastRequestAt = microtime(true);
     }
 }

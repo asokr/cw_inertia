@@ -1,13 +1,9 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import Button from "@/components/ui/Button.vue";
 import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
-import Select from "@/components/ui/Select.vue";
-import Checkbox from "@/components/ui/Checkbox.vue";
-
-const MIN_DEPOSIT = 1000;
 
 const props = defineProps({
     open: {
@@ -27,48 +23,15 @@ const props = defineProps({
 const emit = defineEmits(["update:open", "submit"]);
 
 const name = ref("");
-const bidType = ref("unified");
-const paymentType = ref("cpm");
-const placeSearch = ref(true);
-const placeRecommendations = ref(false);
-/** Deposit is on by default — WB will not start a campaign with zero budget. */
-const depositEnabled = ref(true);
-const budgetDeposit = ref(MIN_DEPOSIT);
-const depositError = ref("");
-
-const showPlacements = computed(() => bidType.value === "manual");
-
-/** WB: CPC campaigns require bid_type = manual. */
-const isCpc = computed(() => paymentType.value === "cpc");
 
 watch(
     () => props.open,
     (isOpen) => {
         if (isOpen) {
             name.value = props.defaultName || "";
-            bidType.value = "unified";
-            paymentType.value = "cpm";
-            placeSearch.value = true;
-            placeRecommendations.value = false;
-            depositEnabled.value = true;
-            budgetDeposit.value = MIN_DEPOSIT;
-            depositError.value = "";
         }
     },
 );
-
-// CPC is only allowed with manual bids — enforce on both sides of the pair.
-watch(paymentType, (type) => {
-    if (type === "cpc" && bidType.value !== "manual") {
-        bidType.value = "manual";
-    }
-});
-
-watch(bidType, (type) => {
-    if (type === "unified" && paymentType.value === "cpc") {
-        paymentType.value = "cpm";
-    }
-});
 
 function close() {
     if (props.submitting) {
@@ -77,56 +40,14 @@ function close() {
     emit("update:open", false);
 }
 
-function validateDeposit() {
-    if (!depositEnabled.value) {
-        depositError.value = "";
-        return true;
-    }
-
-    const sum = Number(budgetDeposit.value);
-    if (!Number.isFinite(sum) || sum < MIN_DEPOSIT) {
-        depositError.value = `Минимальная сумма пополнения — ${MIN_DEPOSIT} ₽`;
-        return false;
-    }
-    if (sum % 50 !== 0) {
-        depositError.value = "Сумма должна быть кратна 50 ₽";
-        return false;
-    }
-
-    depositError.value = "";
-    return true;
-}
-
 function submit() {
     if (props.submitting) {
         return;
     }
 
-    if (!validateDeposit()) {
-        return;
-    }
-
-    const payload = {
+    emit("submit", {
         name: name.value.trim() || props.defaultName,
-        bid_type: bidType.value,
-        payment_type: paymentType.value,
-    };
-
-    if (bidType.value === "manual") {
-        const placements = [];
-        if (placeSearch.value) {
-            placements.push("search");
-        }
-        if (placeRecommendations.value) {
-            placements.push("recommendations");
-        }
-        payload.placement_types = placements.length ? placements : ["search"];
-    }
-
-    payload.payment_type = "cpc";
-    payload.cpm = 15;
-
-    emit("submit", payload);
+    });
 }
 </script>
 
@@ -134,7 +55,7 @@ function submit() {
     <Dialog
         :open="open"
         title="Создать кампанию"
-        description="Кампания будет создана в рекламном кабинете Ozon. Запуск — только вместе с A/B-тестом."
+        description="Кампания появится в рекламном кабинете Ozon. Запуск — вместе с экспериментом."
         class="max-w-lg"
         @update:open="emit('update:open', $event)"
     >
@@ -150,80 +71,10 @@ function submit() {
                 />
             </div>
 
-            <div class="grid gap-4 sm:grid-cols-2">
-                <div class="space-y-1.5">
-                    <Label for="ab-bid-type">Тип ставки</Label>
-                    <Select id="ab-bid-type" v-model="bidType" :disabled="submitting">
-                        <option value="unified" :disabled="isCpc">
-                            Единая ставка
-                        </option>
-                        <option value="manual">Ручная ставка</option>
-                    </Select>
-                    <p v-if="isCpc" class="text-xs text-muted-foreground">
-                        Для CPC доступна только ручная ставка (требование WB).
-                    </p>
-                </div>
-                <div class="space-y-1.5">
-                    <Label for="ab-payment-type">Тип оплаты</Label>
-                    <Select id="ab-payment-type" v-model="paymentType" :disabled="submitting">
-                        <option value="cpm">CPM (за показы)</option>
-                        <option value="cpc">CPC (за клики)</option>
-                    </Select>
-                </div>
-            </div>
-
-            <div v-if="showPlacements" class="space-y-2 rounded-md border border-border/70 p-3">
-                <p class="text-sm font-medium">Места размещения</p>
-                <label class="flex items-center gap-2 text-sm">
-                    <Checkbox v-model="placeSearch" :disabled="submitting" />
-                    Поиск
-                </label>
-                <label class="flex items-center gap-2 text-sm">
-                    <Checkbox v-model="placeRecommendations" :disabled="submitting" />
-                    Рекомендации
-                </label>
-            </div>
-
-            <div class="space-y-2 rounded-md border border-amber-500/25 bg-amber-500/5 p-3">
-                <label class="flex items-center gap-2 text-sm font-medium">
-                    <Checkbox v-model="depositEnabled" :disabled="submitting" />
-                    Пополнить бюджет при создании
-                </label>
-                <p class="text-xs text-muted-foreground">
-                    Без бюджета WB не запустит кампанию. Минимум {{ MIN_DEPOSIT }} ₽, кратно 50 ₽.
-                    Средства списываются с рекламного счёта / баланса продавца на WB.
-                </p>
-                <div class="flex flex-wrap items-end gap-2">
-                    <div class="space-y-1">
-                        <Label for="ab-budget-deposit" class="text-xs text-muted-foreground">
-                            Сумма, ₽
-                        </Label>
-                        <Input
-                            id="ab-budget-deposit"
-                            v-model.number="budgetDeposit"
-                            type="number"
-                            :min="MIN_DEPOSIT"
-                            step="50"
-                            :disabled="submitting || !depositEnabled"
-                            class="max-w-[12rem]"
-                            @update:model-value="depositError = ''"
-                        />
-                    </div>
-                </div>
-                <p v-if="depositError" class="text-xs text-destructive">
-                    {{ depositError }}
-                </p>
-                <p
-                    v-else-if="!depositEnabled"
-                    class="text-xs font-medium text-amber-800 dark:text-amber-200"
-                >
-                    Без пополнения кампания создастся с нулевым бюджетом — запуск эксперимента
-                    будет недоступен, пока не пополните бюджет в кабинете WB.
-                </p>
-            </div>
-
             <p class="text-xs text-muted-foreground">
-                Выбранный товар эксперимента будет добавлен в кампанию автоматически.
+                Создаётся кампания с оплатой за клик, выбранный товар добавится сам.
+                Реклама списывается с рекламного счёта Ozon. Пополнить счёт через сервис нельзя —
+                это делается в кабинете Ozon.
             </p>
         </div>
 

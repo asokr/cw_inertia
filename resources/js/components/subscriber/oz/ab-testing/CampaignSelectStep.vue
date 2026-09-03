@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import axios from "axios";
 import { Megaphone, Plus, RefreshCw } from "lucide-vue-next";
 import CampaignsTable from "./CampaignsTable.vue";
@@ -8,8 +8,6 @@ import SelectedProductCard from "./SelectedProductCard.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import Dialog from "@/components/ui/Dialog.vue";
-import Input from "@/components/ui/Input.vue";
-import Label from "@/components/ui/Label.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
 
 const props = defineProps({
@@ -45,10 +43,6 @@ const createOpen = ref(false);
 const defaultCampaignName = ref("");
 const deleteTarget = ref(null);
 const deleting = ref(false);
-const depositTarget = ref(null);
-const depositSum = ref(1000);
-const depositing = ref(false);
-const depositError = ref("");
 
 const selectedAdvertId = computed(() => props.experiment?.wb_advert_id ?? null);
 
@@ -72,7 +66,7 @@ const suggestedName = computed(() => {
 });
 
 async function loadCampaigns() {
-    if (!props.experiment?.id) {
+    if (!props.experiment?.id || loading.value) {
         return;
     }
 
@@ -242,65 +236,6 @@ async function confirmDeleteCampaign() {
     }
 }
 
-function openDeposit(campaign) {
-    depositTarget.value = campaign;
-    depositSum.value = 1000;
-    depositError.value = "";
-}
-
-function closeDeposit() {
-    if (depositing.value) {
-        return;
-    }
-    depositTarget.value = null;
-    depositError.value = "";
-}
-
-async function confirmDeposit() {
-    const campaign = depositTarget.value;
-    if (!campaign?.id || depositing.value) {
-        return;
-    }
-
-    const sum = Number(depositSum.value);
-    if (!Number.isFinite(sum) || sum < 1000) {
-        depositError.value = "Минимальная сумма — 1000 ₽";
-        return;
-    }
-    if (sum % 50 !== 0) {
-        depositError.value = "Сумма должна быть кратна 50 ₽";
-        return;
-    }
-
-    depositError.value = "";
-    depositing.value = true;
-    busyAdvertId.value = campaign.id;
-
-    try {
-        const { data } = await axios.post(
-            `${props.baseUrl}/campaigns/${campaign.id}/deposit`,
-            { sum, experiment_id: props.experiment?.id },
-        );
-
-        if (!data?.success) {
-            showError(data?.messages?.[0] || "Не удалось пополнить бюджет");
-            return;
-        }
-
-        showSuccess(data?.messages?.[0] || "Бюджет пополнен");
-        depositTarget.value = null;
-        await loadCampaigns();
-    } catch (error) {
-        showError(
-            error?.response?.data?.messages?.[0] ||
-                "Не удалось пополнить бюджет",
-        );
-    } finally {
-        depositing.value = false;
-        busyAdvertId.value = null;
-    }
-}
-
 async function createCampaign(payload) {
     if (!props.experiment?.id || creating.value) {
         return;
@@ -320,28 +255,15 @@ async function createCampaign(payload) {
         }
 
         const message = data?.messages?.[0] || "Кампания создана";
-        // Deposit is soft-fail on backend: campaign still bound, but budget may be zero.
-        const depositFailed =
-            data?.budget_deposited === false ||
-            (typeof message === "string" &&
-                /пополнить бюджет не удалось|бюджет.*не удалось/i.test(message));
 
         if (data.experiment) {
             emit("experiment-updated", data.experiment);
             createOpen.value = false;
-            if (depositFailed) {
-                showError(message);
-            } else {
-                showSuccess(message);
-            }
+            showSuccess(message);
             goToPhotosIfBound(data.experiment);
             return;
         }
-        if (depositFailed) {
-            showError(message);
-        } else {
-            showSuccess(message);
-        }
+        showSuccess(message);
         createOpen.value = false;
         await loadCampaigns();
     } catch (error) {
@@ -361,13 +283,8 @@ watch(
             loadCampaigns();
         }
     },
+    { immediate: true },
 );
-
-onMounted(() => {
-    if (props.experiment?.id) {
-        loadCampaigns();
-    }
-});
 </script>
 
 <template>
@@ -453,7 +370,6 @@ onMounted(() => {
             @select="selectCampaign"
             @pause="pauseCampaign"
             @delete="askDeleteCampaign"
-            @deposit="openDeposit"
         />
 
         <p class="text-xs text-muted-foreground">
@@ -484,44 +400,6 @@ onMounted(() => {
                 </Button>
                 <Button variant="destructive" :disabled="deleting" @click="confirmDeleteCampaign">
                     {{ deleting ? "Удаление…" : "Удалить кампанию" }}
-                </Button>
-            </template>
-        </Dialog>
-
-        <Dialog
-            :open="!!depositTarget"
-            title="Пополнить бюджет"
-            description="Средства списываются с рекламного баланса продавца на WB. Минимум 1000 ₽, кратно 50 ₽."
-            @update:open="(v) => { if (!v) closeDeposit() }"
-        >
-            <div v-if="depositTarget" class="space-y-3">
-                <p class="text-sm text-muted-foreground">
-                    Кампания:
-                    <span class="font-medium text-foreground">{{ depositTarget.name }}</span>
-                    (ID {{ depositTarget.id }})
-                </p>
-                <div class="space-y-1.5">
-                    <Label for="ab-campaign-deposit-sum">Сумма, ₽</Label>
-                    <Input
-                        id="ab-campaign-deposit-sum"
-                        v-model.number="depositSum"
-                        type="number"
-                        min="1000"
-                        step="50"
-                        :disabled="depositing"
-                        class="max-w-[12rem]"
-                    />
-                    <p v-if="depositError" class="text-xs text-destructive">
-                        {{ depositError }}
-                    </p>
-                </div>
-            </div>
-            <template #footer>
-                <Button variant="outline" :disabled="depositing" @click="closeDeposit">
-                    Отмена
-                </Button>
-                <Button :disabled="depositing" @click="confirmDeposit">
-                    {{ depositing ? "Пополнение…" : "Пополнить" }}
                 </Button>
             </template>
         </Dialog>

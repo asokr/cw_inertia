@@ -49,7 +49,7 @@ const props = defineProps({
         type: String,
         default: "draft",
     },
-    /** Текущий вариант на карточке WB (running). */
+    /** Текущий вариант на карточке Ozon (running). */
     isCurrent: {
         type: Boolean,
         default: false,

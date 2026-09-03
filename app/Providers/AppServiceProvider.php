@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Mail\EmailVerification;
+use App\Services\Ozon\OzonPerformanceApiService;
 use App\Services\PaymentService;
 use App\Services\Gemini\GeminiApiClient;
 use App\Services\Grok\GrokVideoApiClient;
@@ -22,6 +23,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(PaymentService::class, function ($app) {
             return new PaymentService();
         });
+
+        // Один экземпляр на запрос: throttle и lock Performance API общие для A/B и токена.
+        $this->app->singleton(OzonPerformanceApiService::class);
 
         $this->app->bind(GeminiApiClient::class, function ($app) {
             return new GeminiApiClient(

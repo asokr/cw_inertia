@@ -375,6 +375,71 @@ class OzAbTestingTest extends WebAuthTestCase
         $this->assertNotContains(444, $ids);
     }
 
+    public function test_list_campaigns_without_performance_keys_asks_to_fill_them(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'No Perf');
+        [, $experiment] = $this->createDraft($cabinet);
+
+        $this->actingAs($user)
+            ->getJson('/panel/oz/ab-testing/campaigns?experiment_id='.$experiment->id)
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('messages.0', 'Укажите ключи рекламы Performance API в кабинете Ozon.');
+    }
+
+    public function test_list_campaigns_with_invalid_performance_keys_returns_connection_error(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Bad Perf', withPerformance: true);
+        [, $experiment] = $this->createDraft($cabinet);
+
+        $mock = Mockery::mock(OzonPerformanceApiService::class);
+        $mock->shouldReceive('getAccessToken')
+            ->once()
+            ->andReturn([
+                'success' => false,
+                'status' => 401,
+                'data' => [
+                    'error' => 'invalid_client',
+                    'error_description' => 'Client authentication failed',
+                ],
+            ]);
+        $this->app->instance(OzonPerformanceApiService::class, $mock);
+
+        $this->actingAs($user)
+            ->getJson('/panel/oz/ab-testing/campaigns?experiment_id='.$experiment->id)
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('messages.0', 'Неверные данные для подключения');
+    }
+
+    public function test_list_campaigns_rate_limit_returns_friendly_message(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Rate Limit', withPerformance: true);
+        [, $experiment] = $this->createDraft($cabinet);
+
+        $mock = Mockery::mock(OzonPerformanceApiService::class);
+        $mock->shouldReceive('getAccessToken')
+            ->once()
+            ->andReturn(['success' => true, 'status' => 200, 'data' => ['access_token' => 'tok']]);
+        $mock->shouldReceive('listCampaigns')
+            ->once()
+            ->andReturn([
+                'success' => false,
+                'status' => 429,
+                'data' => ['error' => 'Превышен лимит активных запросов (максимум 1)'],
+            ]);
+        $this->app->instance(OzonPerformanceApiService::class, $mock);
+
+        $this->actingAs($user)
+            ->getJson('/panel/oz/ab-testing/campaigns?experiment_id='.$experiment->id)
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('messages.0', 'Ozon сейчас не принимает запросы. Подождите несколько секунд и обновите список.');
+    }
+
     public function test_prepare_adds_sku_when_missing(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);

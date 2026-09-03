@@ -81,13 +81,13 @@ function submit() {
             <template v-if="isOzon">
                 <div class="space-y-2 rounded-md border border-border/60 bg-muted/30 p-3">
                     <p class="text-xs text-muted-foreground">
-                        Опционально: ключи <strong>Performance API</strong> (реклама) из
-                        Настройки → Performance API.
+                        Опционально: ключи рекламы из раздела
+                        Настройки → Performance API в кабинете Ozon.
                     </p>
                     <div class="space-y-2">
                         <Label>Performance Client ID</Label>
                         <Input :model-value="modelValue.performance_client_id ?? ''"
-                            placeholder="Client ID рекламы (только цифры)"
+                            placeholder="Client ID рекламы"
                             :error="Boolean(errors.performance_client_id)"
                             @update:model-value="updateField('performance_client_id', $event)" />
                         <p v-if="errors.performance_client_id" class="text-xs text-destructive">

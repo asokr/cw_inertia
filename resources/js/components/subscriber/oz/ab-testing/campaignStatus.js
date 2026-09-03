@@ -1,7 +1,7 @@
 export const CAMPAIGN_STATUSES = {
     CAMPAIGN_STATE_RUNNING: { label: "Активна", variant: "success" },
     CAMPAIGN_STATE_INACTIVE: { label: "Остановлена", variant: "warning" },
-    CAMPAIGN_STATE_STOPPED: { label: "Нет бюджета", variant: "destructive" },
+    CAMPAIGN_STATE_STOPPED: { label: "Остановлена", variant: "destructive" },
     CAMPAIGN_STATE_PLANNED: { label: "Запланирована", variant: "outline" },
     CAMPAIGN_STATE_ARCHIVED: { label: "В архиве", variant: "secondary" },
     CAMPAIGN_STATE_FINISHED: { label: "Завершена", variant: "secondary" },

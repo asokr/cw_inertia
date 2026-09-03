@@ -29,10 +29,11 @@ class AdminCreditPricingTest extends WebAuthTestCase
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
     }
 
-    public function test_opening_page_seeds_empty_catalog(): void
+    public function test_opening_page_does_not_seed_empty_catalog(): void
     {
         CreditService::query()->delete();
         CreditSetting::query()->delete();
+        AiCabinetAnalyzerCreditTariff::query()->delete();
 
         $admin = $this->makeSuperAdmin();
 
@@ -41,8 +42,11 @@ class AdminCreditPricingTest extends WebAuthTestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Admin/CreditPricing/Index')
-                ->where('rubles_per_credit', '2.00')
-                ->has('services', 5));
+                ->has('services', 0)
+                ->has('cabinet_analyzer_tariffs', 0));
+
+        $this->assertSame(0, CreditService::query()->count());
+        $this->assertSame(0, AiCabinetAnalyzerCreditTariff::query()->count());
     }
 
     public function test_super_admin_can_open_credit_pricing_page(): void

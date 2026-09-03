@@ -268,7 +268,7 @@ async function stop() {
                     {{
                         isRestartable
                             ? "Перезапуск: история циклов сохранится, счётчик ошибок сбросится, откроется новый цикл."
-                            : "Запуск: кампания WB → первая фотография → цикл → «В процессе»."
+                            : "Запуск: кампания Ozon → первая фотография → цикл → «В процессе»."
                     }}
                 </p>
                 <Button :disabled="!canStart" @click="start">
@@ -319,7 +319,7 @@ async function stop() {
                         {{ lastApiError }}
                     </p>
                     <p class="text-[11px] text-muted-foreground">
-                        При превышении лимита WB (429) эксперимент не останавливается —
+                        Если Ozon временно не принимает запросы, эксперимент не останавливается —
                         повтор будет позже. После {{ maxConsecutiveFailures }} прочих
                         сбоев подряд статус станет «Ошибка».
                     </p>
@@ -341,7 +341,7 @@ async function stop() {
                 <p class="text-xs text-muted-foreground">
                     <template v-if="isProgressPending">
                         <span class="font-medium text-foreground">Прогресс:</span>
-                        ожидаем первые показы из статистики WB…
+                        ожидаем первые показы из статистики Ozon…
                     </template>
                     <template v-else>
                         <span class="font-medium text-foreground">Прогресс:</span>
@@ -379,7 +379,7 @@ async function stop() {
                 v-if="experiment.winner_photo_id"
                 class="text-xs text-muted-foreground"
             >
-                Победитель по CTR установлен главным фото в карточке WB
+                Победитель по CTR установлен главным фото в карточке Ozon
                 (фото #{{ experiment.winner_photo_id }}).
             </p>
             <p

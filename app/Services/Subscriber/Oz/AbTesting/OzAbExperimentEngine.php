@@ -36,6 +36,14 @@ class OzAbExperimentEngine
     /** Performance API: не больше 10 кампаний в одном запросе статистики. */
     public const STATS_CAMPAIGN_CHUNK = 10;
 
+    public const MSG_MISSING_PERFORMANCE_CREDENTIALS = 'Укажите ключи рекламы Performance API в кабинете Ozon.';
+
+    public const MSG_INVALID_PERFORMANCE_CREDENTIALS = 'Неверные данные для подключения';
+
+    public const MSG_PERFORMANCE_TOKEN_FAILED = 'Не удалось подключиться к рекламе Ozon. Проверьте данные для подключения.';
+
+    public const MSG_PERFORMANCE_RATE_LIMITED = 'Ozon сейчас не принимает запросы. Подождите несколько секунд и обновите список.';
+
     private ?string $cachedAccessToken = null;
 
     private ?int $cachedAccessTokenCabinetId = null;
@@ -64,7 +72,7 @@ class OzAbExperimentEngine
         }
 
         if (! $this->hasPerformanceCredentials($cabinet)) {
-            $errors[] = 'Укажите ключи рекламы Performance API в кабинете Ozon.';
+            $errors[] = self::MSG_MISSING_PERFORMANCE_CREDENTIALS;
         }
 
         if (! $this->areSettingsReady($experiment)) {
@@ -142,9 +150,10 @@ class OzAbExperimentEngine
             return ['success' => false, 'messages' => $errors];
         }
 
-        $token = $this->accessToken($cabinet);
+        $tokenResult = $this->accessTokenResult($cabinet);
+        $token = $tokenResult['token'];
         if ($token === null) {
-            return ['success' => false, 'messages' => ['Не удалось получить доступ к рекламе Ozon. Проверьте ключи Performance API.']];
+            return ['success' => false, 'messages' => [$tokenResult['error'] ?? self::MSG_PERFORMANCE_TOKEN_FAILED]];
         }
 
         $campaignId = (int) $experiment->oz_campaign_id;
@@ -1457,14 +1466,17 @@ class OzAbExperimentEngine
             && trim((string) $cabinet->performance_client_secret) !== '';
     }
 
-    public function accessToken(OzCabinet $cabinet): ?string
+    /**
+     * @return array{token: ?string, error: ?string}
+     */
+    public function accessTokenResult(OzCabinet $cabinet): array
     {
         if (! $this->hasPerformanceCredentials($cabinet)) {
-            return null;
+            return ['token' => null, 'error' => self::MSG_MISSING_PERFORMANCE_CREDENTIALS];
         }
 
         if ($this->cachedAccessToken !== null && $this->cachedAccessTokenCabinetId === (int) $cabinet->id) {
-            return $this->cachedAccessToken;
+            return ['token' => $this->cachedAccessToken, 'error' => null];
         }
 
         $response = $this->performanceApi->getAccessToken(
@@ -1473,13 +1485,38 @@ class OzAbExperimentEngine
         );
         $token = (string) Arr::get($response, 'data.access_token', '');
         if ($token === '') {
-            return null;
+            return ['token' => null, 'error' => $this->performanceAuthMessage($response)];
         }
 
         $this->cachedAccessToken = $token;
         $this->cachedAccessTokenCabinetId = (int) $cabinet->id;
 
-        return $token;
+        return ['token' => $token, 'error' => null];
+    }
+
+    public function accessToken(OzCabinet $cabinet): ?string
+    {
+        return $this->accessTokenResult($cabinet)['token'];
+    }
+
+    /**
+     * @param  array{success?: bool, status?: int, data?: mixed}  $response
+     */
+    public function performanceAuthMessage(array $response): string
+    {
+        $status = (int) ($response['status'] ?? 0);
+        $data = $response['data'] ?? null;
+        $error = is_array($data) ? (string) ($data['error'] ?? '') : '';
+
+        if ($status === 401 || $error === 'invalid_client') {
+            return self::MSG_INVALID_PERFORMANCE_CREDENTIALS;
+        }
+
+        if ($status === 429 || $this->isPerformanceRateLimitError($error)) {
+            return self::MSG_PERFORMANCE_RATE_LIMITED;
+        }
+
+        return self::MSG_PERFORMANCE_TOKEN_FAILED;
     }
 
     /**
@@ -1514,8 +1551,12 @@ class OzAbExperimentEngine
      * @param  array<string, mixed>  $campaign
      * @return list<int>
      */
-    public function extractCampaignSkus(string $accessToken, int $campaignId, array $campaign = []): array
-    {
+    public function extractCampaignSkus(
+        string $accessToken,
+        int $campaignId,
+        array $campaign = [],
+        bool $fetchObjects = true,
+    ): array {
         $skus = [];
         foreach ((array) Arr::get($campaign, 'products', []) as $product) {
             if (is_array($product) && isset($product['sku'])) {
@@ -1523,6 +1564,10 @@ class OzAbExperimentEngine
             } elseif (is_numeric($product)) {
                 $skus[] = (int) $product;
             }
+        }
+
+        if (! $fetchObjects) {
+            return array_values(array_unique(array_filter($skus)));
         }
 
         $objects = $this->performanceApi->getCampaignObjects($accessToken, $campaignId);
@@ -1557,15 +1602,32 @@ class OzAbExperimentEngine
      */
     public function apiMessage(array $response, string $fallback): string
     {
+        $status = (int) ($response['status'] ?? 0);
         $data = $response['data'] ?? null;
+        $raw = '';
         if (is_array($data)) {
-            $message = $data['message'] ?? $data['error'] ?? $data['errorMessage'] ?? null;
-            if (is_string($message) && $message !== '') {
-                return $message;
-            }
+            $candidate = $data['message'] ?? $data['error'] ?? $data['errorMessage'] ?? null;
+            $raw = is_string($candidate) ? $candidate : '';
+        }
+
+        if ($status === 429 || $this->isPerformanceRateLimitError($raw)) {
+            return self::MSG_PERFORMANCE_RATE_LIMITED;
+        }
+
+        if ($raw !== '') {
+            return $raw;
         }
 
         return $fallback;
+    }
+
+    private function isPerformanceRateLimitError(string $message): bool
+    {
+        $normalized = mb_strtolower($message);
+
+        return $normalized === 'rate_limited'
+            || str_contains($normalized, 'лимит активных запросов')
+            || str_contains($normalized, 'too many requests');
     }
 
     private function waitPicturesUploaded(OzCabinet $cabinet, int $ozProductId): void

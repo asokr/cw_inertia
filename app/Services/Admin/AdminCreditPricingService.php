@@ -10,8 +10,6 @@ use App\Models\Credits\CreditService;
 use App\Models\Credits\CreditServicePriceTier;
 use App\Models\Credits\CreditSetting;
 use App\Services\Credits\CreditPriceCalculator;
-use Database\Seeders\AiCabinetAnalyzerCreditTariffSeeder;
-use Database\Seeders\CreditPricingSeeder;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -40,8 +38,6 @@ class AdminCreditPricingService
      */
     public function pageData(?Request $request = null): array
     {
-        $this->ensureCatalog();
-
         return [
             'rubles_per_credit' => $this->calculator->rublesPerCredit(),
             'services' => $this->services(),
@@ -49,32 +45,6 @@ class AdminCreditPricingService
             'cabinet_analyzer_tariffs' => $this->cabinetAnalyzerTariffs(),
             'cabinet_analyzer_charges' => $this->cabinetAnalyzerCharges($request),
         ];
-    }
-
-    /**
-     * Если таблицы есть, а каталог пустой — заполняем сидером.
-     * Повторный вызов безопасен: существующие цены не перезаписываются.
-     */
-    public function ensureCatalog(): void
-    {
-        if (! $this->isReady()) {
-            return;
-        }
-
-        $hasServices = Schema::hasTable('credit_services') && CreditService::query()->exists();
-        $hasRubles = Schema::hasTable('credit_settings')
-            && CreditSetting::query()->where('key', CreditSetting::RUBLES_PER_CREDIT)->exists();
-
-        if (! $hasServices || ! $hasRubles) {
-            (new CreditPricingSeeder())->run();
-        }
-
-        if (
-            Schema::hasTable('ai_cabinet_analyzer_credit_tariffs')
-            && ! AiCabinetAnalyzerCreditTariff::query()->exists()
-        ) {
-            (new AiCabinetAnalyzerCreditTariffSeeder())->run();
-        }
     }
 
     /**

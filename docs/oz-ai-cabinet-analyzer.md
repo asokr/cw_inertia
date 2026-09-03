@@ -96,7 +96,7 @@
 |--|--|
 | Base | `https://api-performance.ozon.ru` (не `performance.ozon.ru`) |
 | Auth | `POST /api/client/token` → Bearer (`client_credentials`) |
-| Credentials | **отдельные** Client ID + Client Secret: **Настройки → Performance API** |
+| Credentials | **отдельные** Client ID + Client Secret: **Настройки → Performance API**. Client ID нормализуется к `digits@advertising.performance.ozon.ru` |
 | Seller API | **не** открывает рекламу; в ролях ключа Seller нет пункта «реклама» |
 
 Хранение в `oz_cabinets`: `performance_client_id`, `performance_client_secret` (encrypt, optional).

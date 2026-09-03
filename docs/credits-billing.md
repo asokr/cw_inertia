@@ -73,7 +73,9 @@
 
 Стоимость **AI-анализа кабинета WB/Ozon** на этой странице есть отдельным блоком: ставки за 1000 входящих и 1000 исходящих токенов по провайдеру и модели (`ai_cabinet_analyzer_credit_tariffs`). Это не каталог `credit_services` и не цена шаблона промпта.
 
-Сидер `CreditPricingSeeder` идемпотентен: повторный запуск не создаёт дубли и не затирает правки админа. `credits_per_period` тарифов не трогает.
+Сидер `CreditPricingSeeder` (внутри — и `AiCabinetAnalyzerCreditTariffSeeder`) идемпотентен: повторный запуск не создаёт дубли и не затирает правки админа. `credits_per_period` тарифов не трогает.
+
+Сидеры запускаются только через artisan (`php artisan db:seed --class=CreditPricingSeeder`), не при открытии админки. Страница `/cw-page/credit-pricing` только читает и правит уже существующие строки.
 
 Себестоимость провайдеров (`ai_request_logs`, `ai_costs`, `config/ai_pricing.php`) не связана с кредитами.
 
