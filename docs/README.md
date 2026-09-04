@@ -147,6 +147,7 @@ Ozon использует **единый** кабинет (`oz_cabinets`) — с
 | Документ | Описание |
 |----------|----------|
 | [local-dev.md](local-dev.md) | Локальный запуск одной командой (`node dev.js`: artisan serve, Vite, очередь, планировщик) |
+| [deploy.md](deploy.md) | После выкладки на прод: `scripts/prod-reload.sh` (кеш + рестарт очередей) |
 | [credits-billing.md](credits-billing.md) | Единый баланс кредитов; AI-анализ кабинета, ответы на отзывы WB и AI Инструменты списывают кредиты |
 | [queues.md](queues.md) | Все очереди и jobs проекта (обновлять при изменении/добавлении) |
 | [wb-ai-cabinet-analyzer-sales-funnel-fields.md](wb-ai-cabinet-analyzer-sales-funnel-fields.md) | Маппинг полей WB Sales Funnel |

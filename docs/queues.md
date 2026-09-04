@@ -174,6 +174,8 @@ php artisan queue:work --queue=oz_ai_cabinet_analyzer --tries=3 --timeout=3600 -
 php artisan queue:work --queue=wb_ab_testing,oz_ab_testing,price_calc,profitability,repricer_stocks,wb_ai_cabinet_analyzer,oz_ai_cabinet_analyzer,default --timeout=3600
 ```
 
+После выкладки кода на прод воркеры сами код не перечитывают (`queue:work`). Мягкий рестарт всех очередей — `php artisan queue:restart` (входит в [`scripts/prod-reload.sh`](../scripts/prod-reload.sh), см. [deploy.md](deploy.md)).
+
 Для локальной отладки без воркеров: `QUEUE_CONNECTION=sync` (jobs выполняются синхронно; batch/delay ведут себя иначе).
 
 Локально все процессы сразу (artisan serve + Vite + очередь + планировщик): `node dev.js` — см. [local-dev.md](local-dev.md).

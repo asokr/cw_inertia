@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Web\Subscriber\Oz;
 
+use App\Jobs\Ozon\CalculatePriceJob;
 use App\Models\Subscribers\Oz\OzCabinet;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbo;
+use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbs;
 use App\Models\Subscribers\Subscribers;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
@@ -73,7 +75,9 @@ class OzPriceCalcTest extends WebAuthTestCase
                 ->where('mode', 'fbo')
                 ->has('rows')
                 ->has('columns')
-                ->has('jobStatus'));
+                ->has('jobStatus')
+                ->where('columns', fn ($columns) => $this->columnTitle($columns, 'logistics_fbo') === 'Средний тариф по кластерам (руб)'
+                    && $this->columnTitle($columns, 'logistics_fbo_over_190') === 'Средний тариф с учетом % выкупа'));
     }
 
     public function test_workspace_renders_for_selected_cabinet_fbs(): void
@@ -88,7 +92,9 @@ class OzPriceCalcTest extends WebAuthTestCase
                 ->component('Subscriber/Oz/PriceCalc/Cabinet/Show')
                 ->where('mode', 'fbs')
                 ->has('rows')
-                ->has('columns'));
+                ->has('columns')
+                ->where('columns', fn ($columns) => $this->columnTitle($columns, 'logistics_fbs') === 'Средний тариф'
+                    && $this->columnTitle($columns, 'logistics_fbs_over_190') === 'Средний тариф с учетом % выкупа'));
     }
 
     public function test_legacy_cabinet_url_redirects_to_flat_workspace(): void
@@ -221,6 +227,91 @@ class OzPriceCalcTest extends WebAuthTestCase
             ->assertSessionHas('success');
 
         Bus::assertBatched(fn ($batch) => $batch->name === "ozon_fbo_calc_{$cabinet->id}");
+    }
+
+    public function test_calculate_fbo_uses_cluster_average_tariff(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'FBO Calc');
+
+        $row = OzPriceCalcFbo::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'ozon_article' => 'ART-FBO-1L',
+            'barcode' => '2000000000002',
+            'cost_price' => 100,
+            'margin_percent' => 20,
+            'fulfillment_fee' => 10,
+            'dop_rashod_percent' => 5,
+            'weight_kg' => 0.25,
+            'length_cm' => 10,
+            'width_cm' => 10,
+            'height_cm' => 10,
+            'buyout_percent' => 80,
+            'price_markup_for_logistics_percent' => 0,
+            'dopakovka_rub' => 0,
+            'tax_percent' => 6,
+            'commission_percent' => 15,
+            'advertising_percent' => 5,
+            'promotion_percent' => 10,
+        ]);
+
+        (new CalculatePriceJob($cabinet->id, 'fbo'))->handle();
+
+        $row->refresh();
+
+        $this->assertSame(1, (int) $row->volume_liters);
+        $this->assertEqualsWithDelta(88.54, (float) $row->logistics_fbo, 0.001);
+        $this->assertSame(133, (int) $row->logistics_fbo_over_190);
+        $this->assertNotNull($row->min_price);
+    }
+
+    public function test_calculate_fbs_uses_cluster_average_tariff_and_min_price_plus_55(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user, 'FBS Calc');
+
+        $row = OzPriceCalcFbs::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'ozon_article' => 'ART-FBS-1L',
+            'barcode' => '2000000000003',
+            'cost_price' => 100,
+            'margin_percent' => 20,
+            'fulfillment_fee' => 10,
+            'dop_rashod_percent' => 5,
+            'weight_kg' => 0.25,
+            'length_cm' => 10,
+            'width_cm' => 10,
+            'height_cm' => 10,
+            'buyout_percent' => 80,
+            'tax_percent' => 6,
+            'commission_percent' => 15,
+            'advertising_percent' => 5,
+            'promotion_percent' => 10,
+        ]);
+
+        (new CalculatePriceJob($cabinet->id, 'fbs'))->handle();
+
+        $row->refresh();
+
+        $this->assertSame(1, (int) $row->volume_liters);
+        $this->assertEqualsWithDelta(80.0, (float) $row->buyout_percent, 0.001);
+        $this->assertEqualsWithDelta(88.54, (float) $row->logistics_fbs, 0.001);
+        $this->assertSame(133, (int) $row->logistics_fbs_over_190);
+        $this->assertSame(449, (int) $row->min_price);
+    }
+
+    /**
+     * @param  iterable<int, array<string, mixed>>  $columns
+     */
+    private function columnTitle(iterable $columns, string $key): ?string
+    {
+        foreach ($columns as $column) {
+            if (($column['key'] ?? null) === $key) {
+                return $column['title'] ?? null;
+            }
+        }
+
+        return null;
     }
 
     private function createSubscriberUser(bool $withPermission = false, ?int $ozCabinetLimit = null): User

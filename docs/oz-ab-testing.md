@@ -79,7 +79,9 @@ Host: `https://api-performance.ozon.ru`
 Показываем кампании `advObjectType = SKU` в статусах `CAMPAIGN_STATE_RUNNING` и `CAMPAIGN_STATE_INACTIVE`.  
 Не показываем баннеры, видеобаннеры, оплату за заказ, архив, модерацию, автостратегию.
 
-Создание: `POST /api/client/campaign/cpc/v2/product`.  
+В UI у списка кампаний — иконка-подсказка (тултип): какие кампании подходят, без технических названий полей API.
+
+Создание: `POST /api/client/campaign/cpc/v2/product` с `placement = PLACEMENT_SEARCH_AND_CATEGORY` и `productAutopilotStrategy = TARGET_BIDS` (ставка из эксперимента). Параметр `productCampaignMode` из запроса убран (Ozon удалил его в октябре 2024; без `placement` API отвечает «Недопустимое значение типа продвижения»).  
 Добавление товара: `POST /api/client/campaign/{id}/products` (только add).  
 Старт/стоп: `activate` / `deactivate`.
 

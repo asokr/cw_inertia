@@ -4,6 +4,7 @@ namespace App\Jobs\Ozon;
 
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbo;
 use App\Models\Subscribers\Oz\PriceCalc\OzPriceCalcFbs;
+use App\Support\Ozon\PriceCalc\OzonClusterAverageLogisticsTariff;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -95,7 +96,9 @@ class CalculatePriceJob implements ShouldQueue
 
                     $item->volume_liters = $volumeLiters;
 
-                    $logisticsFbs = $this->calculateBaseLogistics($volumeLiters);
+                    $logisticsFbs = OzonClusterAverageLogisticsTariff::forVolume(
+                        $volumeLiters !== null ? (float) $volumeLiters : null
+                    );
                     $logisticsFbsWithBuyout = $this->calculateLogisticsWithBuyout($logisticsFbs, $buyoutPercent);
 
                     $item->logistics_fbs_over_190 = $logisticsFbsWithBuyout;
@@ -123,7 +126,7 @@ class CalculatePriceJob implements ShouldQueue
                         $minPriceDenominator = 1 - ($percentSum / 100);
 
                         if (abs($minPriceDenominator) > 1e-6) {
-                            $minPrice = (int) ceil(($stopPrice + $logisticsFbsWithBuyout + 65) / $minPriceDenominator);
+                            $minPrice = (int) ceil(($stopPrice + $logisticsFbsWithBuyout + 55) / $minPriceDenominator);
                         }
                     }
 
@@ -203,7 +206,9 @@ class CalculatePriceJob implements ShouldQueue
 
                     $item->volume_liters = $volumeLiters;
 
-                    $logisticsFbo = $this->calculateBaseLogistics($volumeLiters);
+                    $logisticsFbo = OzonClusterAverageLogisticsTariff::forVolume(
+                        $volumeLiters !== null ? (float) $volumeLiters : null
+                    );
                     $logisticsFboWithBuyout = $this->calculateLogisticsWithBuyout($logisticsFbo, $buyoutPercent);
                     $acceptanceFbo = $volumeLiters !== null && $volumeLiters > 0 ? (5 + ($volumeLiters - 1)) : null;
 
@@ -267,54 +272,7 @@ class CalculatePriceJob implements ShouldQueue
         return (int) ceil(($lengthCm * $widthCm * $heightCm) / 1000);
     }
 
-    private function calculateBaseLogistics(?int $volumeLiters): ?int
-    {
-        if ($volumeLiters === null || $volumeLiters <= 0) {
-            return null;
-        }
-
-        $tariffs = [
-            1 => 71,
-            2 => 74,
-            4 => 78,
-            6 => 89,
-            8 => 99,
-            10 => 100,
-            13 => 102,
-            14 => 106,
-            15 => 111,
-            17 => 119,
-            20 => 131,
-            25 => 143,
-            30 => 162,
-            35 => 177,
-            40 => 195,
-            45 => 209,
-            50 => 228,
-            60 => 244,
-            70 => 279,
-            80 => 299,
-            90 => 344,
-            100 => 371,
-            125 => 436,
-            150 => 503,
-            175 => 578,
-            200 => 692,
-            400 => 1026,
-            600 => 1457,
-            800 => 1891,
-        ];
-
-        foreach ($tariffs as $maxVolume => $value) {
-            if ($volumeLiters <= $maxVolume) {
-                return $value;
-            }
-        }
-
-        return 2232;
-    }
-
-    private function calculateLogisticsWithBuyout(?int $logistics, float $buyoutPercent): ?int
+    private function calculateLogisticsWithBuyout(?float $logistics, float $buyoutPercent): ?int
     {
         if ($logistics === null || abs($buyoutPercent) < 1e-6) {
             return null;

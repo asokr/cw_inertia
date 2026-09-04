@@ -42,6 +42,12 @@ class OzAbTestingService
 
     public const DEFAULT_CPC = 15;
 
+    /** Место показа CPC-кампании: поиск и рекомендации. */
+    public const CREATE_CAMPAIGN_PLACEMENT = 'PLACEMENT_SEARCH_AND_CATEGORY';
+
+    /** Стратегия «средняя стоимость клика» — ставка из эксперимента учитывается. */
+    public const CREATE_CAMPAIGN_STRATEGY = 'TARGET_BIDS';
+
     private const PHOTO_DISK = 'public';
 
     private const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
@@ -622,10 +628,13 @@ class OzAbTestingService
         }
 
         $bid = (int) ($input['cpm'] ?? $experiment->cpm ?? self::DEFAULT_CPC);
+        // productCampaignMode убран из API (октябрь 2024). Без placement Ozon отвечает
+        // «Недопустимое значение типа продвижения» (по умолчанию PLACEMENT_INVALID).
         $payload = [
             'title' => $title,
             'fromDate' => now('Europe/Moscow')->toDateString(),
-            'productCampaignMode' => 'PRODUCT_CAMPAIGN_MODE_MANUAL',
+            'placement' => self::CREATE_CAMPAIGN_PLACEMENT,
+            'productAutopilotStrategy' => self::CREATE_CAMPAIGN_STRATEGY,
             'products' => [
                 ['sku' => (string) $sku, 'bid' => (string) max(1, $bid)],
             ],

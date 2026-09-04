@@ -265,10 +265,6 @@ class PanelTest extends WebAuthTestCase
                 $table->string('client_id')->nullable();
                 $table->text('apikey')->nullable();
             },
-            'oz_price_calc_cabinets' => function (Blueprint $table) {
-                $table->id();
-                $table->unsignedBigInteger('user_id')->index();
-            },
         ];
 
         foreach ($cabinetTables as $tableName => $callback) {

@@ -21,8 +21,8 @@
 | height_cm | высота (см) |
 | volume_liters | Объем (л) |
 | buyout_percent | % выкупа |
-| logistics_fbo | ЛОГИСТИКА FBO |
-| logistics_fbo_over_190 | Логистика+обратная логистика FBO |
+| logistics_fbo | Средний тариф по кластерам (руб) |
+| logistics_fbo_over_190 | Средний тариф с учетом % выкупа |
 | acceptance_fbo | приемка FBO |
 | price_markup_for_logistics_percent | надбавка к цене за логистику FBO |
 | dopakovka_rub | Доупаковка товаров на FBO |
@@ -50,8 +50,8 @@
 | height_cm | высота (см) |
 | volume_liters | Объем (л) |
 | buyout_percent | % выкупа |
-| logistics_fbs | ЛОГИСТИКА FBS |
-| logistics_fbs_over_190 | Логистика+обратная логистика FBS |
+| logistics_fbs | Средний тариф |
+| logistics_fbs_over_190 | Средний тариф с учетом % выкупа |
 | tax_percent | налог |
 | commission_percent | Комиссия OZON FBS |
 | advertising_percent | реклама |

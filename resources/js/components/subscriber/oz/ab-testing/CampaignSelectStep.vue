@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import axios from "axios";
 import { Megaphone, Plus, RefreshCw } from "lucide-vue-next";
 import CampaignsTable from "./CampaignsTable.vue";
+import CampaignSuitabilityHint from "./CampaignSuitabilityHint.vue";
 import CreateCampaignDialog from "./CreateCampaignDialog.vue";
 import SelectedProductCard from "./SelectedProductCard.vue";
 import Button from "@/components/ui/Button.vue";
@@ -288,15 +289,21 @@ watch(
 </script>
 
 <template>
-    <div class="space-y-4">
+    <div class="space-y-4 overflow-visible">
         <div v-if="!embedded" class="space-y-1">
-            <h3 class="text-lg font-semibold">Рекламная кампания</h3>
+            <div class="flex items-center gap-1.5">
+                <h3 class="text-lg font-semibold">Рекламная кампания</h3>
+                <CampaignSuitabilityHint />
+            </div>
             <p class="text-sm text-muted-foreground">
                 Выберите кампанию из кабинета Ozon или создайте новую. Клик по строке привязывает её к эксперименту.
             </p>
         </div>
         <div v-else class="space-y-1">
-            <h4 class="text-sm font-semibold">Привязать рекламную кампанию</h4>
+            <div class="flex items-center gap-1.5">
+                <h4 class="text-sm font-semibold">Привязать рекламную кампанию</h4>
+                <CampaignSuitabilityHint />
+            </div>
             <p class="text-xs text-muted-foreground">
                 Выберите кампанию из кабинета или создайте новую. Если товара ещё нет в кампании, он будет добавлен.
             </p>
@@ -344,15 +351,18 @@ watch(
 
         <Card
             v-else-if="!hasCampaigns"
-            class="flex flex-col items-center justify-center gap-3 p-10 text-center"
+            class="flex flex-col items-center justify-center gap-3 overflow-visible p-10 text-center"
         >
             <div class="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                 <Megaphone class="h-5 w-5 text-muted-foreground" />
             </div>
             <div class="space-y-1">
-                <h4 class="text-base font-semibold">Нет подходящих кампаний</h4>
+                <h4 class="inline-flex items-center justify-center gap-1.5 text-base font-semibold">
+                    Нет подходящих кампаний
+                    <CampaignSuitabilityHint align="center" />
+                </h4>
                 <p class="max-w-md text-sm text-muted-foreground">
-                    В кабинете нет кампаний, которые можно использовать для теста.
+                    Для теста нужны кампании «Оплата за клик» с ручной ставкой.
                     Создайте новую — товар добавится автоматически.
                 </p>
             </div>

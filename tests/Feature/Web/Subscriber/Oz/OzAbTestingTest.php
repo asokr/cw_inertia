@@ -440,6 +440,40 @@ class OzAbTestingTest extends WebAuthTestCase
             ->assertJsonPath('messages.0', 'Ozon сейчас не принимает запросы. Подождите несколько секунд и обновите список.');
     }
 
+    public function test_create_campaign_sends_placement_and_target_bids_strategy(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Create Cabinet', withPerformance: true);
+        [$product, $experiment] = $this->createDraft($cabinet);
+
+        $perf = $this->mockPerformance(['token' => true]);
+        $perf->shouldReceive('createCpcProductCampaign')
+            ->once()
+            ->withArgs(function (string $token, array $payload) use ($product) {
+                return $token === 'tok'
+                    && ($payload['placement'] ?? null) === 'PLACEMENT_SEARCH_AND_CATEGORY'
+                    && ($payload['productAutopilotStrategy'] ?? null) === 'TARGET_BIDS'
+                    && ! array_key_exists('productCampaignMode', $payload)
+                    && ($payload['products'][0]['sku'] ?? null) === (string) $product->sku;
+            })
+            ->andReturn(['success' => true, 'status' => 200, 'data' => ['campaignId' => 555]]);
+
+        $this->actingAs($user)
+            ->postJson('/panel/oz/ab-testing/campaigns', [
+                'experiment_id' => $experiment->id,
+                'name' => 'A/B тест',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('campaign.id', 555);
+
+        $this->assertDatabaseHas('oz_ab_experiments', [
+            'id' => $experiment->id,
+            'oz_campaign_id' => 555,
+            'sku' => 111111,
+        ]);
+    }
+
     public function test_prepare_adds_sku_when_missing(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);

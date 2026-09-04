@@ -10,7 +10,9 @@
 4. Инструменты Ozon (ценообразование, ИИ анализ кабинета) читают данные для этого кабинета.
 5. Данные инструментов ссылаются на `oz_cabinets.id` через `cabinet_id`.
 
-Миграции со старых tool-кабинетов **нет**: legacy-данные price-calc очищаются при деплое, кабинеты создаются заново.
+Миграции данных со старых tool-кабинетов **нет**: legacy-данные price-calc очищаются при деплое, кабинеты создаются заново.
+
+FK `oz_price_calc_fbo.cabinet_id` / `oz_price_calc_fbs.cabinet_id` переведены с `oz_price_calc_cabinets` на `oz_cabinets` (`ON DELETE CASCADE`). Таблица `oz_price_calc_cabinets` удаляется.
 
 ## UX
 

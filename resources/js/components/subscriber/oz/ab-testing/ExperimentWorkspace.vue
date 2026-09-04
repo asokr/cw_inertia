@@ -101,7 +101,7 @@ function onCampaignDeleted(exp) {
                 Рекламная кампания не привязана. Редактирование недоступно в текущем статусе.
             </div>
             <div v-if="hasCampaign && canEdit" class="flex justify-end">
-                <details class="w-full rounded-lg border border-border/60 bg-muted/10">
+                <details class="w-full overflow-visible rounded-lg border border-border/60 bg-muted/10">
                     <summary class="cursor-pointer px-3.5 py-2.5 text-sm font-medium">
                         Сменить / создать другую кампанию
                     </summary>
