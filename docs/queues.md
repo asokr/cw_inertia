@@ -40,6 +40,7 @@ Jobs: [`app/Jobs/`](../app/Jobs/).
 | `repricer_stocks` | WB Репрайсер (остатки / strategy one) | `UpdateRepricerStocksJob`, `ApplyRepricerStrategyOneJob` | Unique jobs |
 | `wb_ab_testing` | WB A/B-тесты | `ProcessAbCabinetTickJob` | Unique until processing, один job на кабинет |
 | `oz_ab_testing` | Ozon A/B-тесты | `ProcessOzAbCabinetTickJob` | Unique until processing, один job на кабинет |
+| `oz_stock_history` | История остатков Ozon | start + snapshot jobs | Unique: старт по кабинету, снимок по кабинету+дате |
 | `wb_ai_cabinet_analyzer` | WB AI Cabinet Analyzer | report + AI analysis jobs | timeout 3600 |
 | `oz_ai_cabinet_analyzer` | Ozon AI Cabinet Analyzer | report + AI analysis jobs | timeout 3600 |
 
@@ -115,6 +116,16 @@ Fallback-команда: каждые 2 минуты, по одному job на
 Fallback-команда: каждые 2 минуты, по одному job на кабинет.  
 Документация: [oz-ab-testing.md](oz-ab-testing.md).
 
+### `oz_stock_history`
+
+| Job | Timeout | Tries | Unique | Где задаётся очередь |
+|-----|---------|-------|--------|----------------------|
+| `App\Jobs\Oz\StockHistory\ProcessOzStockHistoryStartJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `oz-stock-history-start-{cabinetId}`) | `$this->onQueue('oz_stock_history')` |
+| `App\Jobs\Oz\StockHistory\ProcessOzStockHistorySnapshotJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `oz-stock-history-snapshot-{cabinetId}-{date}`) | `$this->onQueue('oz_stock_history')` |
+
+Диспатч: «Начать отслеживание» → start job → snapshot за вчера. Ежедневно `subscriber:oz-stock-history-snapshot` в 00:05 МСК только для `tracking_enabled`. Prune: `subscriber:oz-stock-history-prune` в 01:30 МСК.  
+Документация: [oz-stock-history.md](oz-stock-history.md).
+
 ### `wb_ai_cabinet_analyzer`
 
 | Job | Timeout | Tries | Unique / lock | Где задаётся очередь |
@@ -163,6 +174,9 @@ php artisan queue:work --queue=wb_ab_testing,default --tries=1 --timeout=120
 # Ozon A/B
 php artisan queue:work --queue=oz_ab_testing,default --tries=1 --timeout=120
 
+# История остатков Ozon
+php artisan queue:work --queue=oz_stock_history --tries=2 --timeout=1800
+
 # AI-анализаторы
 php artisan queue:work --queue=wb_ai_cabinet_analyzer --tries=3 --timeout=3600 --sleep=1
 php artisan queue:work --queue=oz_ai_cabinet_analyzer --tries=3 --timeout=3600 --sleep=1
@@ -171,7 +185,7 @@ php artisan queue:work --queue=oz_ai_cabinet_analyzer --tries=3 --timeout=3600 -
 Один воркер на несколько очередей (приоритет слева направо):
 
 ```bash
-php artisan queue:work --queue=wb_ab_testing,oz_ab_testing,price_calc,profitability,repricer_stocks,wb_ai_cabinet_analyzer,oz_ai_cabinet_analyzer,default --timeout=3600
+php artisan queue:work --queue=wb_ab_testing,oz_ab_testing,oz_stock_history,price_calc,profitability,repricer_stocks,wb_ai_cabinet_analyzer,oz_ai_cabinet_analyzer,default --timeout=3600
 ```
 
 После выкладки кода на прод воркеры сами код не перечитывают (`queue:work`). Мягкий рестарт всех очередей — `php artisan queue:restart` (входит в [`scripts/prod-reload.sh`](../scripts/prod-reload.sh), см. [deploy.md](deploy.md)).

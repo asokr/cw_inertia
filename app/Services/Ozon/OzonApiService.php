@@ -145,6 +145,17 @@ class OzonApiService
     }
 
     /**
+     * Кластеры и склады FBO: POST /v1/cluster/list
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function getClusterList(string $apiKey, string $clientId, array $payload = []): array
+    {
+        return $this->post('v1/cluster/list', $apiKey, $clientId, $payload);
+    }
+
+    /**
      * Текущие рейтинги продавца: POST /v1/rating/summary
      *
      * @return array{success: bool, status: int, data: mixed}

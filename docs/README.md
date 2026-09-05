@@ -121,6 +121,7 @@ JSON-эндпоинты для polling (генерации ИИ, статусы 
 | A/B-тестирование | WB | `subscriber wb ab testing` | [wb-ab-testing.md](wb-ab-testing.md) |
 | A/B-тестирование | Ozon | `subscriber oz ab testing` | [oz-ab-testing.md](oz-ab-testing.md) |
 | Ценообразование | Ozon | `subscriber oz price calc` | [ozon-price-calculation.md](ozon-price-calculation.md) |
+| История остатков | Ozon | `subscriber oz stock history` | [oz-stock-history.md](oz-stock-history.md) |
 | Блог | — | `blog.view/create/update/delete` | [blog.md](blog.md) |
 
 ### Маршруты WB (flat workspace)
@@ -140,7 +141,7 @@ JSON-эндпоинты для polling (генерации ИИ, статусы 
 
 Старые URL вида `/panel/wb/{tool}/cabinets/{id}` редиректят на flat path.
 
-Ozon использует **единый** кабинет (`oz_cabinets`) — см. [oz-cabinets.md](oz-cabinets.md). Workspace: `/panel/oz/price-calc`, `/panel/oz/ai-cabinet-analyzer`, `/panel/oz/ab-testing`.
+Ozon использует **единый** кабинет (`oz_cabinets`) — см. [oz-cabinets.md](oz-cabinets.md). Workspace: `/panel/oz/price-calc`, `/panel/oz/ai-cabinet-analyzer`, `/panel/oz/ab-testing`, `/panel/oz/stock-history`.
 
 ## Справочники
 

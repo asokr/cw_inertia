@@ -21,6 +21,7 @@
 | - 3b.11 WB A/B Testing     → /panel/wb/ab-testing
 | - 3b.12 Ozon AI Cabinet Analyzer → /panel/oz/ai-cabinet-analyzer
 | - 3b.13 Ozon A/B Testing   → /panel/oz/ab-testing
+| - 3b.14 Ozon Stock History → /panel/oz/stock-history
 |
 */
 
@@ -28,6 +29,7 @@ use App\Http\Controllers\Web\Subscriber\Oz\Cabinets\CabinetsController as OzCabi
 use App\Http\Controllers\Web\Subscriber\Oz\AiCabinetAnalyzer\AiAnalysesController as OzAiCabinetAnalyzerAiAnalysesController;
 use App\Http\Controllers\Web\Subscriber\Oz\AiCabinetAnalyzer\WorkspaceController as OzAiCabinetAnalyzerWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Oz\AbTesting\WorkspaceController as OzAbTestingWorkspaceController;
+use App\Http\Controllers\Web\Subscriber\Oz\StockHistory\WorkspaceController as OzStockHistoryWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Oz\PriceCalc\WorkspaceController as OzPriceCalcWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Wb\PriceCalc\CabinetsController as WbPriceCalcCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Wb\PriceCalc\WorkspaceController as WbPriceCalcWorkspaceController;
@@ -160,6 +162,22 @@ Route::middleware(['permission:subscriber oz ai cabinet analyzer'])
         Route::post('/ai-analyses/{analysis}/regenerate', [OzAiCabinetAnalyzerAiAnalysesController::class, 'regenerate'])->name('ai-analyses.regenerate');
         Route::get('/ai-analyses/{analysis}', [OzAiCabinetAnalyzerAiAnalysesController::class, 'show'])->name('ai-analyses.show');
         Route::get('/ai-analyses/{analysis}/download', [OzAiCabinetAnalyzerAiAnalysesController::class, 'download'])->name('ai-analyses.download');
+    });
+
+Route::middleware(['permission:subscriber oz stock history'])
+    ->prefix('oz/stock-history')
+    ->name('subscriber.oz.stock-history.')
+    ->group(function () {
+        Route::get('/', [OzStockHistoryWorkspaceController::class, 'show'])->name('index');
+        Route::get('/status', [OzStockHistoryWorkspaceController::class, 'status'])->name('status');
+        Route::get('/products', [OzStockHistoryWorkspaceController::class, 'products'])->name('products');
+        Route::get('/products/{sku}', [OzStockHistoryWorkspaceController::class, 'product'])
+            ->whereNumber('sku')
+            ->name('products.show');
+        Route::put('/settings', [OzStockHistoryWorkspaceController::class, 'updateSettings'])->name('settings');
+        Route::post('/start', [OzStockHistoryWorkspaceController::class, 'start'])->name('start');
+        Route::post('/stop', [OzStockHistoryWorkspaceController::class, 'stop'])->name('stop');
+        Route::post('/sync', [OzStockHistoryWorkspaceController::class, 'sync'])->name('sync');
     });
 
 Route::middleware(['permission:subscriber oz ab testing'])

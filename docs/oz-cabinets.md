@@ -7,7 +7,7 @@
 1. Пользователь создаёт **кабинет Ozon** один раз: название + Client ID + API Key (Seller API).
 2. Опционально указывает **Performance API** Client ID + Client Secret (реклама; отдельная вкладка в ЛК Ozon, не роль Seller-ключа).
 3. В шапке панели выбирает **активный кабинет** (`users.selected_oz_cabinet_id`).
-4. Инструменты Ozon (ценообразование, ИИ анализ кабинета) читают данные для этого кабинета.
+4. Инструменты Ozon (ценообразование, ИИ анализ кабинета, история остатков) читают данные для этого кабинета.
 5. Данные инструментов ссылаются на `oz_cabinets.id` через `cabinet_id`.
 
 Миграции данных со старых tool-кабинетов **нет**: legacy-данные price-calc очищаются при деплое, кабинеты создаются заново.
@@ -89,6 +89,7 @@ Jobs: `OzCabinet::find($cabinetId)`.
 
 ```
 /panel/oz/price-calc
+/panel/oz/stock-history
 ```
 
 Legacy path `/panel/oz/price-calc/cabinets/{cabinet}` → redirect на flat URL.
@@ -99,4 +100,5 @@ Legacy path `/panel/oz/price-calc/cabinets/{cabinet}` → redirect на flat URL
 - [oz-ai-cabinet-analyzer.md](oz-ai-cabinet-analyzer.md) — AI Анализ кабинета Ozon
 - [ozon-price-calculation.md](ozon-price-calculation.md)
 - [oz-ab-testing.md](oz-ab-testing.md) — A/B-тест фото; нужны ключи Performance API
+- [oz-stock-history.md](oz-stock-history.md) — история остатков FBO по складам
 - [inertia-migration-matrix.md](inertia-migration-matrix.md)

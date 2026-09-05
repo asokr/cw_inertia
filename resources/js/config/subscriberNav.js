@@ -102,6 +102,15 @@ const toolCatalog = [
         icon: FlaskConical,
         description: "Тест главной фотографии карточки товара",
     },
+    {
+        key: "oz_stock_history",
+        label: "История остатков",
+        href: "/panel/oz/stock-history",
+        permission: "subscriber oz stock history",
+        group: "Ozon",
+        icon: Warehouse,
+        description: "Остатки товаров на складах Ozon по дням",
+    },
 
     {
         key: "ai_text",
@@ -255,6 +264,7 @@ const availableRoutes = new Set([
     "/panel/oz/price-calc",
     "/panel/oz/ai-cabinet-analyzer",
     "/panel/oz/ab-testing",
+    "/panel/oz/stock-history",
     "/panel/wb/repricer",
     "/panel/wb/profitability",
     "/panel/wb/ai-cabinet-analyzer",

@@ -34,7 +34,7 @@ const WHITE = '\x1b[37m';
 
 /** Все именованные очереди проекта, приоритет слева направо. См. docs/queues.md */
 const ALL_QUEUES =
-    'wb_ab_testing,oz_ab_testing,price_calc,profitability,repricer_stocks,wb_ai_cabinet_analyzer,oz_ai_cabinet_analyzer,default';
+    'wb_ab_testing,oz_ab_testing,oz_stock_history,price_calc,profitability,repricer_stocks,wb_ai_cabinet_analyzer,oz_ai_cabinet_analyzer,default';
 
 /** Отдельные воркеры — как в docs/queues.md, для --workers=split */
 const SPLIT_WORKERS = [
@@ -44,6 +44,7 @@ const SPLIT_WORKERS = [
     { name: 'queue:repricer', args: ['queue:listen', '--queue=repricer_stocks', '--timeout=1500'] },
     { name: 'queue:wb-ab', args: ['queue:listen', '--queue=wb_ab_testing', '--tries=1', '--timeout=120'] },
     { name: 'queue:oz-ab', args: ['queue:listen', '--queue=oz_ab_testing', '--tries=1', '--timeout=120'] },
+    { name: 'queue:oz-stocks', args: ['queue:listen', '--queue=oz_stock_history', '--tries=2', '--timeout=1800'] },
     { name: 'queue:wb-ai', args: ['queue:listen', '--queue=wb_ai_cabinet_analyzer', '--tries=3', '--timeout=3600', '--sleep=1'] },
     { name: 'queue:oz-ai', args: ['queue:listen', '--queue=oz_ai_cabinet_analyzer', '--tries=3', '--timeout=3600', '--sleep=1'] },
 ];
