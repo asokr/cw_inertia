@@ -30,8 +30,7 @@ class WorkspaceController extends SubscriberToolController
 
     public function __construct(
         private readonly OzAbTestingService $abTestingService,
-    ) {
-    }
+    ) {}
 
     public function show(Request $request): Response
     {
@@ -174,7 +173,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->jsonExperimentAction(
             $request,
             $experiment,
-            fn (OzCabinet $cabinet, $model) => $this->abTestingService->startExperiment($cabinet, $model),
+            fn(OzCabinet $cabinet, $model) => $this->abTestingService->startExperiment($cabinet, $model),
         );
     }
 
@@ -183,7 +182,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->jsonExperimentAction(
             $request,
             $experiment,
-            fn (OzCabinet $cabinet, $model) => $this->abTestingService->stopExperiment($cabinet, $model),
+            fn(OzCabinet $cabinet, $model) => $this->abTestingService->stopExperiment($cabinet, $model),
         );
     }
 
@@ -192,7 +191,7 @@ class WorkspaceController extends SubscriberToolController
         return $this->jsonExperimentAction(
             $request,
             $experiment,
-            fn (OzCabinet $cabinet, $model) => $this->abTestingService->updateExperimentSettings(
+            fn(OzCabinet $cabinet, $model) => $this->abTestingService->updateExperimentSettings(
                 $cabinet,
                 $model,
                 $request->validated(),
@@ -280,7 +279,12 @@ class WorkspaceController extends SubscriberToolController
         }
 
         try {
-            $result = $this->abTestingService->prepareCampaignForProduct($cabinet, $experiment, $campaignId);
+            $result = $this->abTestingService->prepareCampaignForProduct(
+                $cabinet,
+                $experiment,
+                $campaignId,
+                (bool) $request->boolean('confirm_replace'),
+            );
         } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -292,6 +296,7 @@ class WorkspaceController extends SubscriberToolController
             'success' => (bool) ($result['success'] ?? false),
             'experiment' => $result['experiment'] ?? null,
             'campaign' => $result['campaign'] ?? null,
+            'requires_replace_confirmation' => (bool) ($result['requires_replace_confirmation'] ?? false),
             'messages' => $result['messages'] ?? [],
         ], ($result['success'] ?? false) ? 200 : 422);
     }
@@ -518,7 +523,7 @@ class WorkspaceController extends SubscriberToolController
             'Cache-Control' => 'private, max-age=3600',
         ];
         if ($request->boolean('download')) {
-            $headers['Content-Disposition'] = 'attachment; filename="'.($photoModel->original_name ?: 'photo.jpg').'"';
+            $headers['Content-Disposition'] = 'attachment; filename="' . ($photoModel->original_name ?: 'photo.jpg') . '"';
         }
 
         return response($binary, 200, $headers);

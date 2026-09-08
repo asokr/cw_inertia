@@ -40,12 +40,10 @@ class OzAbTestingService
 
     public const DEFAULT_ROUND_MINUTES = 30;
 
-    public const DEFAULT_CPC = 15;
-
     /** Место показа CPC-кампании: поиск и рекомендации. */
     public const CREATE_CAMPAIGN_PLACEMENT = 'PLACEMENT_SEARCH_AND_CATEGORY';
 
-    /** Стратегия «средняя стоимость клика» — ставка из эксперимента учитывается. */
+    /** Стратегия «средняя стоимость клика». */
     public const CREATE_CAMPAIGN_STRATEGY = 'TARGET_BIDS';
 
     private const PHOTO_DISK = 'public';
@@ -69,8 +67,7 @@ class OzAbTestingService
         private readonly OzonPerformanceApiService $performanceApi,
         private readonly OzAbExperimentEngine $experimentEngine,
         private readonly OzAbExperimentJournal $journal,
-    ) {
-    }
+    ) {}
 
     /**
      * Список карточек товара: одна строка = товар, внутри — его SKU.
@@ -96,14 +93,14 @@ class OzAbTestingService
                 })
                 ->get(['id', 'model_id', 'title', 'oz_product_id']);
 
-            $keys = $matched->map(fn (AbProduct $product) => $this->productGroupKey($product))->unique()->all();
+            $keys = $matched->map(fn(AbProduct $product) => $this->productGroupKey($product))->unique()->all();
             if ($keys === []) {
                 return $this->emptyProductList($page, $perPage);
             }
 
             $siblingIds = $query
                 ->get(['id', 'model_id', 'title', 'oz_product_id'])
-                ->filter(fn (AbProduct $product) => in_array($this->productGroupKey($product), $keys, true))
+                ->filter(fn(AbProduct $product) => in_array($this->productGroupKey($product), $keys, true))
                 ->pluck('id')
                 ->all();
 
@@ -124,9 +121,9 @@ class OzAbTestingService
         }
 
         $groups = $products
-            ->groupBy(fn (AbProduct $product) => $this->productGroupKey($product))
-            ->map(fn ($items, $key) => $this->mapProductGroup((string) $key, $items))
-            ->sortBy(fn (array $group) => mb_strtolower((string) ($group['title'] ?? '')).'|'.$group['group_key'])
+            ->groupBy(fn(AbProduct $product) => $this->productGroupKey($product))
+            ->map(fn($items, $key) => $this->mapProductGroup((string) $key, $items))
+            ->sortBy(fn(array $group) => mb_strtolower((string) ($group['title'] ?? '')) . '|' . $group['group_key'])
             ->values();
 
         $total = $groups->count();
@@ -220,7 +217,7 @@ class OzAbTestingService
 
         return [
             'success' => true,
-            'messages' => ['Список товаров обновлён: '.$synced],
+            'messages' => ['Список товаров обновлён: ' . $synced],
             'synced' => $synced,
         ];
     }
@@ -259,7 +256,7 @@ class OzAbTestingService
             ->where('ab_product_id', $productId)
             ->orderByDesc('id')
             ->get()
-            ->map(fn (AbExperiment $experiment) => $this->mapExperiment($experiment))
+            ->map(fn(AbExperiment $experiment) => $this->mapExperiment($experiment))
             ->values()
             ->all();
     }
@@ -268,7 +265,7 @@ class OzAbTestingService
     {
         $name = trim((string) $name);
         if ($name === '') {
-            $name = 'Эксперимент '.now('Europe/Moscow')->format('d.m.Y H:i');
+            $name = 'Эксперимент ' . now('Europe/Moscow')->format('d.m.Y H:i');
         }
 
         return AbExperiment::query()->create([
@@ -300,7 +297,6 @@ class OzAbTestingService
         $experiment->impressions_per_photo = (int) $input['impressions_per_photo'];
         $experiment->impressions_per_round = (int) $input['impressions_per_round'];
         $experiment->round_minutes = (int) $input['round_minutes'];
-        $experiment->cpm = (int) $input['cpm'];
         $this->refreshSetupProgress($experiment);
         $experiment->save();
 
@@ -453,7 +449,7 @@ class OzAbTestingService
         if ($experiment->relationLoaded('photos')) {
             [$winnerId, $winnerCtr] = $this->resolveWinnerComparison($experiment, $status, $photoAggregates);
             $payload['photos'] = $experiment->photos
-                ->map(fn (AbExperimentPhoto $photo) => $this->mapPhotoWithStats(
+                ->map(fn(AbExperimentPhoto $photo) => $this->mapPhotoWithStats(
                     $photo,
                     $status,
                     $photoAggregates,
@@ -467,7 +463,7 @@ class OzAbTestingService
         if ($experiment->relationLoaded('events')) {
             $payload['events'] = $experiment->events
                 ->take(30)
-                ->map(fn (AbExperimentEvent $event) => $this->mapEvent($event))
+                ->map(fn(AbExperimentEvent $event) => $this->mapEvent($event))
                 ->values()
                 ->all();
             $payload['last_api_error'] = null;
@@ -546,7 +542,7 @@ class OzAbTestingService
         $registry = AbCampaign::query()
             ->where('cabinet_id', $cabinet->id)
             ->get()
-            ->keyBy(fn (AbCampaign $row) => (int) $row->oz_campaign_id);
+            ->keyBy(fn(AbCampaign $row) => (int) $row->oz_campaign_id);
 
         $items = [];
         foreach ($campaigns as $campaign) {
@@ -563,9 +559,8 @@ class OzAbTestingService
             $skus = $this->experimentEngine->extractCampaignSkus($token, $id, $campaign, fetchObjects: false);
             $contains = $sku > 0 && in_array($sku, $skus, true);
             $busy = in_array($id, $busyIds, true);
-            $auto = strtoupper((string) ($campaign['productCampaignMode'] ?? '')) === 'PRODUCT_CAMPAIGN_MODE_AUTO';
             $canSelect = $isSelected
-                || (! $busy && ! $auto && (
+                || (! $busy && (
                     $contains
                     || $state === 'CAMPAIGN_STATE_INACTIVE'
                     || $state === 'CAMPAIGN_STATE_RUNNING'
@@ -573,7 +568,7 @@ class OzAbTestingService
 
             $items[] = [
                 'id' => $id,
-                'name' => (string) ($campaign['title'] ?? ('Кампания '.$id)),
+                'name' => (string) ($campaign['title'] ?? ('Кампания ' . $id)),
                 'status' => $state,
                 'status_label' => $this->campaignStateLabel($state),
                 'status_variant' => $this->campaignStateVariant($state),
@@ -627,7 +622,6 @@ class OzAbTestingService
             $title = $this->defaultCampaignName($product);
         }
 
-        $bid = (int) ($input['cpm'] ?? $experiment->cpm ?? self::DEFAULT_CPC);
         // productCampaignMode убран из API (октябрь 2024). Без placement Ozon отвечает
         // «Недопустимое значение типа продвижения» (по умолчанию PLACEMENT_INVALID).
         $payload = [
@@ -636,7 +630,7 @@ class OzAbTestingService
             'placement' => self::CREATE_CAMPAIGN_PLACEMENT,
             'productAutopilotStrategy' => self::CREATE_CAMPAIGN_STRATEGY,
             'products' => [
-                ['sku' => (string) $sku, 'bid' => (string) max(1, $bid)],
+                ['sku' => (string) $sku],
             ],
         ];
 
@@ -678,8 +672,12 @@ class OzAbTestingService
     /**
      * @return array{success: bool, experiment?: array<string, mixed>, campaign?: array<string, mixed>, messages: list<string>}
      */
-    public function prepareCampaignForProduct(OzCabinet $cabinet, AbExperiment $experiment, int $campaignId): array
-    {
+    public function prepareCampaignForProduct(
+        OzCabinet $cabinet,
+        AbExperiment $experiment,
+        int $campaignId,
+        bool $confirmReplace = false,
+    ): array {
         $this->assertEditableExperiment($experiment);
         $product = $this->requireExperimentProduct($experiment);
         $token = $this->requireToken($cabinet);
@@ -704,24 +702,42 @@ class OzAbTestingService
 
         $skus = $this->experimentEngine->extractCampaignSkus($token, $campaignId, $campaign);
         $contains = in_array($sku, $skus, true);
+        $otherSkus = array_values(array_filter(
+            array_map(static fn($value): int => (int) $value, $skus),
+            static fn(int $value): bool => $value > 0 && $value !== $sku,
+        ));
         $state = (string) ($campaign['state'] ?? '');
 
-        if (! $contains) {
-            $bid = (int) ($experiment->cpm ?: self::DEFAULT_CPC);
-            $added = $this->performanceApi->addCampaignProducts($token, $campaignId, [
-                'bids' => [
-                    ['sku' => (string) $sku, 'bid' => (string) max(1, $bid)],
+        if (! $contains && $otherSkus !== [] && ! $confirmReplace) {
+            $name = (string) ($campaign['title'] ?? ('Кампания ' . $campaignId));
+
+            return [
+                'success' => false,
+                'requires_replace_confirmation' => true,
+                'campaign' => [
+                    'id' => $campaignId,
+                    'name' => $name,
+                    'products_count' => count($skus),
+                    'other_skus_count' => count($otherSkus),
                 ],
-            ]);
-            if (! ($added['success'] ?? false)) {
-                return [
-                    'success' => false,
-                    'messages' => [$this->experimentEngine->apiMessage($added, 'Не удалось добавить товар в кампанию')],
-                ];
-            }
+                'messages' => ['В кампании уже есть товары. Подтвердите замену текущего состава на SKU этого эксперимента.'],
+            ];
         }
 
-        $name = (string) ($campaign['title'] ?? ('Кампания '.$campaignId));
+        $attach = $this->ensureCampaignContainsSku(
+            $token,
+            $campaignId,
+            $sku,
+            $campaign,
+        );
+        if (! ($attach['success'] ?? false)) {
+            return [
+                'success' => false,
+                'messages' => [$attach['message'] ?? 'Не удалось добавить товар в кампанию'],
+            ];
+        }
+
+        $name = (string) ($campaign['title'] ?? ('Кампания ' . $campaignId));
         AbCampaign::query()->updateOrCreate(
             ['cabinet_id' => $cabinet->id, 'oz_campaign_id' => $campaignId],
             [
@@ -735,15 +751,88 @@ class OzAbTestingService
         $this->refreshSetupProgress($experiment);
         $experiment->save();
 
-        $message = $contains
-            ? 'Кампания выбрана — товар уже в ней'
-            : 'Товар добавлен в кампанию';
+        $message = ($attach['added'] ?? false)
+            ? 'Товар добавлен в кампанию'
+            : (($contains || ($attach['already'] ?? false))
+                ? 'Кампания выбрана — товар уже в ней'
+                : 'Кампания выбрана и привязана');
 
         return [
             'success' => true,
             'experiment' => $this->mapExperiment($experiment->fresh($this->experimentDetailRelations())),
             'campaign' => ['id' => $campaignId, 'name' => $name],
             'messages' => [$message],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $campaign
+     * @return array{success: bool, added: bool, already: bool, message?: string}
+     */
+    private function ensureCampaignContainsSku(
+        string $token,
+        int $campaignId,
+        int $sku,
+        array $campaign = [],
+    ): array {
+        $skus = $this->experimentEngine->extractCampaignSkus($token, $campaignId, $campaign);
+        if (in_array($sku, $skus, true)) {
+            return ['success' => true, 'added' => false, 'already' => true];
+        }
+
+        // После выбора кампании даем Ozon короткое время на консистентность objects.
+        for ($i = 0; $i < 3; $i++) {
+            if ($i > 0) {
+                usleep(350_000);
+            }
+            $freshSkus = $this->experimentEngine->extractCampaignSkus($token, $campaignId);
+            if (in_array($sku, $freshSkus, true)) {
+                return ['success' => true, 'added' => false, 'already' => true];
+            }
+        }
+
+        $attempts = [
+            ['bids' => [['sku' => (string) $sku]]],
+        ];
+
+        $lastResponse = null;
+        foreach ($attempts as $payload) {
+            $lastResponse = $this->performanceApi->addCampaignProducts($token, $campaignId, $payload);
+            if (! ($lastResponse['success'] ?? false)) {
+                continue;
+            }
+
+            // У Ozon добавление может появиться в objects не мгновенно.
+            for ($i = 0; $i < 3; $i++) {
+                if ($i > 0) {
+                    usleep(350_000);
+                }
+                $freshSkus = $this->experimentEngine->extractCampaignSkus($token, $campaignId);
+                if (in_array($sku, $freshSkus, true)) {
+                    return ['success' => true, 'added' => true, 'already' => false];
+                }
+            }
+        }
+
+        $freshSkus = $this->experimentEngine->extractCampaignSkus($token, $campaignId);
+        if (in_array($sku, $freshSkus, true)) {
+            return ['success' => true, 'added' => true, 'already' => false];
+        }
+
+        if (is_array($lastResponse)) {
+            return [
+                'success' => false,
+                'added' => false,
+                'already' => false,
+                'message' => $this->experimentEngine->apiMessage($lastResponse, 'Товар не удалось добавить в рекламную кампанию'),
+            ];
+        }
+
+        return [
+            'success' => false,
+            'added' => false,
+            'already' => false,
+            'message' => 'Товар не удалось добавить в рекламную кампанию',
         ];
     }
 
@@ -802,7 +891,7 @@ class OzAbTestingService
     {
         $base = trim((string) ($product->title ?: $product->offer_id ?: 'Товар'));
 
-        return mb_substr('A/B '.$base, 0, 100);
+        return mb_substr('A/B ' . $base, 0, 100);
     }
 
     /**
@@ -814,7 +903,7 @@ class OzAbTestingService
         $this->assertEditableExperiment($experiment);
         $existing = (int) $experiment->photos()->count();
         if ($existing + count($files) > self::MAX_PHOTOS) {
-            return ['success' => false, 'messages' => ['Можно загрузить не больше '.self::MAX_PHOTOS.' фотографий']];
+            return ['success' => false, 'messages' => ['Можно загрузить не больше ' . self::MAX_PHOTOS . ' фотографий']];
         }
 
         foreach ($files as $index => $file) {
@@ -865,7 +954,7 @@ class OzAbTestingService
         [$winnerId, $winnerCtr] = $this->resolveWinnerComparison($experiment, $status, $agg);
 
         return $experiment->photos
-            ->map(fn (AbExperimentPhoto $photo) => $this->mapPhotoWithStats($photo, $status, $agg, $winnerId, $winnerCtr))
+            ->map(fn(AbExperimentPhoto $photo) => $this->mapPhotoWithStats($photo, $status, $agg, $winnerId, $winnerCtr))
             ->values()
             ->all();
     }
@@ -949,13 +1038,13 @@ class OzAbTestingService
     {
         $this->assertEditableExperiment($experiment);
         $photos = $experiment->photos()->get();
-        $existingIds = $photos->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all();
-        $incomingSorted = collect($orderedIds)->map(fn ($id) => (int) $id)->sort()->values()->all();
+        $existingIds = $photos->pluck('id')->map(fn($id) => (int) $id)->sort()->values()->all();
+        $incomingSorted = collect($orderedIds)->map(fn($id) => (int) $id)->sort()->values()->all();
         if ($existingIds !== $incomingSorted) {
             return ['success' => false, 'messages' => ['Некорректный порядок фотографий']];
         }
 
-        $byId = $photos->keyBy(fn (AbExperimentPhoto $photo) => (int) $photo->id);
+        $byId = $photos->keyBy(fn(AbExperimentPhoto $photo) => (int) $photo->id);
         foreach (array_values($orderedIds) as $index => $id) {
             $item = $byId->get((int) $id);
             if ($item && (int) $item->sort_order !== $index) {
@@ -985,7 +1074,7 @@ class OzAbTestingService
     }
 
     /**
-     * @return array{impressions_per_photo:int,impressions_per_round:int,round_minutes:int,cpm:int}
+     * @return array{impressions_per_photo:int,impressions_per_round:int,round_minutes:int}
      */
     private function resolveExperimentSettings(AbExperiment $experiment): array
     {
@@ -993,21 +1082,19 @@ class OzAbTestingService
             'impressions_per_photo' => (int) ($experiment->impressions_per_photo ?: self::DEFAULT_IMPRESSIONS_PER_PHOTO),
             'impressions_per_round' => (int) ($experiment->impressions_per_round ?: self::DEFAULT_IMPRESSIONS_PER_ROUND),
             'round_minutes' => (int) ($experiment->round_minutes ?: self::DEFAULT_ROUND_MINUTES),
-            'cpm' => (int) ($experiment->cpm ?: self::DEFAULT_CPC),
         ];
     }
 
     /**
-     * @param  array{impressions_per_photo:int,impressions_per_round:int,round_minutes:int,cpm:int}  $settings
+     * @param  array{impressions_per_photo:int,impressions_per_round:int,round_minutes:int}  $settings
      */
     private function formatSettingsSummary(array $settings): string
     {
-        $fmt = static fn (int $n): string => number_format($n, 0, ',', ' ');
+        $fmt = static fn(int $n): string => number_format($n, 0, ',', ' ');
 
-        return $fmt($settings['impressions_per_photo']).' на фото • '
-            .$fmt($settings['impressions_per_round']).' за круг • '
-            .$fmt($settings['round_minutes']).' мин • CPC '
-            .$fmt($settings['cpm']).' ₽';
+        return $fmt($settings['impressions_per_photo']) . ' на фото • '
+            . $fmt($settings['impressions_per_round']) . ' за круг • '
+            . $fmt($settings['round_minutes']) . ' мин';
     }
 
     /**
@@ -1093,17 +1180,29 @@ class OzAbTestingService
             $efficiency = round((((float) $row['ctr'] / $winnerCtr) - 1) * 100, 1);
         }
 
+        $previewUrl = $this->previewPhotoUrl($photo);
+        $publicUrl = $this->experimentEngine->publicPhotoUrl($photo);
+
         return [
             'id' => $photo->id,
             'sort_order' => (int) $photo->sort_order,
             'original_name' => $photo->original_name,
             'mime' => $photo->mime,
             'size' => $photo->size,
-            'url' => $this->experimentEngine->publicPhotoUrl($photo),
+            // UI использует media route, чтобы не зависеть от public/storage-конфига.
+            'preview_url' => $previewUrl,
+            // Публичная ссылка нужна движку при отправке фото в Ozon.
+            'url' => $publicUrl,
             'views' => (int) $row['views'],
             'clicks' => (int) $row['clicks'],
             'ctr' => $row['ctr'],
             'efficiency_pct' => $efficiency,
+            'stats' => [
+                'impressions' => (int) $row['views'],
+                'clicks' => (int) $row['clicks'],
+                'ctr' => $row['ctr'],
+                'result_delta_pct' => $efficiency,
+            ],
             'is_winner' => $winnerId !== null && (int) $photo->id === $winnerId,
         ];
     }
@@ -1136,22 +1235,47 @@ class OzAbTestingService
             $photo = $photos->get($cycle->ab_experiment_photo_id);
             $views = $cycle->deltaViews();
             $clicks = $cycle->deltaClicks();
+            $inProgress = $cycle->ended_at === null;
+            $durationMinutes = null;
+            if (! $inProgress && $cycle->started_at && $cycle->ended_at) {
+                $durationMinutes = max(0, (int) $cycle->started_at->diffInMinutes($cycle->ended_at));
+            }
+            $previewUrl = $photo ? $this->previewPhotoUrl($photo) : null;
+            $publicUrl = $photo ? $this->experimentEngine->publicPhotoUrl($photo) : null;
+            $variant = $photo ? ((int) $photo->sort_order + 1) : null;
 
             return [
                 'id' => $cycle->id,
+                'installed_at' => optional($cycle->started_at)?->toIso8601String(),
                 'sequence' => (int) $cycle->sequence,
                 'started_at' => optional($cycle->started_at)?->toIso8601String(),
                 'ended_at' => optional($cycle->ended_at)?->toIso8601String(),
                 'end_reason' => $cycle->end_reason,
                 'photo_id' => (int) $cycle->ab_experiment_photo_id,
-                'photo_url' => $photo ? $this->experimentEngine->publicPhotoUrl($photo) : null,
+                'preview_url' => $previewUrl,
+                'photo_url' => $publicUrl,
+                'variant' => $variant,
                 'sort_order' => $photo ? (int) $photo->sort_order : null,
                 'views' => $views,
                 'clicks' => $clicks,
+                'impressions' => $views,
                 'ctr' => $views > 0 ? round(($clicks / $views) * 100, 4) : null,
-                'in_progress' => $cycle->ended_at === null,
+                'round' => (int) $cycle->sequence,
+                'duration_minutes' => $durationMinutes,
+                'duration_label' => $inProgress ? 'В процессе' : (string) ($durationMinutes ?? 0),
+                'in_progress' => $inProgress,
             ];
         })->values()->all();
+    }
+
+    private function previewPhotoUrl(AbExperimentPhoto $photo): string
+    {
+        $url = route('subscriber.oz.ab-testing.media.show', ['photo' => $photo->id]);
+        if ($photo->updated_at) {
+            $url .= (str_contains($url, '?') ? '&' : '?') . 'v=' . $photo->updated_at->getTimestamp();
+        }
+
+        return $url;
     }
 
     /**
@@ -1241,7 +1365,7 @@ class OzAbTestingService
             $query->where('id', '!=', $exceptExperimentId);
         }
 
-        return $query->pluck('oz_campaign_id')->map(fn ($id) => (int) $id)->all();
+        return $query->pluck('oz_campaign_id')->map(fn($id) => (int) $id)->all();
     }
 
     /**
@@ -1257,11 +1381,6 @@ class OzAbTestingService
         if (! in_array($state, self::USABLE_CAMPAIGN_STATES, true)) {
             return false;
         }
-        $mode = strtoupper((string) ($campaign['productCampaignMode'] ?? ''));
-        if ($mode === 'PRODUCT_CAMPAIGN_MODE_AUTO') {
-            return false;
-        }
-
         return true;
     }
 
@@ -1420,11 +1539,11 @@ class OzAbTestingService
     private function mapProductGroup(string $groupKey, $items): array
     {
         $skus = $items
-            ->sortBy(fn (AbProduct $product) => sprintf('%020d|%s', (int) ($product->sku ?? 0), (string) $product->offer_id))
+            ->sortBy(fn(AbProduct $product) => sprintf('%020d|%s', (int) ($product->sku ?? 0), (string) $product->offer_id))
             ->values();
 
-        $mappedSkus = $skus->map(fn (AbProduct $product) => $this->mapProductRow($product))->all();
-        $first = $skus->first(fn (AbProduct $product) => filled($product->photo_url)) ?? $skus->first();
+        $mappedSkus = $skus->map(fn(AbProduct $product) => $this->mapProductRow($product))->all();
+        $first = $skus->first(fn(AbProduct $product) => filled($product->photo_url)) ?? $skus->first();
         $status = $this->groupTestStatus($mappedSkus);
 
         return [
@@ -1470,15 +1589,15 @@ class OzAbTestingService
     {
         $modelId = (int) ($product->model_id ?? 0);
         if ($modelId > 0) {
-            return 'm:'.$modelId;
+            return 'm:' . $modelId;
         }
 
         $title = mb_strtolower(trim((string) $product->title));
         if ($title !== '') {
-            return 't:'.$title;
+            return 't:' . $title;
         }
 
-        return 'p:'.(int) $product->oz_product_id;
+        return 'p:' . (int) $product->oz_product_id;
     }
 
     /**

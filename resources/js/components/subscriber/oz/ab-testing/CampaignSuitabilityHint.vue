@@ -18,9 +18,11 @@ defineProps({
         <span role="tooltip"
             class="pointer-events-none invisible absolute top-full z-50 mt-1.5 w-80 max-w-[calc(100vw-3rem)] rounded-md bg-zinc-900 px-3 py-2.5 text-left text-xs font-normal leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover/hint:visible group-hover/hint:opacity-100 group-focus-within/hint:visible group-focus-within/hint:opacity-100"
             :class="align === 'center' ? 'left-1/2 -translate-x-1/2' : 'left-0'">
-            Для теста подходят кампании «Оплата за клик» с ручной ставкой — активные или остановленные.
+            Для теста подходят кампании «Оплата за клик» — активные или остановленные.
             <br /><br />
-            Не подойдут: оплата за заказ, баннеры, автостратегия, архив, модерация и запланированные.
+            Не подойдут: оплата за заказ, баннеры, архив, модерация и запланированные.
+            <br /><br />
+            Перед запуском проверьте в кабинете Ozon ставку и остальные параметры кампании.
             <br /><br />
         </span>
     </span>

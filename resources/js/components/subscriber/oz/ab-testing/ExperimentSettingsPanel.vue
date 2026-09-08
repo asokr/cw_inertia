@@ -38,16 +38,11 @@ const form = ref(normalizeSettings(props.experiment?.settings));
 const lastSaved = ref(normalizeSettings(props.experiment?.settings));
 const fieldErrors = ref({});
 
-/** Bound campaign payment type: cpm | cpc — drives bid field labels/limits. */
-const paymentType = computed(
-    () => props.experiment?.campaign_payment_type || "cpm",
-);
-
-const fields = computed(() => settingsFields(paymentType.value));
+const fields = computed(() => settingsFields());
 
 const summary = ref(
     props.experiment?.settings_summary ||
-        formatSettingsSummary(lastSaved.value, paymentType.value),
+    formatSettingsSummary(lastSaved.value),
 );
 
 const isDraft = computed(() => (props.experiment?.status ?? "draft") === "draft");
@@ -69,8 +64,7 @@ const isDirty = computed(() => {
     return (
         a.impressions_per_photo !== b.impressions_per_photo ||
         a.impressions_per_round !== b.impressions_per_round ||
-        a.round_minutes !== b.round_minutes ||
-        a.cpm !== b.cpm
+        a.round_minutes !== b.round_minutes
     );
 });
 
@@ -96,11 +90,10 @@ function syncFromExperiment(experiment) {
         return;
     }
     const next = normalizeSettings(experiment.settings);
-    const pay = experiment.campaign_payment_type || "cpm";
     form.value = { ...next };
     lastSaved.value = { ...next };
     summary.value =
-        experiment.settings_summary || formatSettingsSummary(next, pay);
+        experiment.settings_summary || formatSettingsSummary(next);
     fieldErrors.value = {};
 }
 
@@ -124,31 +117,13 @@ watch(
     { deep: true },
 );
 
-// Re-label summary when bound campaign payment type changes (e.g. after bind).
-watch(paymentType, (type) => {
-    if (!isDirty.value) {
-        summary.value =
-            props.experiment?.settings_summary ||
-            formatSettingsSummary(lastSaved.value, type);
-    }
-    // Clear bid error if limits changed (CPC allows lower values).
-    if (fieldErrors.value.cpm) {
-        const recheck = validateSettingsClient(form.value, type);
-        if (!recheck.cpm) {
-            const next = { ...fieldErrors.value };
-            delete next.cpm;
-            fieldErrors.value = next;
-        }
-    }
-});
-
 async function saveSettings() {
     if (!settingsUrl.value || !editable.value || saving.value) {
         return false;
     }
 
     const payload = normalizeSettings(form.value);
-    const localErrors = validateSettingsClient(payload, paymentType.value);
+    const localErrors = validateSettingsClient(payload);
     if (Object.keys(localErrors).length) {
         fieldErrors.value = localErrors;
         open.value = true;
@@ -174,17 +149,16 @@ async function saveSettings() {
         }
 
         if (data.experiment) {
-            const pay = data.experiment.campaign_payment_type || paymentType.value;
             summary.value =
                 data.experiment.settings_summary ||
-                formatSettingsSummary(payload, pay);
+                formatSettingsSummary(payload);
             form.value = normalizeSettings(data.experiment.settings);
             lastSaved.value = normalizeSettings(data.experiment.settings);
             emit("experiment-updated", data.experiment);
         } else {
             lastSaved.value = { ...payload };
             form.value = { ...payload };
-            summary.value = formatSettingsSummary(payload, paymentType.value);
+            summary.value = formatSettingsSummary(payload);
         }
 
         showSuccess(data?.messages?.[0] || "Настройки сохранены");
@@ -199,7 +173,7 @@ async function saveSettings() {
         }
         showError(
             error?.response?.data?.messages?.[0] ||
-                "Не удалось сохранить настройки",
+            "Не удалось сохранить настройки",
         );
         return false;
     } finally {
@@ -230,11 +204,9 @@ defineExpose({ expand, saveSettings, isDirty });
 
 <template>
     <div ref="rootEl" class="rounded-xl border border-border/70 bg-card/60 backdrop-blur">
-        <button
-            type="button"
+        <button type="button"
             class="flex w-full items-start gap-3 px-3.5 py-3 text-left transition hover:bg-muted/30 sm:px-4"
-            @click="toggle"
-        >
+            @click="toggle">
             <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Settings2 class="h-4 w-4" />
             </div>
@@ -243,14 +215,11 @@ defineExpose({ expand, saveSettings, isDirty });
                     <p class="text-sm font-semibold text-foreground">
                         Настройки эксперимента
                     </p>
-                    <span
-                        class="rounded-full px-2 py-0.5 text-[11px] font-medium"
-                        :class="{
-                            'bg-muted/80 text-muted-foreground': statusBadge.tone === 'muted',
-                            'bg-amber-500/15 text-amber-700 dark:text-amber-400': statusBadge.tone === 'warn',
-                            'bg-primary/10 text-primary': statusBadge.tone === 'ok',
-                        }"
-                    >
+                    <span class="rounded-full px-2 py-0.5 text-[11px] font-medium" :class="{
+                        'bg-muted/80 text-muted-foreground': statusBadge.tone === 'muted',
+                        'bg-amber-500/15 text-amber-700 dark:text-amber-400': statusBadge.tone === 'warn',
+                        'bg-primary/10 text-primary': statusBadge.tone === 'ok',
+                    }">
                         {{ statusBadge.label }}
                     </span>
                 </div>
@@ -261,44 +230,28 @@ defineExpose({ expand, saveSettings, isDirty });
                     </span>
                 </p>
             </div>
-            <ChevronDown
-                class="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform"
-                :class="open ? 'rotate-180' : ''"
-            />
+            <ChevronDown class="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform"
+                :class="open ? 'rotate-180' : ''" />
         </button>
 
-        <div
-            v-show="open"
-            class="border-t border-border/60"
-        >
+        <div v-show="open" class="border-t border-border/60">
             <div class="px-3.5 pb-4 pt-3 sm:px-4">
                 <p class="mb-3 text-xs leading-snug text-muted-foreground">
-                    Параметры ротации вариантов фото и рекламной ставки.
+                    Параметры ротации вариантов фото.
                     <span v-if="editable" class="font-medium text-foreground/80">
                         Нажмите «Сохранить настройки», чтобы зафиксировать значения. Без сохранения запуск недоступен.
                     </span>
                 </p>
 
                 <div class="grid gap-3 sm:grid-cols-2">
-                    <ExperimentSettingField
-                        v-for="field in fields"
-                        :key="field.key + '-' + (field.title || '')"
-                        :title="field.title"
-                        :description="field.description"
-                        :unit="field.unit"
-                        :min="field.min"
-                        :max="field.max"
-                        :model-value="form[field.key]"
-                        :error="fieldErrors[field.key] || ''"
-                        :disabled="!editable"
-                        @update:model-value="form[field.key] = $event"
-                    />
+                    <ExperimentSettingField v-for="field in fields" :key="field.key + '-' + (field.title || '')"
+                        :title="field.title" :description="field.description" :unit="field.unit" :min="field.min"
+                        :max="field.max" :model-value="form[field.key]" :error="fieldErrors[field.key] || ''"
+                        :disabled="!editable" @update:model-value="form[field.key] = $event" />
                 </div>
 
-                <div
-                    v-if="editable"
-                    class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3"
-                >
+                <div v-if="editable"
+                    class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3">
                     <p class="text-xs text-muted-foreground">
                         <template v-if="!settingsReady && !isDirty">
                             Значения по умолчанию — сохраните, чтобы продолжить.
@@ -310,12 +263,7 @@ defineExpose({ expand, saveSettings, isDirty });
                             Текущие параметры сохранены в эксперименте.
                         </template>
                     </p>
-                    <Button
-                        ref="saveButtonEl"
-                        size="sm"
-                        :disabled="!canSave"
-                        @click="saveSettings"
-                    >
+                    <Button ref="saveButtonEl" size="sm" :disabled="!canSave" @click="saveSettings">
                         {{ saving ? "Сохранение…" : "Сохранить настройки" }}
                     </Button>
                 </div>

@@ -13,7 +13,7 @@ use App\Http\Requests\Web\Subscriber\StoreAbCampaignRequest;
 use App\Http\Requests\Web\Subscriber\StoreAbExperimentPhotosRequest;
 use App\Http\Requests\Web\Subscriber\StoreAbExperimentRequest;
 use App\Http\Requests\Web\Subscriber\UpdateAbExperimentRequest;
-use App\Http\Requests\Web\Subscriber\UpdateAbExperimentSettingsRequest;
+use App\Http\Requests\Web\Subscriber\UpdateWbAbExperimentSettingsRequest;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Services\Subscriber\Wb\WbAbTestingService;
 use Illuminate\Http\JsonResponse;
@@ -32,8 +32,7 @@ class WorkspaceController extends SubscriberToolController
 
     public function __construct(
         private readonly WbAbTestingService $abTestingService,
-    ) {
-    }
+    ) {}
 
     public function show(Request $request): Response
     {
@@ -246,7 +245,7 @@ class WorkspaceController extends SubscriberToolController
         ], $status);
     }
 
-    public function updateSettings(UpdateAbExperimentSettingsRequest $request, int $experiment): JsonResponse
+    public function updateSettings(UpdateWbAbExperimentSettingsRequest $request, int $experiment): JsonResponse
     {
         $cabinetOrResponse = $this->requireSelectedWbCabinetJson($request);
         if ($cabinetOrResponse instanceof JsonResponse) {
@@ -849,7 +848,7 @@ class WorkspaceController extends SubscriberToolController
         // Безопасное имя для Content-Disposition (без кавычек/переносов).
         $safeFilename = str_replace(['"', "\r", "\n", '\\'], '', $filename);
         if ($safeFilename === '') {
-            $safeFilename = 'photo-'.$photoModel->id.'.jpg';
+            $safeFilename = 'photo-' . $photoModel->id . '.jpg';
         }
 
         $disposition = $request->boolean('download') ? 'attachment' : 'inline';
@@ -857,7 +856,7 @@ class WorkspaceController extends SubscriberToolController
         return response($binary, 200, [
             'Content-Type' => $mime,
             'Content-Length' => (string) strlen($binary),
-            'Content-Disposition' => $disposition.'; filename="'.$safeFilename.'"',
+            'Content-Disposition' => $disposition . '; filename="' . $safeFilename . '"',
             'Cache-Control' => 'private, max-age=3600',
             'X-Content-Type-Options' => 'nosniff',
         ]);

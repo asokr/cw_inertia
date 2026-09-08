@@ -18,6 +18,7 @@ class PrepareOzAbCampaignRequest extends FormRequest
     {
         return [
             'experiment_id' => ['required', 'integer', 'min:1'],
+            'confirm_replace' => ['sometimes', 'boolean'],
         ];
     }
 

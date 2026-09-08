@@ -44,6 +44,8 @@ const createOpen = ref(false);
 const defaultCampaignName = ref("");
 const deleteTarget = ref(null);
 const deleting = ref(false);
+const replaceTarget = ref(null);
+const replacing = ref(false);
 
 const selectedAdvertId = computed(() => props.experiment?.wb_advert_id ?? null);
 
@@ -109,7 +111,7 @@ async function loadCampaigns() {
  * Attach campaign to experiment (auto-prepares nm under the hood).
  * Campaign joins the product — not "product actions" in the table.
  */
-async function selectCampaign(campaign) {
+async function selectCampaign(campaign, { confirmReplace = false } = {}) {
     if (!campaign?.id || !props.experiment?.id || !campaign.can_select) {
         if (campaign?.edit_block_reason) {
             showError(campaign.edit_block_reason);
@@ -129,8 +131,13 @@ async function selectCampaign(campaign) {
             `${props.baseUrl}/campaigns/${campaign.id}/prepare`,
             {
                 experiment_id: props.experiment.id,
+                confirm_replace: confirmReplace,
             },
         );
+
+        if (data?.requires_replace_confirmation) {
+            return;
+        }
 
         if (!data?.success) {
             showError(data?.messages?.[0] || "Не удалось выбрать кампанию");
@@ -146,13 +153,52 @@ async function selectCampaign(campaign) {
         showSuccess(data?.messages?.[0] || "Кампания привязана к эксперименту");
         await loadCampaigns();
     } catch (error) {
+        const responseData = error?.response?.data;
+        if (responseData?.requires_replace_confirmation) {
+            return;
+        }
+
         showError(
-            error?.response?.data?.messages?.[0] ||
-                "Не удалось выбрать кампанию",
+            responseData?.messages?.[0] ||
+            "Не удалось выбрать кампанию",
         );
     } finally {
         busyAdvertId.value = null;
     }
+}
+
+async function confirmReplaceSelection() {
+    const campaign = replaceTarget.value;
+    if (!campaign?.id || replacing.value) {
+        return;
+    }
+
+    replacing.value = true;
+    try {
+        await selectCampaign(campaign, { confirmReplace: true });
+        replaceTarget.value = null;
+    } finally {
+        replacing.value = false;
+    }
+}
+
+function askUseCampaign(campaign) {
+    if (!campaign?.id || !props.experiment?.id || !campaign.can_select) {
+        if (campaign?.edit_block_reason) {
+            showError(campaign.edit_block_reason);
+        }
+        return;
+    }
+
+    if (Number(selectedAdvertId.value) === Number(campaign.id)) {
+        return;
+    }
+
+    replaceTarget.value = {
+        id: campaign.id,
+        name: campaign.name,
+        products_count: Number(campaign.nm_count) || 0,
+    };
 }
 
 async function pauseCampaign(campaign) {
@@ -187,7 +233,7 @@ async function pauseCampaign(campaign) {
     } catch (error) {
         showError(
             error?.response?.data?.messages?.[0] ||
-                "Не удалось поставить кампанию на паузу",
+            "Не удалось поставить кампанию на паузу",
         );
     } finally {
         busyAdvertId.value = null;
@@ -229,7 +275,7 @@ async function confirmDeleteCampaign() {
     } catch (error) {
         showError(
             error?.response?.data?.messages?.[0] ||
-                "Не удалось удалить кампанию",
+            "Не удалось удалить кампанию",
         );
     } finally {
         deleting.value = false;
@@ -270,7 +316,7 @@ async function createCampaign(payload) {
     } catch (error) {
         showError(
             error?.response?.data?.messages?.[0] ||
-                "Не удалось создать кампанию",
+            "Не удалось создать кампанию",
         );
     } finally {
         creating.value = false;
@@ -296,7 +342,10 @@ watch(
                 <CampaignSuitabilityHint />
             </div>
             <p class="text-sm text-muted-foreground">
-                Выберите кампанию из кабинета Ozon или создайте новую. Клик по строке привязывает её к эксперименту.
+                Выберите кампанию из кабинета Ozon или создайте новую. Клик по строке откроет подтверждение привязки.
+            </p>
+            <p class="text-xs text-muted-foreground">
+                Перед запуском проверьте в кабинете Ozon ставку и параметры кампании.
             </p>
         </div>
         <div v-else class="space-y-1">
@@ -307,6 +356,9 @@ watch(
             <p class="text-xs text-muted-foreground">
                 Выберите кампанию из кабинета или создайте новую. Если товара ещё нет в кампании, он будет добавлен.
             </p>
+            <p class="text-xs text-muted-foreground">
+                Проверьте в кабинете Ozon ставку и параметры кампании перед запуском.
+            </p>
         </div>
 
         <SelectedProductCard v-if="product && !embedded" :product="product" />
@@ -316,12 +368,7 @@ watch(
                 Кампаний: {{ campaigns.length }}
             </p>
             <div class="ml-auto flex flex-wrap items-center gap-2">
-                <Button
-                    size="sm"
-                    variant="outline"
-                    :disabled="loading || !experiment?.id"
-                    @click="loadCampaigns"
-                >
+                <Button size="sm" variant="outline" :disabled="loading || !experiment?.id" @click="loadCampaigns">
                     <RefreshCw class="mr-1.5 h-4 w-4" :class="loading ? 'animate-spin' : ''" />
                     Обновить
                 </Button>
@@ -332,27 +379,20 @@ watch(
             </div>
         </div>
 
-        <div
-            v-if="loading"
-            class="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-10 text-center text-sm text-muted-foreground"
-        >
+        <div v-if="loading"
+            class="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-10 text-center text-sm text-muted-foreground">
             Загрузка рекламных кампаний…
         </div>
 
-        <Card
-            v-else-if="loadError"
-            class="space-y-3 p-6 text-center"
-        >
+        <Card v-else-if="loadError" class="space-y-3 p-6 text-center">
             <p class="text-sm text-destructive">{{ loadError }}</p>
             <Button size="sm" variant="outline" @click="loadCampaigns">
                 Повторить
             </Button>
         </Card>
 
-        <Card
-            v-else-if="!hasCampaigns"
-            class="flex flex-col items-center justify-center gap-3 overflow-visible p-10 text-center"
-        >
+        <Card v-else-if="!hasCampaigns"
+            class="flex flex-col items-center justify-center gap-3 overflow-visible p-10 text-center">
             <div class="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                 <Megaphone class="h-5 w-5 text-muted-foreground" />
             </div>
@@ -362,7 +402,7 @@ watch(
                     <CampaignSuitabilityHint align="center" />
                 </h4>
                 <p class="max-w-md text-sm text-muted-foreground">
-                    Для теста нужны кампании «Оплата за клик» с ручной ставкой.
+                    Для теста нужны кампании «Оплата за клик» в активном или остановленном статусе.
                     Создайте новую — товар добавится автоматически.
                 </p>
             </div>
@@ -372,33 +412,19 @@ watch(
             </Button>
         </Card>
 
-        <CampaignsTable
-            v-else
-            :items="campaigns"
-            :selected-id="selectedAdvertId"
-            :busy-advert-id="busyAdvertId"
-            @select="selectCampaign"
-            @pause="pauseCampaign"
-            @delete="askDeleteCampaign"
-        />
+        <CampaignsTable v-else :items="campaigns" :selected-id="selectedAdvertId" :busy-advert-id="busyAdvertId"
+            @select="askUseCampaign" @pause="pauseCampaign" @delete="askDeleteCampaign" />
 
         <p class="text-xs text-muted-foreground">
             После привязки кампании к эксперименту вы автоматически перейдёте к фотографиям.
         </p>
 
-        <CreateCampaignDialog
-            v-model:open="createOpen"
-            :default-name="suggestedName"
-            :submitting="creating"
-            @submit="createCampaign"
-        />
+        <CreateCampaignDialog v-model:open="createOpen" :default-name="suggestedName" :submitting="creating"
+            @submit="createCampaign" />
 
-        <Dialog
-            :open="!!deleteTarget"
-            title="Удалить кампанию?"
+        <Dialog :open="!!deleteTarget" title="Удалить кампанию?"
             description="Кампания будет удалена в кабинете Ozon. Это действие необратимо."
-            @update:open="(v) => { if (!v) deleteTarget = null }"
-        >
+            @update:open="(v) => { if (!v) deleteTarget = null }">
             <p v-if="deleteTarget" class="text-sm text-muted-foreground">
                 Кампания:
                 <span class="font-medium text-foreground">{{ deleteTarget.name }}</span>
@@ -410,6 +436,30 @@ watch(
                 </Button>
                 <Button variant="destructive" :disabled="deleting" @click="confirmDeleteCampaign">
                     {{ deleting ? "Удаление…" : "Удалить кампанию" }}
+                </Button>
+            </template>
+        </Dialog>
+
+        <Dialog :open="!!replaceTarget" title="Использовать эту кампанию?"
+            description="Текущий SKU будет присоединён к кампании и она привяжется к эксперименту."
+            @update:open="(v) => { if (!v && !replacing) replaceTarget = null }">
+            <p v-if="replaceTarget" class="text-sm text-muted-foreground">
+                Кампания:
+                <span class="font-medium text-foreground">{{ replaceTarget.name }}</span>
+                (ID {{ replaceTarget.id }})
+                <span v-if="replaceTarget.products_count > 0">
+                    · товаров сейчас: {{ replaceTarget.products_count }}
+                </span>
+            </p>
+            <p v-if="replaceTarget?.products_count > 0" class="mt-2 text-xs text-muted-foreground">
+                Если у кампании есть другие товары, Ozon может заменить текущий состав в рамках правил этой кампании.
+            </p>
+            <template #footer>
+                <Button variant="outline" :disabled="replacing" @click="replaceTarget = null">
+                    Отмена
+                </Button>
+                <Button :disabled="replacing" @click="confirmReplaceSelection">
+                    {{ replacing ? "Присоединение…" : "Да, использовать" }}
                 </Button>
             </template>
         </Dialog>

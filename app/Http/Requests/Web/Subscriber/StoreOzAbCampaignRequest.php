@@ -19,7 +19,6 @@ class StoreOzAbCampaignRequest extends FormRequest
         return [
             'experiment_id' => ['required', 'integer', 'min:1'],
             'name' => ['nullable', 'string', 'max:255'],
-            'cpm' => ['nullable', 'integer', 'min:1', 'max:50000'],
         ];
     }
 

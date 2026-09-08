@@ -16,6 +16,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -52,8 +53,7 @@ class OzAbExperimentEngine
         private readonly OzonPerformanceApiService $performanceApi,
         private readonly OzonApiService $sellerApi,
         private readonly OzAbExperimentJournal $journal,
-    ) {
-    }
+    ) {}
 
     /**
      * @return list<string>
@@ -109,7 +109,7 @@ class OzAbExperimentEngine
             ->first();
 
         if ($running) {
-            $errors[] = 'По этому товару уже запущен эксперимент «'.$running->name.'».';
+            $errors[] = 'По этому товару уже запущен эксперимент «' . $running->name . '».';
         }
 
         $campaignId = (int) ($experiment->oz_campaign_id ?? 0);
@@ -122,8 +122,8 @@ class OzAbExperimentEngine
                 ->first();
 
             if ($busy) {
-                $errors[] = 'Эта кампания уже используется в запущенном эксперименте «'.$busy->name
-                    .'». Дождитесь завершения или остановите его.';
+                $errors[] = 'Эта кампания уже используется в запущенном эксперименте «' . $busy->name
+                    . '». Дождитесь завершения или остановите его.';
             }
         }
 
@@ -131,7 +131,7 @@ class OzAbExperimentEngine
             $disk = (string) ($photo->disk ?: self::PHOTO_DISK);
             $path = (string) $photo->path;
             if ($path === '' || ! Storage::disk($disk)->exists($path)) {
-                $errors[] = 'Файл фотографии #'.((int) $photo->sort_order + 1).' недоступен на диске.';
+                $errors[] = 'Файл фотографии #' . ((int) $photo->sort_order + 1) . ' недоступен на диске.';
             }
         }
 
@@ -176,10 +176,18 @@ class OzAbExperimentEngine
 
         $skus = $this->extractCampaignSkus($token, $campaignId, $campaign);
         if (! in_array($sku, $skus, true)) {
-            return [
-                'success' => false,
-                'messages' => ['Товар не входит в рекламную кампанию. Добавьте его перед запуском.'],
-            ];
+            $attach = $this->ensureCampaignContainsSku(
+                $token,
+                $campaignId,
+                $sku,
+                $campaign,
+            );
+            if (! ($attach['success'] ?? false)) {
+                return [
+                    'success' => false,
+                    'messages' => [$attach['message'] ?? 'Товар не входит в рекламную кампанию. Добавьте его перед запуском.'],
+                ];
+            }
         }
 
         $photos = $experiment->photos->sortBy([['sort_order', 'asc'], ['id', 'asc']])->values();
@@ -299,7 +307,7 @@ class OzAbExperimentEngine
             $this->journal->log(
                 $experiment,
                 OzAbExperimentJournal::TYPE_CYCLE_OPENED,
-                'Открыт цикл №'.$cycleSeq.' эксперимента.',
+                'Открыт цикл №' . $cycleSeq . ' эксперимента.',
                 ['cycle_id' => $openedCycle?->id, 'photo_id' => $firstPhoto->id, 'sequence' => $cycleSeq],
             );
             $this->journal->log(
@@ -332,7 +340,7 @@ class OzAbExperimentEngine
 
             return [
                 'success' => false,
-                'messages' => ['Не удалось запустить эксперимент: '.$e->getMessage()],
+                'messages' => ['Не удалось запустить эксперимент: ' . $e->getMessage()],
             ];
         }
     }
@@ -447,8 +455,8 @@ class OzAbExperimentEngine
         }
 
         $campaignIds = $experiments
-            ->map(fn (AbExperiment $experiment) => (int) $experiment->oz_campaign_id)
-            ->filter(fn (int $id) => $id > 0)
+            ->map(fn(AbExperiment $experiment) => (int) $experiment->oz_campaign_id)
+            ->filter(fn(int $id) => $id > 0)
             ->unique()
             ->values()
             ->all();
@@ -589,7 +597,7 @@ class OzAbExperimentEngine
                         $this->journal->log(
                             $locked,
                             OzAbExperimentJournal::TYPE_API_RETRY,
-                            'Не удалось сменить фотографию: '.($switchResult['message'] ?? 'ошибка'),
+                            'Не удалось сменить фотографию: ' . ($switchResult['message'] ?? 'ошибка'),
                             ['failures' => $locked->consecutive_failures],
                         );
 
@@ -684,7 +692,7 @@ class OzAbExperimentEngine
         }
 
         $currentIndex = $photos->search(
-            fn (AbExperimentPhoto $p) => (int) $p->id === (int) $cycle->ab_experiment_photo_id,
+            fn(AbExperimentPhoto $p) => (int) $p->id === (int) $cycle->ab_experiment_photo_id,
         );
         if ($currentIndex === false) {
             $currentIndex = 0;
@@ -714,7 +722,7 @@ class OzAbExperimentEngine
         $this->journal->log(
             $experiment,
             OzAbExperimentJournal::TYPE_CYCLE_CLOSED,
-            'Цикл №'.$cycle->sequence.' закрыт.',
+            'Цикл №' . $cycle->sequence . ' закрыт.',
             ['cycle_id' => $cycle->id, 'reason' => $endReason],
         );
 
@@ -740,7 +748,7 @@ class OzAbExperimentEngine
         $this->journal->log(
             $experiment,
             OzAbExperimentJournal::TYPE_CYCLE_OPENED,
-            'Открыт цикл №'.$nextSequence.' эксперимента.',
+            'Открыт цикл №' . $nextSequence . ' эксперимента.',
             ['photo_id' => $nextPhoto->id, 'sequence' => $nextSequence],
         );
 
@@ -779,7 +787,7 @@ class OzAbExperimentEngine
             $upload = $this->uploadPhotoAsMain($cabinet, $experiment, $winnerPhoto);
             if (! ($upload['success'] ?? false)) {
                 $experiment->error_message = 'Эксперимент завершён, но победившее фото не удалось установить: '
-                    .($upload['message'] ?? 'ошибка');
+                    . ($upload['message'] ?? 'ошибка');
                 $experiment->save();
             }
         }
@@ -1118,8 +1126,8 @@ class OzAbExperimentEngine
     public function fetchCabinetStatsSnapshots(string $accessToken, array $campaignIds): array
     {
         $campaignIds = array_values(array_unique(array_filter(
-            array_map(static fn ($id): int => (int) $id, $campaignIds),
-            static fn (int $id): bool => $id > 0,
+            array_map(static fn($id): int => (int) $id, $campaignIds),
+            static fn(int $id): bool => $id > 0,
         )));
         if ($campaignIds === []) {
             return [];
@@ -1131,7 +1139,7 @@ class OzAbExperimentEngine
 
         foreach (array_chunk($campaignIds, self::STATS_CAMPAIGN_CHUNK) as $chunk) {
             $response = $this->performanceApi->getProductSkuStatistics($accessToken, [
-                'campaignIds' => array_map(static fn (int $id): string => (string) $id, $chunk),
+                'campaignIds' => array_map(static fn(int $id): string => (string) $id, $chunk),
                 'dateFrom' => $yesterday,
                 'dateTo' => $today,
             ]);
@@ -1276,7 +1284,7 @@ class OzAbExperimentEngine
         $snapshot = is_array($experiment->gallery_snapshot) ? $experiment->gallery_snapshot : [];
         $otherImages = array_values(array_filter(
             $this->extractImageUrls($snapshot['images'] ?? []),
-            static fn (string $item): bool => $item !== $url,
+            static fn(string $item): bool => $item !== $url,
         ));
 
         $payload = [
@@ -1326,7 +1334,7 @@ class OzAbExperimentEngine
         $payload = [
             'product_id' => (int) $product->oz_product_id,
             'primary_image' => $primary,
-            'images' => array_values(array_filter($images, static fn (string $item): bool => $item !== $primary)),
+            'images' => array_values(array_filter($images, static fn(string $item): bool => $item !== $primary)),
         ];
         $images360 = $this->extractImageUrls($snapshot['images360'] ?? []);
         if ($images360 !== []) {
@@ -1432,14 +1440,20 @@ class OzAbExperimentEngine
         if ($disk === 'public') {
             $relative = Storage::disk('public')->url($path);
 
-            return url($relative);
+            if (Str::startsWith($relative, ['http://', 'https://'])) {
+                return $relative;
+            }
+
+            $base = rtrim((string) config('app.url', url('/')), '/');
+
+            return $base . '/' . ltrim($relative, '/');
         }
 
         return url()->route('subscriber.oz.ab-testing.media.show', ['photo' => $photo->id]);
     }
 
     /**
-     * @return array{impressions_per_photo:int,impressions_per_round:int,round_minutes:int,cpm:int}
+     * @return array{impressions_per_photo:int,impressions_per_round:int,round_minutes:int}
      */
     public function settingsOf(AbExperiment $experiment): array
     {
@@ -1447,7 +1461,6 @@ class OzAbExperimentEngine
             'impressions_per_photo' => (int) ($experiment->impressions_per_photo ?: 100000),
             'impressions_per_round' => (int) ($experiment->impressions_per_round ?: 10000),
             'round_minutes' => (int) ($experiment->round_minutes ?: 30),
-            'cpm' => (int) ($experiment->cpm ?: 15),
         ];
     }
 
@@ -1456,8 +1469,7 @@ class OzAbExperimentEngine
         return $experiment->impressions_per_photo !== null
             && $experiment->impressions_per_round !== null
             && $experiment->round_minutes !== null
-            && (int) $experiment->round_minutes >= 30
-            && $experiment->cpm !== null;
+            && (int) $experiment->round_minutes >= 30;
     }
 
     public function hasPerformanceCredentials(OzCabinet $cabinet): bool
@@ -1588,6 +1600,65 @@ class OzAbExperimentEngine
         $skus = array_values(array_unique(array_filter($skus)));
 
         return $skus;
+    }
+
+    /**
+     * @param  array<string, mixed>  $campaign
+     * @return array{success: bool, added: bool, already: bool, message?: string}
+     */
+    private function ensureCampaignContainsSku(
+        string $accessToken,
+        int $campaignId,
+        int $sku,
+        array $campaign = [],
+    ): array {
+        $knownSkus = $this->extractCampaignSkus($accessToken, $campaignId, $campaign);
+        if (in_array($sku, $knownSkus, true)) {
+            return ['success' => true, 'added' => false, 'already' => true];
+        }
+
+        $attempts = [
+            ['bids' => [['sku' => (string) $sku]]],
+        ];
+
+        $lastResponse = null;
+        foreach ($attempts as $payload) {
+            $lastResponse = $this->performanceApi->addCampaignProducts($accessToken, $campaignId, $payload);
+            if (! ($lastResponse['success'] ?? false)) {
+                continue;
+            }
+
+            for ($i = 0; $i < 4; $i++) {
+                if ($i > 0) {
+                    usleep(350_000);
+                }
+                $freshSkus = $this->extractCampaignSkus($accessToken, $campaignId);
+                if (in_array($sku, $freshSkus, true)) {
+                    return ['success' => true, 'added' => true, 'already' => false];
+                }
+            }
+        }
+
+        $freshSkus = $this->extractCampaignSkus($accessToken, $campaignId);
+        if (in_array($sku, $freshSkus, true)) {
+            return ['success' => true, 'added' => true, 'already' => false];
+        }
+
+        if (is_array($lastResponse)) {
+            return [
+                'success' => false,
+                'added' => false,
+                'already' => false,
+                'message' => $this->apiMessage($lastResponse, 'Товар не удалось добавить в рекламную кампанию'),
+            ];
+        }
+
+        return [
+            'success' => false,
+            'added' => false,
+            'already' => false,
+            'message' => 'Товар не удалось добавить в рекламную кампанию',
+        ];
     }
 
     public function resolveStatus(AbExperiment $experiment): ?OzAbTestStatus
