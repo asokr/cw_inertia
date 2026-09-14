@@ -6,11 +6,11 @@ use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 use Maatwebsite\Excel\Events\BeforeSheet;
 
-class ProfitabilityExport implements WithMultipleSheets, WithEvents
+class ProfitabilityExport implements WithEvents, WithMultipleSheets
 {
     /**
      * @param  array<string, mixed>  $report
-     * @param  array{sales: int|null, returns: int|null, logistics: int|null, other: int|null}  $sheetLimits
+     * @param  array{sales: int|null, returns: int|null, logistics: int|null, delivery: int|null, other: int|null}  $sheetLimits
      * @param  callable(string $sheetTitle): void|null  $onBeforeSheet
      */
     public function __construct(
@@ -19,8 +19,7 @@ class ProfitabilityExport implements WithMultipleSheets, WithEvents
         private readonly array $sheetLimits = [],
         private readonly ?string $truncatedNote = null,
         private $onBeforeSheet = null,
-    ) {
-    }
+    ) {}
 
     public function sheets(): array
     {
@@ -49,8 +48,15 @@ class ProfitabilityExport implements WithMultipleSheets, WithEvents
             ),
             new ProfitabilityItemsSheet(
                 $this->reportId,
+                'Доставка',
+                ['Доставка'],
+                false,
+                $this->sheetLimits['delivery'] ?? null,
+            ),
+            new ProfitabilityItemsSheet(
+                $this->reportId,
                 'Прочее',
-                ['Штраф', 'Платная приемка', 'Удержание', 'Коррекция логистики', 'Хранение'],
+                ['Штраф', 'Платная приемка', 'Удержание', 'Коррекция логистики', 'Коррекция стоимости доставки', 'Хранение', 'Добровольная компенсация при возврате'],
                 true,
                 $this->sheetLimits['other'] ?? null,
             ),

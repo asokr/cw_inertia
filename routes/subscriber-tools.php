@@ -22,36 +22,34 @@
 | - 3b.12 Ozon AI Cabinet Analyzer → /panel/oz/ai-cabinet-analyzer
 | - 3b.13 Ozon A/B Testing   → /panel/oz/ab-testing
 | - 3b.14 Ozon Stock History → /panel/oz/stock-history
+| - WB Stock History         → /panel/wb/stock-history
 |
 */
 
-use App\Http\Controllers\Web\Subscriber\Oz\Cabinets\CabinetsController as OzCabinetsController;
+use App\Http\Controllers\Web\Subscriber\Ai\MarketplaceController as AiMarketplaceController;
+use App\Http\Controllers\Web\Subscriber\Ai\MediaController as AiMediaController;
+use App\Http\Controllers\Web\Subscriber\Oz\AbTesting\WorkspaceController as OzAbTestingWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Oz\AiCabinetAnalyzer\AiAnalysesController as OzAiCabinetAnalyzerAiAnalysesController;
 use App\Http\Controllers\Web\Subscriber\Oz\AiCabinetAnalyzer\WorkspaceController as OzAiCabinetAnalyzerWorkspaceController;
-use App\Http\Controllers\Web\Subscriber\Oz\AbTesting\WorkspaceController as OzAbTestingWorkspaceController;
-use App\Http\Controllers\Web\Subscriber\Oz\StockHistory\WorkspaceController as OzStockHistoryWorkspaceController;
+use App\Http\Controllers\Web\Subscriber\Oz\Cabinets\CabinetsController as OzCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Oz\PriceCalc\WorkspaceController as OzPriceCalcWorkspaceController;
-use App\Http\Controllers\Web\Subscriber\Wb\PriceCalc\CabinetsController as WbPriceCalcCabinetsController;
-use App\Http\Controllers\Web\Subscriber\Wb\PriceCalc\WorkspaceController as WbPriceCalcWorkspaceController;
-use App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer\AiAnalysesController as WbAiCabinetAnalyzerAiAnalysesController;
-use App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer\CabinetsController as WbAiCabinetAnalyzerCabinetsController;
-use App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer\WorkspaceController as WbAiCabinetAnalyzerWorkspaceController;
-use App\Http\Controllers\Web\Subscriber\Wb\Profitability\CabinetsController as WbProfitabilityCabinetsController;
-use App\Http\Controllers\Web\Subscriber\Wb\Profitability\ReportController as WbProfitabilityReportController;
+use App\Http\Controllers\Web\Subscriber\Oz\StockHistory\WorkspaceController as OzStockHistoryWorkspaceController;
 use App\Http\Controllers\Web\Subscriber\Wb\AbTesting\WorkspaceController as WbAbTestingWorkspaceController;
+use App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer\AiAnalysesController as WbAiCabinetAnalyzerAiAnalysesController;
+use App\Http\Controllers\Web\Subscriber\Wb\AiCabinetAnalyzer\WorkspaceController as WbAiCabinetAnalyzerWorkspaceController;
+use App\Http\Controllers\Web\Subscriber\Wb\Cabinets\CabinetsController as WbCabinetsController;
+use App\Http\Controllers\Web\Subscriber\Wb\Cabinets\MigrationController as WbCabinetsMigrationController;
+use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\FeedbacksController;
+use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\StatsController;
+use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\TemplatesController;
+use App\Http\Controllers\Web\Subscriber\Wb\PriceCalc\WorkspaceController as WbPriceCalcWorkspaceController;
+use App\Http\Controllers\Web\Subscriber\Wb\Profitability\ReportController as WbProfitabilityReportController;
 use App\Http\Controllers\Web\Subscriber\Wb\PromoCalculator\PromoCalculatorController as WbPromoCalculatorController;
 use App\Http\Controllers\Web\Subscriber\Wb\Repricer\CabinetsController as WbRepricerCabinetsController;
 use App\Http\Controllers\Web\Subscriber\Wb\Repricer\StocksController as WbRepricerStocksController;
 use App\Http\Controllers\Web\Subscriber\Wb\Repricer\StrategyHubController as WbRepricerStrategyHubController;
 use App\Http\Controllers\Web\Subscriber\Wb\Repricer\TimeSettingsController as WbRepricerTimeSettingsController;
-use App\Http\Controllers\Web\Subscriber\Ai\MarketplaceController as AiMarketplaceController;
-use App\Http\Controllers\Web\Subscriber\Ai\MediaController as AiMediaController;
-use App\Http\Controllers\Web\Subscriber\Wb\Cabinets\CabinetsController as WbCabinetsController;
-use App\Http\Controllers\Web\Subscriber\Wb\Cabinets\MigrationController as WbCabinetsMigrationController;
-use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\ClientsController;
-use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\FeedbacksController;
-use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\StatsController;
-use App\Http\Controllers\Web\Subscriber\Wb\Feedbacks\TemplatesController;
+use App\Http\Controllers\Web\Subscriber\Wb\StockHistory\WorkspaceController as WbStockHistoryWorkspaceController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -296,6 +294,26 @@ Route::middleware(['permission:subscriber wb promo calculator'])
         Route::post('/repricer', [WbPromoCalculatorController::class, 'sendToRepricer'])->name('repricer');
     });
 
+Route::middleware(['permission:subscriber wb stock history'])
+    ->prefix('wb/stock-history')
+    ->name('subscriber.wb.stock-history.')
+    ->group(function () {
+        Route::get('/', [WbStockHistoryWorkspaceController::class, 'show'])->name('index');
+        Route::get('/status', [WbStockHistoryWorkspaceController::class, 'status'])->name('status');
+        Route::get('/stocks/{nmId}/{chrtId}', [WbStockHistoryWorkspaceController::class, 'stockWarehouses'])
+            ->whereNumber('nmId')
+            ->whereNumber('chrtId')
+            ->name('stocks.warehouses');
+        Route::post('/stocks/load', [WbStockHistoryWorkspaceController::class, 'loadStocks'])->name('stocks.load');
+        Route::post('/stocks/refresh', [WbStockHistoryWorkspaceController::class, 'refreshStocks'])->name('stocks.refresh');
+        Route::post('/stocks/start', [WbStockHistoryWorkspaceController::class, 'startStocks'])->name('stocks.start');
+        Route::post('/stocks/stop', [WbStockHistoryWorkspaceController::class, 'stopStocks'])->name('stocks.stop');
+        Route::post('/orders/load', [WbStockHistoryWorkspaceController::class, 'loadOrders'])->name('orders.load');
+        Route::post('/orders/start', [WbStockHistoryWorkspaceController::class, 'startOrders'])->name('orders.start');
+        Route::post('/orders/stop', [WbStockHistoryWorkspaceController::class, 'stopOrders'])->name('orders.stop');
+        Route::put('/settings', [WbStockHistoryWorkspaceController::class, 'updateSettings'])->name('settings');
+    });
+
 Route::middleware(['permission:subscriber wb ab testing'])
     ->prefix('wb/ab-testing')
     ->name('subscriber.wb.ab-testing.')
@@ -373,41 +391,41 @@ Route::prefix('ai')
             ->name('media');
 
         Route::middleware(['permission:subscriber ai'])->group(function () {
-        Route::get('/', [AiMarketplaceController::class, 'index'])->name('index');
-        Route::get('/text', [AiMarketplaceController::class, 'text'])->name('text');
-        Route::get('/image', [AiMarketplaceController::class, 'image'])->name('image');
-        Route::get('/image/history', [AiMarketplaceController::class, 'imageHistory'])->name('image.history');
-        Route::get('/image/{uuid}', [AiMarketplaceController::class, 'imageGeneration'])
-            ->whereUuid('uuid')
-            ->name('image.generation');
-        Route::get('/video', [AiMarketplaceController::class, 'video'])->name('video');
-        Route::get('/video/history', [AiMarketplaceController::class, 'videoHistory'])->name('video.history');
-        Route::get('/video/{uuid}', [AiMarketplaceController::class, 'videoGeneration'])
-            ->whereUuid('uuid')
-            ->name('video.generation');
-        Route::post('/marketplace', [AiMarketplaceController::class, 'marketplace'])->name('marketplace');
-        Route::post('/image/start', [AiMarketplaceController::class, 'imageStart'])->name('image.start');
-        Route::get('/image/generations', [AiMarketplaceController::class, 'imageGenerationsIndex'])->name('image.generations.index');
-        Route::post('/image/generations', [AiMarketplaceController::class, 'imageGenerationsStore'])->name('image.generations.store');
-        Route::get('/image/generations/{uuid}', [AiMarketplaceController::class, 'imageGenerationsShow'])
-            ->whereUuid('uuid')
-            ->name('image.generations.show');
-        Route::delete('/image/generations/{uuid}', [AiMarketplaceController::class, 'imageGenerationsDestroy'])
-            ->whereUuid('uuid')
-            ->name('image.generations.destroy');
-        Route::post('/video/start', [AiMarketplaceController::class, 'videoStart'])->name('video.start');
-        Route::post('/video/reference/start', [AiMarketplaceController::class, 'videoReferenceStart'])->name('video.reference.start');
-        Route::get('/video/status/{requestId}', [AiMarketplaceController::class, 'videoStatus'])
-            ->withoutMiddleware('throttle:api')
-            ->name('video.status');
-        Route::get('/video/generations', [AiMarketplaceController::class, 'videoGenerationsIndex'])->name('video.generations.index');
-        Route::post('/video/generations', [AiMarketplaceController::class, 'videoGenerationsStore'])->name('video.generations.store');
-        Route::get('/video/generations/{uuid}', [AiMarketplaceController::class, 'videoGenerationsShow'])
-            ->whereUuid('uuid')
-            ->name('video.generations.show');
-        Route::delete('/video/generations/{uuid}', [AiMarketplaceController::class, 'videoGenerationsDestroy'])
-            ->whereUuid('uuid')
-            ->name('video.generations.destroy');
-        Route::post('/quote', [AiMarketplaceController::class, 'quote'])->name('quote');
+            Route::get('/', [AiMarketplaceController::class, 'index'])->name('index');
+            Route::get('/text', [AiMarketplaceController::class, 'text'])->name('text');
+            Route::get('/image', [AiMarketplaceController::class, 'image'])->name('image');
+            Route::get('/image/history', [AiMarketplaceController::class, 'imageHistory'])->name('image.history');
+            Route::get('/image/{uuid}', [AiMarketplaceController::class, 'imageGeneration'])
+                ->whereUuid('uuid')
+                ->name('image.generation');
+            Route::get('/video', [AiMarketplaceController::class, 'video'])->name('video');
+            Route::get('/video/history', [AiMarketplaceController::class, 'videoHistory'])->name('video.history');
+            Route::get('/video/{uuid}', [AiMarketplaceController::class, 'videoGeneration'])
+                ->whereUuid('uuid')
+                ->name('video.generation');
+            Route::post('/marketplace', [AiMarketplaceController::class, 'marketplace'])->name('marketplace');
+            Route::post('/image/start', [AiMarketplaceController::class, 'imageStart'])->name('image.start');
+            Route::get('/image/generations', [AiMarketplaceController::class, 'imageGenerationsIndex'])->name('image.generations.index');
+            Route::post('/image/generations', [AiMarketplaceController::class, 'imageGenerationsStore'])->name('image.generations.store');
+            Route::get('/image/generations/{uuid}', [AiMarketplaceController::class, 'imageGenerationsShow'])
+                ->whereUuid('uuid')
+                ->name('image.generations.show');
+            Route::delete('/image/generations/{uuid}', [AiMarketplaceController::class, 'imageGenerationsDestroy'])
+                ->whereUuid('uuid')
+                ->name('image.generations.destroy');
+            Route::post('/video/start', [AiMarketplaceController::class, 'videoStart'])->name('video.start');
+            Route::post('/video/reference/start', [AiMarketplaceController::class, 'videoReferenceStart'])->name('video.reference.start');
+            Route::get('/video/status/{requestId}', [AiMarketplaceController::class, 'videoStatus'])
+                ->withoutMiddleware('throttle:api')
+                ->name('video.status');
+            Route::get('/video/generations', [AiMarketplaceController::class, 'videoGenerationsIndex'])->name('video.generations.index');
+            Route::post('/video/generations', [AiMarketplaceController::class, 'videoGenerationsStore'])->name('video.generations.store');
+            Route::get('/video/generations/{uuid}', [AiMarketplaceController::class, 'videoGenerationsShow'])
+                ->whereUuid('uuid')
+                ->name('video.generations.show');
+            Route::delete('/video/generations/{uuid}', [AiMarketplaceController::class, 'videoGenerationsDestroy'])
+                ->whereUuid('uuid')
+                ->name('video.generations.destroy');
+            Route::post('/quote', [AiMarketplaceController::class, 'quote'])->name('quote');
         });
     });

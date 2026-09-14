@@ -12,7 +12,9 @@ const props = defineProps({
 const breakdownSchema = [
     { key: "margin", label: "Прибыль", color: "bg-indigo-500" },
     { key: "correction_sales", label: "Компенсации", color: "bg-emerald-500" },
+    { key: "return_compensation", label: "Компенсация при возврате", color: "bg-teal-500" },
     { key: "logistics", label: "Логистика", color: "bg-purple-400" },
+    { key: "delivery", label: "Доставка", color: "bg-violet-500" },
     { key: "purchase_cost", label: "Себестоимость", color: "bg-orange-400" },
     { key: "deduction", label: "Реклама", color: "bg-sky-500" },
     { key: "storage_fee", label: "Хранение", color: "bg-lime-500" },

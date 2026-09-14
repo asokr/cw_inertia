@@ -41,6 +41,7 @@ Jobs: [`app/Jobs/`](../app/Jobs/).
 | `wb_ab_testing` | WB A/B-тесты | `ProcessAbCabinetTickJob` | Unique until processing, один job на кабинет |
 | `oz_ab_testing` | Ozon A/B-тесты | `ProcessOzAbCabinetTickJob` | Unique until processing, один job на кабинет |
 | `oz_stock_history` | История остатков Ozon | start + snapshot jobs | Unique: старт по кабинету, снимок по кабинету+дате |
+| `wb_stock_history` | История остатков и заказов WB | backfill + snapshot jobs | Unique: бэкфилл по кабинету, снимок по кабинету+дате |
 | `wb_ai_cabinet_analyzer` | WB AI Cabinet Analyzer | report + AI analysis jobs | timeout 3600 |
 | `oz_ai_cabinet_analyzer` | Ozon AI Cabinet Analyzer | report + AI analysis jobs | timeout 3600 |
 
@@ -126,6 +127,18 @@ Fallback-команда: каждые 2 минуты, по одному job на
 Диспатч: «Начать отслеживание» → start job → snapshot за вчера. Ежедневно `subscriber:oz-stock-history-snapshot` в 00:05 МСК только для `tracking_enabled`. Prune: `subscriber:oz-stock-history-prune` в 01:30 МСК.  
 Документация: [oz-stock-history.md](oz-stock-history.md).
 
+### `wb_stock_history`
+
+| Job | Timeout | Tries | Unique | Где задаётся очередь |
+|-----|---------|-------|--------|----------------------|
+| `App\Jobs\Wb\StockHistory\ProcessWbStockHistoryBackfillJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `wb-stock-history-backfill-{cabinetId}`) | `$this->onQueue('wb_stock_history')` |
+| `App\Jobs\Wb\StockHistory\ProcessWbStockHistorySnapshotJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `wb-stock-history-snapshot-{cabinetId}-{date}`) | `$this->onQueue('wb_stock_history')` |
+| `App\Jobs\Wb\StockHistory\ProcessWbOrderHistoryBackfillJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `wb-order-history-backfill-{cabinetId}`) | `$this->onQueue('wb_stock_history')` |
+| `App\Jobs\Wb\StockHistory\ProcessWbOrderHistorySnapshotJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `wb-order-history-snapshot-{cabinetId}-{date}`) | `$this->onQueue('wb_stock_history')` |
+
+Диспатч: «Начать отслеживание» → backfill (карточки, CSV за два месяца по сегодня). GET страницы внешние API не вызывает. Ежедневно `subscriber:wb-stock-history-snapshot` в 01:00 МСК и `subscriber:wb-order-history-snapshot` в 01:20 МСК только при включённом отслеживании вкладки. Prune: `subscriber:wb-stock-history-prune` в 02:00 МСК.  
+Документация: [wb-stock-history.md](wb-stock-history.md).
+
 ### `wb_ai_cabinet_analyzer`
 
 | Job | Timeout | Tries | Unique / lock | Где задаётся очередь |
@@ -177,6 +190,9 @@ php artisan queue:work --queue=oz_ab_testing,default --tries=1 --timeout=120
 # История остатков Ozon
 php artisan queue:work --queue=oz_stock_history --tries=2 --timeout=1800
 
+# История остатков и заказов WB
+php artisan queue:work --queue=wb_stock_history --tries=2 --timeout=1800
+
 # AI-анализаторы
 php artisan queue:work --queue=wb_ai_cabinet_analyzer --tries=3 --timeout=3600 --sleep=1
 php artisan queue:work --queue=oz_ai_cabinet_analyzer --tries=3 --timeout=3600 --sleep=1
@@ -185,7 +201,7 @@ php artisan queue:work --queue=oz_ai_cabinet_analyzer --tries=3 --timeout=3600 -
 Один воркер на несколько очередей (приоритет слева направо):
 
 ```bash
-php artisan queue:work --queue=wb_ab_testing,oz_ab_testing,oz_stock_history,price_calc,profitability,repricer_stocks,wb_ai_cabinet_analyzer,oz_ai_cabinet_analyzer,default --timeout=3600
+php artisan queue:work --queue=wb_ab_testing,oz_ab_testing,oz_stock_history,wb_stock_history,price_calc,profitability,repricer_stocks,wb_ai_cabinet_analyzer,oz_ai_cabinet_analyzer,default --timeout=3600
 ```
 
 После выкладки кода на прод воркеры сами код не перечитывают (`queue:work`). Мягкий рестарт всех очередей — `php artisan queue:restart` (входит в [`scripts/prod-reload.sh`](../scripts/prod-reload.sh), см. [deploy.md](deploy.md)).

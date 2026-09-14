@@ -23,6 +23,19 @@ class WbBasketHostTest extends TestCase
         $this->assertSame('37', WbBasketHost::number(8067));
     }
 
+    public function test_small_image_url_uses_basket_vol_and_part(): void
+    {
+        $this->assertSame(
+            'https://basket-01.wbbasket.ru/vol0/part0/111/images/c246x328/1.webp',
+            WbBasketHost::smallImageUrl(111)
+        );
+        $this->assertSame(
+            'https://basket-37.wbbasket.ru/vol8067/part806756/806756474/images/c246x328/1.webp',
+            WbBasketHost::smallImageUrl(806756474)
+        );
+        $this->assertNull(WbBasketHost::smallImageUrl(0));
+    }
+
     #[DataProvider('basketBoundariesProvider')]
     public function test_basket_boundaries(int $vol, string $expectedBasket): void
     {

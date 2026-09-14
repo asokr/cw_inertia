@@ -76,6 +76,15 @@ const toolCatalog = [
         description: "Тест главной фотографии карточки товара",
     },
     {
+        key: "wb_stock_history",
+        label: "История остатков и заказов",
+        href: "/panel/wb/stock-history",
+        permission: "subscriber wb stock history",
+        group: "Wildberries",
+        icon: Warehouse,
+        description: "Остатки и заказы товаров Wildberries по дням",
+    },
+    {
         key: "oz_price_calc",
         label: "Ценообразование",
         href: "/panel/oz/price-calc",
@@ -270,6 +279,7 @@ const availableRoutes = new Set([
     "/panel/wb/ai-cabinet-analyzer",
     "/panel/wb/ab-testing",
     "/panel/wb/promocalculator",
+    "/panel/wb/stock-history",
     "/panel/ai",
     "/panel/ai/text",
     "/panel/ai/image",

@@ -39,6 +39,7 @@ export const salesColumns = buildProfitabilityColumns([
     { key: "sum_to_transfer", header: "Сумма к перечислению", format: (row) => fmtNumber(row.sum_to_transfer) },
     { key: "purchase_cost", header: "Себестоимость" },
     { key: "logistics", header: "Логистика" },
+    { key: "delivery", header: "Доставка", format: (row) => fmtNumber(row.delivery) },
     { key: "cost_adjustments", header: "Затраты/доплаты", format: (row) => fmtNumber(row.cost_adjustments) },
     { key: "nalog", header: "Налог", format: (row) => fmtNumber(row.nalog) },
     { key: "cashback", header: "Кэшбэк", format: (row) => fmtCashback(row.cashback) },

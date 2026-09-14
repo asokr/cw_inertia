@@ -9,8 +9,10 @@ use App\Jobs\ProcessProfitabilityReport;
 use App\Models\JobStatus;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Support\ProfitabilityJobStatusPresenter;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -38,6 +40,8 @@ class WbProfitabilityReportService
         'Платная приемка',
         'Удержание',
         'Коррекция логистики',
+        'Коррекция стоимости доставки',
+        'Добровольная компенсация при возврате',
     ];
 
     private const OTHER_SHEET_OPERATIONS = [
@@ -45,13 +49,16 @@ class WbProfitabilityReportService
         'Платная приемка',
         'Удержание',
         'Коррекция логистики',
+        'Коррекция стоимости доставки',
         'Хранение',
+        'Добровольная компенсация при возврате',
     ];
 
     private const GROUP_MAP = [
         'sales' => 'Продажа',
         'returns' => 'Возврат',
         'logistics' => 'Логистика',
+        'delivery' => 'Доставка',
     ];
 
     private const EXPORT_STAGE_LABELS = [
@@ -61,6 +68,7 @@ class WbProfitabilityReportService
         'sales' => 'Пишем продажи…',
         'returns' => 'Пишем возвраты…',
         'logistics' => 'Пишем логистику…',
+        'delivery' => 'Пишем доставку…',
         'other' => 'Пишем прочие операции…',
         'writing' => 'Сохраняем файл…',
         'done' => 'Файл готов',
@@ -116,7 +124,7 @@ class WbProfitabilityReportService
      *     jobStatus: array<string, mixed>,
      *     report: array<string, mixed>|null,
      *     widget: array<string, mixed>|null,
-     *     groupMeta: array{sales: int, returns: int, logistics: int, other: int}
+     *     groupMeta: array{sales: int, returns: int, logistics: int, delivery: int, other: int}
      * }
      */
     public function getCabinetPageData(int $cabinetId, int $userId): array
@@ -135,7 +143,7 @@ class WbProfitabilityReportService
                 'jobStatus' => $jobStatus,
                 'report' => null,
                 'widget' => null,
-                'groupMeta' => ['sales' => 0, 'returns' => 0, 'logistics' => 0, 'other' => 0],
+                'groupMeta' => ['sales' => 0, 'returns' => 0, 'logistics' => 0, 'delivery' => 0, 'other' => 0],
             ];
         }
 
@@ -160,7 +168,7 @@ class WbProfitabilityReportService
         $this->assertOwnedCabinet($cabinetId, $userId);
 
         $validated = Validator::make($request->all(), [
-            'group' => ['required', Rule::in(['sales', 'returns', 'logistics', 'other'])],
+            'group' => ['required', Rule::in(['sales', 'returns', 'logistics', 'delivery', 'other'])],
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|min:1|max:200',
             'search' => 'nullable|string|max:200',
@@ -468,6 +476,7 @@ class WbProfitabilityReportService
             'Продажи' => 'sales',
             'Возвраты' => 'returns',
             'Логистика' => 'logistics',
+            'Доставка' => 'delivery',
             'Прочее' => 'other',
         ];
 
@@ -573,7 +582,7 @@ class WbProfitabilityReportService
     }
 
     /**
-     * @return array{limits: array{sales: int|null, returns: int|null, logistics: int|null, other: int|null}, truncated: bool}
+     * @return array{limits: array{sales: int|null, returns: int|null, logistics: int|null, delivery: int|null, other: int|null}, truncated: bool}
      */
     private function resolveExportSheetLimits(int $reportId): array
     {
@@ -591,18 +600,23 @@ class WbProfitabilityReportService
             ->where('report_id', $reportId)
             ->where('supplier_oper_name', 'Логистика')
             ->count();
+        $delivery = (int) DB::table('wb_profitability_items')
+            ->where('report_id', $reportId)
+            ->where('supplier_oper_name', 'Доставка')
+            ->count();
         $other = (int) DB::table('wb_profitability_items')
             ->where('report_id', $reportId)
             ->whereIn('supplier_oper_name', self::OTHER_SHEET_OPERATIONS)
             ->count();
 
-        $truncated = $sales > $max || $returns > $max || $logistics > $max || $other > $max;
+        $truncated = $sales > $max || $returns > $max || $logistics > $max || $delivery > $max || $other > $max;
 
         return [
             'limits' => [
                 'sales' => $sales > $max ? $max : null,
                 'returns' => $returns > $max ? $max : null,
                 'logistics' => $logistics > $max ? $max : null,
+                'delivery' => $delivery > $max ? $max : null,
                 'other' => $other > $max ? $max : null,
             ],
             'truncated' => $truncated,
@@ -653,7 +667,7 @@ class WbProfitabilityReportService
         }
 
         try {
-            return \Carbon\Carbon::parse($updatedAt)->greaterThan(now()->subMinutes(self::EXPORT_STALE_MINUTES));
+            return Carbon::parse($updatedAt)->greaterThan(now()->subMinutes(self::EXPORT_STALE_MINUTES));
         } catch (\Throwable) {
             return false;
         }
@@ -688,14 +702,14 @@ class WbProfitabilityReportService
         }
 
         try {
-            return \Carbon\Carbon::parse($value)->utc()->format('Y-m-d\TH:i:s.u\Z');
+            return Carbon::parse($value)->utc()->format('Y-m-d\TH:i:s.u\Z');
         } catch (\Throwable) {
             return null;
         }
     }
 
     /**
-     * @return array{sales: int, returns: int, logistics: int, other: int}
+     * @return array{sales: int, returns: int, logistics: int, delivery: int, other: int}
      */
     private function loadGroupMeta(int $reportId): array
     {
@@ -718,6 +732,7 @@ class WbProfitabilityReportService
             'sales' => (int) ($rows['Продажа'] ?? 0),
             'returns' => (int) ($rows['Возврат'] ?? 0),
             'logistics' => (int) ($rows['Логистика'] ?? 0),
+            'delivery' => (int) ($rows['Доставка'] ?? 0),
             'other' => $other,
         ];
     }
@@ -738,6 +753,7 @@ class WbProfitabilityReportService
             'percent_buy',
             'penalties',
             'logistics',
+            'delivery',
             'purchase_cost',
             'margin',
             'deduction',
@@ -748,6 +764,7 @@ class WbProfitabilityReportService
             'nalog',
             'nalog_percent',
             'correction_sales',
+            'return_compensation',
             'total_profitability',
             'itog',
         ]);
@@ -785,7 +802,7 @@ class WbProfitabilityReportService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, object>  $rows
+     * @param  Collection<int, object>  $rows
      * @return list<array<string, mixed>>
      */
     private function mapProductAggregateRows($rows): array
@@ -837,6 +854,7 @@ class WbProfitabilityReportService
                 'sum_to_transfer' => round($storageSum, 2),
                 'purchase_cost' => 0.0,
                 'logistics' => 0.0,
+                'delivery' => 0.0,
                 'cost_adjustments' => 0.0,
                 'dop_rashod' => 0.0,
                 'cashback' => 0.0,
@@ -880,6 +898,8 @@ class WbProfitabilityReportService
                 'Платная приемка' => 'Платная приемка',
                 'Удержание' => 'Удержание',
                 'Коррекция логистики' => 'Коррекция логистики',
+                'Коррекция стоимости доставки' => 'Коррекция доставки',
+                'Добровольная компенсация при возврате' => 'Компенсация при возврате',
             ];
 
             foreach ($rows as $row) {
@@ -948,6 +968,7 @@ class WbProfitabilityReportService
             'sum_to_transfer',
             'purchase_cost',
             'logistics',
+            'delivery',
             'cost_adjustments',
             'dop_rashod',
             'cashback',
@@ -974,6 +995,7 @@ class WbProfitabilityReportService
             'sum_to_transfer' => $this->finiteFloat($row->sum_to_transfer ?? 0),
             'purchase_cost' => $this->finiteFloat($row->purchase_cost ?? 0),
             'logistics' => $this->finiteFloat($row->logistics ?? 0),
+            'delivery' => $this->finiteFloat($row->delivery ?? 0),
             'cost_adjustments' => $this->finiteFloat($row->cost_adjustments ?? 0),
             'dop_rashod' => $this->finiteFloat($row->dop_rashod ?? 0),
             'cashback' => $this->finiteFloat($row->cashback ?? 0),
@@ -1000,6 +1022,7 @@ class WbProfitabilityReportService
             'percent_buy' => $this->finiteFloat($row->percent_buy ?? 0),
             'penalties' => $this->finiteFloat($row->penalties ?? 0),
             'logistics' => $this->finiteFloat($row->logistics ?? 0),
+            'delivery' => $this->finiteFloat($row->delivery ?? 0),
             'purchase_cost' => $this->finiteFloat($row->purchase_cost ?? 0),
             'margin' => $this->finiteFloat($row->margin ?? 0),
             'deduction' => $this->finiteFloat($row->deduction ?? 0),
@@ -1010,6 +1033,7 @@ class WbProfitabilityReportService
             'nalog' => $this->finiteFloat($row->nalog ?? 0),
             'nalog_percent' => $this->finiteFloat($row->nalog_percent ?? 0),
             'correction_sales' => $this->finiteFloat($row->correction_sales ?? 0),
+            'return_compensation' => $this->finiteFloat($row->return_compensation ?? 0),
             'total_profitability' => $this->finiteFloat($row->total_profitability ?? 0),
             'itog' => $this->finiteFloat($row->itog ?? 0),
         ];
@@ -1089,6 +1113,7 @@ class WbProfitabilityReportService
         foreach ($products as &$product) {
             if (empty($product['nm_id'])) {
                 $product['image'] = null;
+
                 continue;
             }
 

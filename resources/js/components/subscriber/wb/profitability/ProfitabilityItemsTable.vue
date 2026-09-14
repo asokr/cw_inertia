@@ -13,7 +13,7 @@ const props = defineProps({
     lazy: { type: Boolean, default: false },
     /** Базовый URL items endpoint (без query), group добавляется отдельно */
     itemsUrl: { type: String, default: "" },
-    /** group=sales|returns|logistics|other */
+    /** group=sales|returns|logistics|delivery|other */
     group: { type: String, default: "" },
     perPage: { type: Number, default: 100 },
 });

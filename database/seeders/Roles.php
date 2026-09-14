@@ -4,8 +4,8 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use Illuminate\Database\Seeder;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class Roles extends Seeder
 {
@@ -25,23 +25,24 @@ class Roles extends Seeder
         // Permission::updateOrCreate(['guard_name' => 'api', 'name' => 'admin page access']);
 
         // Клиенты модулей по месячной оплате
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber']); //Все клиенты по помесячной
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb feedbacks']); //Доступы к модулю управления отзывами
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb promo calculator']); //Доступы к модулю управления отзывами
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb price calculator']); //Доступы к модулю ценообразование
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb repricer']); //Доступы к модулю репрайсера
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb profitability']); //Доступы к модулю рентабельности
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb ai cabinet analyzer']); //Доступы к модулю AiCabinet Analyzer
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb ab testing']); //Доступы к модулю A/B-тестирование
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber ai']); //Доступы к модулю ИИ
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber']); // Все клиенты по помесячной
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb feedbacks']); // Доступы к модулю управления отзывами
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb promo calculator']); // Доступы к модулю управления отзывами
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb price calculator']); // Доступы к модулю ценообразование
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb repricer']); // Доступы к модулю репрайсера
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb profitability']); // Доступы к модулю рентабельности
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb ai cabinet analyzer']); // Доступы к модулю AiCabinet Analyzer
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb ab testing']); // Доступы к модулю A/B-тестирование
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber wb stock history']); // Доступы к модулю история остатков и заказов WB
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber ai']); // Доступы к модулю ИИ
 
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'administrator']); //доступ к всякому на фронте, чего не сделать на ларавель
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'administrator']); // доступ к всякому на фронте, чего не сделать на ларавель
 
         /* OZON */
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz price calc']); //Доступы к модулю расчёта цен Ozon
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz ai cabinet analyzer']); //Доступы к модулю AI Анализ кабинета Ozon
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz ab testing']); //Доступы к модулю A/B-тестирование Ozon
-        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz stock history']); //Доступы к модулю история остатков Ozon
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz price calc']); // Доступы к модулю расчёта цен Ozon
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz ai cabinet analyzer']); // Доступы к модулю AI Анализ кабинета Ozon
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz ab testing']); // Доступы к модулю A/B-тестирование Ozon
+        Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'subscriber oz stock history']); // Доступы к модулю история остатков Ozon
 
         // Blog admin API
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'blog.view']);
@@ -49,7 +50,6 @@ class Roles extends Seeder
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'blog.update']);
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'blog.delete']);
         Permission::updateOrCreate(['guard_name' => 'web', 'name' => 'blog.publish']);
-
 
         // User::all()->each(function ($user) {
         //     $user->givePermissionTo('subscriber oz price calc');

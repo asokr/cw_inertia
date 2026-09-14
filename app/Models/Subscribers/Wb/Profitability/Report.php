@@ -2,9 +2,8 @@
 
 namespace App\Models\Subscribers\Wb\Profitability;
 
-use Illuminate\Database\Eloquent\Model;
-use App\Models\Subscribers\Wb\Profitability\Item;
 use App\Models\Subscribers\Wb\WbCabinet;
+use Illuminate\Database\Eloquent\Model;
 
 class Report extends Model
 {
@@ -21,12 +20,14 @@ class Report extends Model
         'percent_buy',
         'penalties',
         'logistics',
+        'delivery',
         'purchase_cost',
         'margin',
         'deduction',
         'storage_fee',
         'acceptance',
         'cashback',
+        'return_compensation',
         'dop_rashod',
         'nalog',
         'nalog_percent',
@@ -41,12 +42,14 @@ class Report extends Model
         'percent_buy' => 'float',
         'penalties' => 'float',
         'logistics' => 'float',
+        'delivery' => 'float',
         'purchase_cost' => 'float',
         'margin' => 'float',
         'deduction' => 'float',
         'storage_fee' => 'float',
         'acceptance' => 'float',
         'cashback' => 'float',
+        'return_compensation' => 'float',
         'dop_rashod' => 'float',
         'nalog' => 'float',
         'nalog_percent' => 'float',

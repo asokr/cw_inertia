@@ -10,7 +10,7 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
-class ProfitabilityItemsSheet implements FromQuery, WithTitle, WithHeadings, WithMapping, WithCustomChunkSize
+class ProfitabilityItemsSheet implements FromQuery, WithCustomChunkSize, WithHeadings, WithMapping, WithTitle
 {
     /**
      * @param  list<string>  $operations
@@ -21,8 +21,7 @@ class ProfitabilityItemsSheet implements FromQuery, WithTitle, WithHeadings, Wit
         private readonly array $operations,
         private readonly bool $includeType = false,
         private readonly ?int $rowLimit = null,
-    ) {
-    }
+    ) {}
 
     public function title(): string
     {
@@ -60,6 +59,7 @@ class ProfitabilityItemsSheet implements FromQuery, WithTitle, WithHeadings, Wit
             'Сумма к перечислению',
             'Закупочная цена',
             'Логистика',
+            'Доставка',
             'Итог',
             'Затраты/доплаты',
             'Кешбэк',
@@ -84,6 +84,7 @@ class ProfitabilityItemsSheet implements FromQuery, WithTitle, WithHeadings, Wit
     {
         $sum = (float) ($item->sum_to_transfer ?? 0);
         $logistics = (float) ($item->logistics ?? 0);
+        $delivery = (float) ($item->delivery ?? 0);
         $adjustments = (float) ($item->cost_adjustments ?? 0);
 
         $row = [
@@ -96,7 +97,8 @@ class ProfitabilityItemsSheet implements FromQuery, WithTitle, WithHeadings, Wit
             $sum,
             (float) ($item->purchase_cost ?? 0),
             $logistics,
-            $sum + $logistics + $adjustments,
+            $delivery,
+            $sum + $logistics + $delivery + $adjustments,
             $adjustments,
             (float) ($item->cashback ?? 0),
             (float) ($item->dop_rashod ?? 0),

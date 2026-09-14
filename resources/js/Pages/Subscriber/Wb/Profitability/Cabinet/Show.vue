@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onUnmounted, ref } from "vue";
 import { Head } from "@inertiajs/vue3";
+import DeliveryTable from "@/components/subscriber/wb/profitability/DeliveryTable.vue";
 import LogisticsTable from "@/components/subscriber/wb/profitability/LogisticsTable.vue";
 import OtherOperationsTable from "@/components/subscriber/wb/profitability/OtherOperationsTable.vue";
 import ProfitabilityWidget from "@/components/subscriber/wb/profitability/ProfitabilityWidget.vue";
@@ -26,7 +27,7 @@ const props = defineProps({
     widget: { type: Object, default: null },
     groupMeta: {
         type: Object,
-        default: () => ({ sales: 0, returns: 0, logistics: 0, other: 0 }),
+        default: () => ({ sales: 0, returns: 0, logistics: 0, delivery: 0, other: 0 }),
     },
     itemsBaseUrl: { type: String, required: true },
     exportStartUrl: { type: String, required: true },
@@ -122,6 +123,7 @@ const panelStartedAt = computed(() => {
 const hasSales = computed(() => (props.groupMeta?.sales ?? 0) > 0);
 const hasReturns = computed(() => (props.groupMeta?.returns ?? 0) > 0);
 const hasLogistics = computed(() => (props.groupMeta?.logistics ?? 0) > 0);
+const hasDelivery = computed(() => (props.groupMeta?.delivery ?? 0) > 0);
 const hasOther = computed(() => (props.groupMeta?.other ?? 0) > 0);
 
 function onPollingStart() {
@@ -177,6 +179,7 @@ onUnmounted(() => {
                 <SalesTable v-if="hasSales" lazy :items-url="itemsBaseUrl" />
                 <ReturnsTable v-if="hasReturns" lazy :items-url="itemsBaseUrl" />
                 <LogisticsTable v-if="hasLogistics" lazy :items-url="itemsBaseUrl" />
+                <DeliveryTable v-if="hasDelivery" lazy :items-url="itemsBaseUrl" />
                 <OtherOperationsTable v-if="hasOther" lazy :items-url="itemsBaseUrl" />
             </template>
         </div>

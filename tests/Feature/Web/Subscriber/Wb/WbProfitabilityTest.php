@@ -12,13 +12,15 @@ use App\Models\Subscribers\Wb\Profitability\ProfitabilityCabinet;
 use App\Models\Subscribers\Wb\Profitability\Report;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Models\User;
-
-use Illuminate\Support\Facades\Cache;
+use App\Services\Subscriber\Wb\WbProfitabilityReportService;
+use App\Services\Wb\ProfitabilityApiService;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Web\Auth\WebAuthTestCase;
@@ -354,6 +356,465 @@ class WbProfitabilityTest extends WebAuthTestCase
             ->assertForbidden();
     }
 
+    public function test_workspace_exposes_delivery_group_and_paginates_delivery_items(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Delivery Items Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 1,
+            'sales_amount' => 1000,
+            'delivery' => 80,
+            'itog' => 920,
+            'margin' => 920,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 111,
+            'sa_name' => 'SALE-DEL',
+            'supplier_oper_name' => 'Продажа',
+            'quantity' => 1,
+            'sum_to_transfer' => 1000,
+            'delivery' => 80,
+            'margin' => 920,
+            'profitability_percent' => 92,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 111,
+            'sa_name' => 'DEL-A',
+            'supplier_oper_name' => 'Доставка',
+            'reasoning' => 'До покупателя',
+            'quantity' => 1,
+            'sum_to_transfer' => 80,
+            'logistics' => 80,
+            'margin' => 0,
+        ]);
+
+        Cache::flush();
+
+        $this->actingAs($user)
+            ->get('/panel/wb/profitability')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Wb/Profitability/Cabinet/Show')
+                ->where('groupMeta.delivery', 1)
+                ->where('groupMeta.sales', 1)
+                ->where('report.delivery', 80));
+
+        $this->actingAs($user)
+            ->getJson('/panel/wb/profitability/items?group=delivery')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.sa_name', 'DEL-A')
+            ->assertJsonPath('data.0.reasoning', 'До покупателя')
+            ->assertJsonPath('data.0.logistics', 80);
+    }
+
+    public function test_process_report_subtracts_delivery_from_totals_and_sale_margin(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Delivery Job Cabinet');
+
+        $this->ensurePriceCalcV3Table();
+
+        $api = \Mockery::mock(ProfitabilityApiService::class);
+        $api->shouldReceive('getReportDetailByPeriod')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    [
+                        'sellerOperName' => 'Продажа',
+                        'forPay' => 1000,
+                        'retailAmount' => 1200,
+                        'quantity' => 1,
+                        'nmId' => 111,
+                        'vendorCode' => 'SKU-1',
+                        'sku' => 'barcode-1',
+                        'officeName' => 'Коледино',
+                        'cashbackAmount' => 0,
+                        'cashbackDiscount' => 0,
+                    ],
+                    [
+                        'sellerOperName' => 'Доставка',
+                        'deliveryService' => 80,
+                        'forPay' => 0,
+                        'quantity' => 1,
+                        'nmId' => 111,
+                        'vendorCode' => 'SKU-1',
+                        'sku' => 'barcode-1',
+                        'officeName' => 'Коледино',
+                        'bonusTypeName' => 'До покупателя',
+                    ],
+                ],
+            ]);
+
+        $job = new ProcessProfitabilityReport(
+            (int) $cabinet->id,
+            '2026-01-01',
+            '2026-01-15',
+            (int) $user->id,
+            0,
+            0
+        );
+        $job->handle($api);
+
+        $report = Report::query()->where('cabinet_id', $cabinet->id)->first();
+        $this->assertNotNull($report);
+        $this->assertEqualsWithDelta(80.0, (float) $report->delivery, 0.001);
+        $this->assertEqualsWithDelta(1000.0, (float) $report->sales_amount, 0.001);
+        $this->assertEqualsWithDelta(920.0, (float) $report->itog, 0.001);
+        $this->assertEqualsWithDelta(920.0, (float) $report->margin, 0.001);
+
+        $sale = Item::query()
+            ->where('report_id', $report->id)
+            ->where('supplier_oper_name', 'Продажа')
+            ->first();
+        $this->assertNotNull($sale);
+        $this->assertEqualsWithDelta(80.0, (float) $sale->delivery, 0.001);
+        $this->assertEqualsWithDelta(920.0, (float) $sale->margin, 0.001);
+
+        $delivery = Item::query()
+            ->where('report_id', $report->id)
+            ->where('supplier_oper_name', 'Доставка')
+            ->first();
+        $this->assertNotNull($delivery);
+        $this->assertEqualsWithDelta(80.0, (float) $delivery->sum_to_transfer, 0.001);
+        $this->assertEqualsWithDelta(80.0, (float) $delivery->logistics, 0.001);
+        $this->assertSame('До покупателя', $delivery->reasoning);
+    }
+
+    public function test_process_report_uses_for_pay_when_delivery_service_is_empty(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Delivery Fallback Cabinet');
+
+        $this->ensurePriceCalcV3Table();
+
+        $api = \Mockery::mock(ProfitabilityApiService::class);
+        $api->shouldReceive('getReportDetailByPeriod')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    [
+                        'sellerOperName' => 'Продажа',
+                        'forPay' => 500,
+                        'retailAmount' => 500,
+                        'quantity' => 1,
+                        'nmId' => 222,
+                        'vendorCode' => 'SKU-2',
+                        'sku' => 'barcode-2',
+                        'officeName' => 'Электросталь',
+                    ],
+                    [
+                        'sellerOperName' => 'Доставка',
+                        'forPay' => 45,
+                        'quantity' => 1,
+                        'nmId' => 222,
+                        'vendorCode' => 'SKU-2',
+                        'sku' => 'barcode-2',
+                        'officeName' => 'Электросталь',
+                    ],
+                ],
+            ]);
+
+        $job = new ProcessProfitabilityReport(
+            (int) $cabinet->id,
+            '2026-02-01',
+            '2026-02-07',
+            (int) $user->id
+        );
+        $job->handle($api);
+
+        $report = Report::query()->where('cabinet_id', $cabinet->id)->first();
+        $this->assertNotNull($report);
+        $this->assertEqualsWithDelta(45.0, (float) $report->delivery, 0.001);
+        $this->assertEqualsWithDelta(455.0, (float) $report->itog, 0.001);
+    }
+
+    public function test_workspace_exposes_delivery_correction_in_other_group(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Delivery Correction Items Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 1,
+            'sales_amount' => 1000,
+            'delivery' => 100,
+            'itog' => 900,
+            'margin' => 900,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 555,
+            'sa_name' => 'DEL-CORR',
+            'supplier_oper_name' => 'Коррекция стоимости доставки',
+            'quantity' => 1,
+            'sum_to_transfer' => 20,
+            'logistics' => 20,
+        ]);
+
+        Cache::flush();
+
+        $this->actingAs($user)
+            ->get('/panel/wb/profitability')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('groupMeta.other', 1)
+                ->where('report.delivery', 100));
+
+        $this->actingAs($user)
+            ->getJson('/panel/wb/profitability/items?group=other')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.sa_name', 'DEL-CORR')
+            ->assertJsonPath('data.0.type', 'Коррекция доставки')
+            ->assertJsonPath('data.0.sum_to_transfer', 20);
+    }
+
+    public function test_process_report_subtracts_delivery_correction_from_totals_and_sale_margin(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Delivery Correction Job Cabinet');
+
+        $this->ensurePriceCalcV3Table();
+
+        $api = \Mockery::mock(ProfitabilityApiService::class);
+        $api->shouldReceive('getReportDetailByPeriod')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    [
+                        'sellerOperName' => 'Продажа',
+                        'forPay' => 1000,
+                        'retailAmount' => 1200,
+                        'quantity' => 1,
+                        'nmId' => 555,
+                        'vendorCode' => 'SKU-5',
+                        'sku' => 'barcode-5',
+                        'officeName' => 'Коледино',
+                        'cashbackAmount' => 0,
+                        'cashbackDiscount' => 0,
+                    ],
+                    [
+                        'sellerOperName' => 'Доставка',
+                        'deliveryService' => 80,
+                        'forPay' => 0,
+                        'quantity' => 1,
+                        'nmId' => 555,
+                        'vendorCode' => 'SKU-5',
+                        'sku' => 'barcode-5',
+                        'officeName' => 'Коледино',
+                        'bonusTypeName' => 'До покупателя',
+                    ],
+                    [
+                        'sellerOperName' => 'Коррекция стоимости доставки',
+                        'deliveryService' => 20,
+                        'forPay' => 0,
+                        'quantity' => 1,
+                        'nmId' => 555,
+                        'vendorCode' => 'SKU-5',
+                        'sku' => 'barcode-5',
+                        'officeName' => 'Коледино',
+                    ],
+                ],
+            ]);
+
+        $job = new ProcessProfitabilityReport(
+            (int) $cabinet->id,
+            '2026-04-01',
+            '2026-04-07',
+            (int) $user->id
+        );
+        $job->handle($api);
+
+        $report = Report::query()->where('cabinet_id', $cabinet->id)->first();
+        $this->assertNotNull($report);
+        $this->assertEqualsWithDelta(100.0, (float) $report->delivery, 0.001);
+        $this->assertEqualsWithDelta(1000.0, (float) $report->sales_amount, 0.001);
+        $this->assertEqualsWithDelta(900.0, (float) $report->itog, 0.001);
+        $this->assertEqualsWithDelta(900.0, (float) $report->margin, 0.001);
+
+        $sale = Item::query()
+            ->where('report_id', $report->id)
+            ->where('supplier_oper_name', 'Продажа')
+            ->first();
+        $this->assertNotNull($sale);
+        $this->assertEqualsWithDelta(100.0, (float) $sale->delivery, 0.001);
+        $this->assertEqualsWithDelta(900.0, (float) $sale->margin, 0.001);
+
+        $correction = Item::query()
+            ->where('report_id', $report->id)
+            ->where('supplier_oper_name', 'Коррекция стоимости доставки')
+            ->first();
+        $this->assertNotNull($correction);
+        $this->assertEqualsWithDelta(20.0, (float) $correction->sum_to_transfer, 0.001);
+        $this->assertEqualsWithDelta(20.0, (float) $correction->logistics, 0.001);
+    }
+
+    public function test_workspace_exposes_return_compensation_in_other_group(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Compensation Items Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 1,
+            'sales_amount' => 1000,
+            'return_compensation' => 150,
+            'itog' => 1150,
+            'margin' => 1150,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 333,
+            'sa_name' => 'COMP-A',
+            'supplier_oper_name' => 'Добровольная компенсация при возврате',
+            'quantity' => 1,
+            'sum_to_transfer' => 150,
+        ]);
+
+        Cache::flush();
+
+        $this->actingAs($user)
+            ->get('/panel/wb/profitability')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('groupMeta.other', 1)
+                ->where('report.return_compensation', 150));
+
+        $this->actingAs($user)
+            ->getJson('/panel/wb/profitability/items?group=other')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.sa_name', 'COMP-A')
+            ->assertJsonPath('data.0.type', 'Компенсация при возврате')
+            ->assertJsonPath('data.0.sum_to_transfer', 150);
+    }
+
+    public function test_process_report_adds_return_compensation_sale_and_subtracts_return(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Compensation Job Cabinet');
+
+        $this->ensurePriceCalcV3Table();
+
+        $api = \Mockery::mock(ProfitabilityApiService::class);
+        $api->shouldReceive('getReportDetailByPeriod')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    [
+                        'sellerOperName' => 'Продажа',
+                        'forPay' => 1000,
+                        'retailAmount' => 1000,
+                        'quantity' => 1,
+                        'nmId' => 444,
+                        'vendorCode' => 'SKU-4',
+                        'sku' => 'barcode-4',
+                        'officeName' => 'Коледино',
+                        'cashbackAmount' => 10,
+                        'cashbackDiscount' => 5,
+                    ],
+                    [
+                        'sellerOperName' => 'Добровольная компенсация при возврате',
+                        'docTypeName' => 'Продажа',
+                        'forPay' => 200,
+                        'quantity' => 1,
+                        'nmId' => 444,
+                        'vendorCode' => 'SKU-4',
+                        'sku' => 'barcode-4',
+                        'officeName' => 'Коледино',
+                    ],
+                    [
+                        'sellerOperName' => 'Добровольная компенсация при возврате',
+                        'docTypeName' => 'Возврат',
+                        'forPay' => 50,
+                        'quantity' => 1,
+                        'nmId' => 444,
+                        'vendorCode' => 'SKU-4',
+                        'sku' => 'barcode-4',
+                        'officeName' => 'Коледино',
+                    ],
+                    [
+                        'sellerOperName' => 'Компенсация скидки по программе лояльности',
+                        'forPay' => 999,
+                        'nmId' => 444,
+                    ],
+                    [
+                        'sellerOperName' => 'Возмещение за выдачу и возврат товаров на ПВЗ',
+                        'forPay' => 888,
+                        'nmId' => 444,
+                    ],
+                    [
+                        'sellerOperName' => 'Возмещение издержек по перевозке/по складским операциям с товаром',
+                        'forPay' => 777,
+                        'nmId' => 444,
+                    ],
+                    [
+                        'sellerOperName' => 'Возмещение издержек по перемещению и операционной обработке товара',
+                        'forPay' => 666,
+                        'nmId' => 444,
+                    ],
+                ],
+            ]);
+
+        $job = new ProcessProfitabilityReport(
+            (int) $cabinet->id,
+            '2026-03-01',
+            '2026-03-07',
+            (int) $user->id
+        );
+        $job->handle($api);
+
+        $report = Report::query()->where('cabinet_id', $cabinet->id)->first();
+        $this->assertNotNull($report);
+        $this->assertEqualsWithDelta(150.0, (float) $report->return_compensation, 0.001);
+        $this->assertEqualsWithDelta(15.0, (float) $report->cashback, 0.001);
+        // 1000 продажи - 15 кэшбэк + 200 компенсация - 50 сторно = 1135
+        $this->assertEqualsWithDelta(1135.0, (float) $report->itog, 0.001);
+
+        $compensationRows = Item::query()
+            ->where('report_id', $report->id)
+            ->where('supplier_oper_name', 'Добровольная компенсация при возврате')
+            ->orderBy('id')
+            ->get();
+        $this->assertCount(2, $compensationRows);
+        $this->assertEqualsWithDelta(200.0, (float) $compensationRows[0]->sum_to_transfer, 0.001);
+        $this->assertEqualsWithDelta(-50.0, (float) $compensationRows[1]->sum_to_transfer, 0.001);
+
+        $ignoredCount = Item::query()
+            ->where('report_id', $report->id)
+            ->whereIn('supplier_oper_name', [
+                'Компенсация скидки по программе лояльности',
+                'Возмещение за выдачу и возврат товаров на ПВЗ',
+                'Возмещение издержек по перевозке/по складским операциям с товаром',
+                'Возмещение издержек по перемещению и операционной обработке товара',
+            ])
+            ->count();
+        $this->assertSame(0, $ignoredCount);
+    }
+
     public function test_cabinet_show_survives_widget_items_without_sales_rows(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
@@ -468,12 +929,12 @@ class WbProfitabilityTest extends WebAuthTestCase
 
         // Run job synchronously for test
         (new ExportProfitabilityReportJob($cabinet->id, $user->id, $report->id))->handle(
-            app(\App\Services\Subscriber\Wb\WbProfitabilityReportService::class)
+            app(WbProfitabilityReportService::class)
         );
 
         $expectedPath = "wb/profitability/{$user->id}/{$cabinet->id}/{$report->id}.xlsx";
         $this->assertTrue(
-            \Illuminate\Support\Facades\Storage::disk('private')->exists($expectedPath),
+            Storage::disk('private')->exists($expectedPath),
             'Export file must be stored under private/wb/profitability'
         );
 
@@ -530,7 +991,7 @@ class WbProfitabilityTest extends WebAuthTestCase
             ->assertJsonPath('status', 'processing');
 
         (new ExportProfitabilityReportJob($cabinet->id, $user->id, $report->id))->handle(
-            app(\App\Services\Subscriber\Wb\WbProfitabilityReportService::class)
+            app(WbProfitabilityReportService::class)
         );
 
         Queue::fake();
@@ -581,7 +1042,7 @@ class WbProfitabilityTest extends WebAuthTestCase
             ->assertOk();
 
         (new ExportProfitabilityReportJob($cabinet->id, $user->id, $report->id))->handle(
-            app(\App\Services\Subscriber\Wb\WbProfitabilityReportService::class)
+            app(WbProfitabilityReportService::class)
         );
 
         $exportState = Cache::get('profitability_export_'.$cabinet->id);
@@ -589,7 +1050,7 @@ class WbProfitabilityTest extends WebAuthTestCase
         $oldPath = $exportState['path'] ?? null;
         $this->assertNotEmpty($oldPath);
         $this->assertTrue(
-            \Illuminate\Support\Facades\Storage::disk('private')->exists($oldPath)
+            Storage::disk('private')->exists($oldPath)
         );
 
         // Симулируем пересчёт: тот же report_id, новые даты/данные + updated_at
@@ -604,11 +1065,11 @@ class WbProfitabilityTest extends WebAuthTestCase
         ]);
         $report->refresh();
 
-        app(\App\Services\Subscriber\Wb\WbProfitabilityReportService::class)
+        app(WbProfitabilityReportService::class)
             ->invalidateExportCache((int) $cabinet->id);
 
         $this->assertFalse(
-            \Illuminate\Support\Facades\Storage::disk('private')->exists($oldPath),
+            Storage::disk('private')->exists($oldPath),
             'Старый export-файл должен быть удалён при инвалидации'
         );
         $this->assertNull(Cache::get('profitability_export_'.$cabinet->id));
@@ -617,7 +1078,7 @@ class WbProfitabilityTest extends WebAuthTestCase
         // восстанавливаем «устаревший» done-state с старым report_updated_at
         $staleUpdatedAt = now()->subDay()->utc()->format('Y-m-d\TH:i:s.u\Z');
         $relativePath = "wb/profitability/{$user->id}/{$cabinet->id}/{$report->id}.xlsx";
-        \Illuminate\Support\Facades\Storage::disk('private')->put($relativePath, 'stale-xlsx-bytes');
+        Storage::disk('private')->put($relativePath, 'stale-xlsx-bytes');
 
         Cache::put('profitability_export_'.$cabinet->id, [
             'status' => 'done',
@@ -857,6 +1318,23 @@ class WbProfitabilityTest extends WebAuthTestCase
         ]);
     }
 
+    private function ensurePriceCalcV3Table(): void
+    {
+        if (Schema::hasTable('wb_price_calc_v3_data')) {
+            return;
+        }
+
+        Schema::create('wb_price_calc_v3_data', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('cabinet_id');
+            $table->unsignedBigInteger('nm_id')->nullable();
+            $table->string('barcode')->nullable();
+            $table->decimal('cost_price', 12, 2)->nullable();
+            $table->softDeletes();
+            $table->timestamps();
+        });
+    }
+
     private function createUnifiedCabinet(User $user, string $name): WbCabinet
     {
         $cabinet = WbCabinet::query()->create([
@@ -915,12 +1393,14 @@ class WbProfitabilityTest extends WebAuthTestCase
                 $table->decimal('percent_buy', 8, 2)->default(0);
                 $table->decimal('penalties', 14, 2)->default(0);
                 $table->decimal('logistics', 14, 2)->default(0);
+                $table->decimal('delivery', 14, 2)->default(0);
                 $table->decimal('purchase_cost', 14, 2)->default(0);
                 $table->decimal('margin', 14, 2)->default(0);
                 $table->decimal('deduction', 14, 2)->default(0);
                 $table->decimal('storage_fee', 14, 2)->default(0);
                 $table->decimal('acceptance', 14, 2)->default(0);
                 $table->decimal('cashback', 14, 2)->default(0);
+                $table->decimal('return_compensation', 14, 2)->default(0);
                 $table->decimal('dop_rashod', 14, 2)->default(0);
                 $table->decimal('nalog', 14, 2)->default(0);
                 $table->decimal('nalog_percent', 5, 2)->default(0);
@@ -947,6 +1427,7 @@ class WbProfitabilityTest extends WebAuthTestCase
                 $table->decimal('sum_to_transfer', 14, 2)->default(0);
                 $table->decimal('purchase_cost', 14, 2)->default(0);
                 $table->decimal('logistics', 14, 2)->default(0);
+                $table->decimal('delivery', 14, 2)->default(0);
                 $table->decimal('cost_adjustments', 14, 2)->default(0);
                 $table->decimal('dop_rashod', 14, 2)->default(0);
                 $table->decimal('cashback', 14, 2)->default(0);
@@ -954,6 +1435,24 @@ class WbProfitabilityTest extends WebAuthTestCase
                 $table->decimal('margin', 14, 2)->default(0);
                 $table->decimal('profitability_percent', 8, 2)->default(0);
                 $table->timestamps();
+            });
+        }
+
+        if (Schema::hasTable('wb_profitability_reports') && ! Schema::hasColumn('wb_profitability_reports', 'delivery')) {
+            Schema::table('wb_profitability_reports', function (Blueprint $table) {
+                $table->decimal('delivery', 14, 2)->default(0);
+            });
+        }
+
+        if (Schema::hasTable('wb_profitability_items') && ! Schema::hasColumn('wb_profitability_items', 'delivery')) {
+            Schema::table('wb_profitability_items', function (Blueprint $table) {
+                $table->decimal('delivery', 14, 2)->default(0);
+            });
+        }
+
+        if (Schema::hasTable('wb_profitability_reports') && ! Schema::hasColumn('wb_profitability_reports', 'return_compensation')) {
+            Schema::table('wb_profitability_reports', function (Blueprint $table) {
+                $table->decimal('return_compensation', 14, 2)->default(0);
             });
         }
 

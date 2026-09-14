@@ -150,6 +150,10 @@ class WbCabinetApiKeyValidator
                 'url' => 'https://statistics-api.wildberries.ru/ping',
             ],
             [
+                'label' => 'Аналитика (Analytics API)',
+                'url' => 'https://seller-analytics-api.wildberries.ru/ping',
+            ],
+            [
                 'label' => 'Цены и скидки (Discounts Prices API)',
                 'url' => 'https://discounts-prices-api.wildberries.ru/ping',
             ],

@@ -3,7 +3,6 @@
 namespace App\Models\Subscribers\Wb\Profitability;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Subscribers\Wb\Profitability\Report;
 
 class Item extends Model
 {
@@ -23,6 +22,7 @@ class Item extends Model
         'sum_to_transfer',
         'purchase_cost',
         'logistics',
+        'delivery',
         'cost_adjustments',
         'dop_rashod',
         'cashback',
@@ -35,6 +35,7 @@ class Item extends Model
         'sum_to_transfer' => 'float',
         'purchase_cost' => 'float',
         'logistics' => 'float',
+        'delivery' => 'float',
         'cost_adjustments' => 'float',
         'dop_rashod' => 'float',
         'cashback' => 'float',

@@ -3,32 +3,33 @@
 namespace App\Jobs;
 
 use App\Models\JobStatus;
-use Illuminate\Bus\Queueable;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Bus\Dispatchable;
-use Throwable;
-use App\Services\Subscriber\Wb\WbProfitabilityReportService;
-use App\Services\Wb\ProfitabilityApiService;
+use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
 use App\Models\Subscribers\Wb\Profitability\Item;
 use App\Models\Subscribers\Wb\Profitability\Report;
 use App\Models\Subscribers\Wb\WbCabinet;
-use App\Models\Subscribers\Wb\PriceCalculation\PriceCalculationV3Data;
-
 use App\Notifications\WbCabinetAuthorizationNotification;
+use App\Services\Subscriber\Wb\WbProfitabilityReportService;
+use App\Services\Wb\ProfitabilityApiService;
 use App\Support\ProfitabilityJobStatusPresenter;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class ProcessProfitabilityReport implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $timeout = 1800; // 30 минут на случай больших отчётов
+
     public int $tries = 1;
+
     public ?int $statusRecordId = null;
 
     public function __construct(
@@ -46,6 +47,7 @@ class ProcessProfitabilityReport implements ShouldQueue
             Log::warning('[ProfitabilityReport] Джоба отклонена — уже выполняется', [
                 'cabinet_id' => $this->cabinetId,
             ]);
+
             return;
         }
 
@@ -56,16 +58,25 @@ class ProcessProfitabilityReport implements ShouldQueue
             $cabinet = WbCabinet::findOrFail($this->cabinetId);
 
             $operations = [
-                'logistics'            => 'Логистика',
-                'returns'              => 'Возврат',
-                'sales'                => 'Продажа',
-                'storage'              => 'Хранение',
-                'penalty'              => 'Штраф',
-                'acceptance'           => 'Платная приемка',
-                'withholdings'         => 'Удержание',
+                'logistics' => 'Логистика',
+                'delivery' => 'Доставка',
+                'returns' => 'Возврат',
+                'sales' => 'Продажа',
+                'storage' => 'Хранение',
+                'penalty' => 'Штраф',
+                'acceptance' => 'Платная приемка',
+                'withholdings' => 'Удержание',
                 'logistics_correction' => 'Коррекция логистики',
-                'sales_correction'     => 'Коррекция продаж',
-                'cashback'             => 'Добровольная компенсация при возврате'
+                'delivery_correction' => 'Коррекция стоимости доставки',
+                'sales_correction' => 'Коррекция продаж',
+                'return_compensation' => 'Добровольная компенсация при возврате',
+            ];
+
+            $ignoredOperations = [
+                'Компенсация скидки по программе лояльности',
+                'Возмещение за выдачу и возврат товаров на ПВЗ',
+                'Возмещение издержек по перевозке/по складским операциям с товаром',
+                'Возмещение издержек по перемещению и операционной обработке товара',
             ];
 
             $operationKeys = array_flip($operations);
@@ -84,6 +95,8 @@ class ProcessProfitabilityReport implements ShouldQueue
                 'nalog' => 0,
                 'sales_correction' => 0,
                 'logistics' => 0,
+                'delivery' => 0,
+                'return_compensation' => 0,
             ];
 
             $dopRashodTotal = max((float) $this->dopRashod, 0);
@@ -109,7 +122,7 @@ class ProcessProfitabilityReport implements ShouldQueue
                 Log::error('[ProfitabilityReport] Ошибка парсинга даты, используются сырые данные', [
                     'date_from' => $this->dateFrom,
                     'date_to' => $this->dateTo,
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ]);
                 // Fallback to previous method if Carbon fails
                 $dateFromIso = date('Y-m-d', strtotime($this->dateFrom));
@@ -174,6 +187,11 @@ class ProcessProfitabilityReport implements ShouldQueue
 
                 foreach ($rows as $row) {
                     $operationName = $this->rowValue($row, 'sellerOperName', 'supplier_oper_name');
+
+                    if (in_array((string) $operationName, $ignoredOperations, true)) {
+                        continue;
+                    }
+
                     $operationKey = $operationName && isset($operationKeys[$operationName])
                         ? $operationKeys[$operationName]
                         : null;
@@ -217,6 +235,15 @@ class ProcessProfitabilityReport implements ShouldQueue
                             $logisticsCost = $amount;
                             $logisticsSum2 += $amount;
                             break;
+                        case 'delivery':
+                        case 'delivery_correction':
+                            $rawDelivery = $this->rowValue($row, 'deliveryService', 'delivery_rub', null);
+                            $amount = ($rawDelivery !== null && $rawDelivery !== '')
+                                ? (float) $rawDelivery
+                                : (float) $this->rowValue($row, 'forPay', 'ppvz_for_pay', 0);
+                            $logisticsCost = $amount;
+                            $totals['delivery'] += $amount;
+                            break;
                         case 'acceptance':
                             $amount = (float) $this->rowValue($row, 'paidAcceptance', 'acceptance', 0);
                             $totals['acceptance'] += $amount;
@@ -241,6 +268,13 @@ class ProcessProfitabilityReport implements ShouldQueue
                             $totals['sales_correction'] += $value;
                             $amount = 0;
                             break;
+                        case 'return_compensation':
+                            $amount = (float) $this->rowValue($row, 'forPay', 'ppvz_for_pay', 0);
+                            if ($this->rowValue($row, 'docTypeName', 'doc_type_name', '') === 'Возврат') {
+                                $amount *= -1;
+                            }
+                            $totals['return_compensation'] += $amount;
+                            break;
                         default:
                             $amount = 0;
                             break;
@@ -250,22 +284,23 @@ class ProcessProfitabilityReport implements ShouldQueue
                     $profitMargin = 0;
 
                     $itemsData[] = new Item([
-                        'nm_id'                 => $this->rowValue($row, 'nmId', 'nm_id'),
-                        'sa_name'               => $this->rowValue($row, 'vendorCode', 'sa_name'),
-                        'supplier_oper_name'    => $operationName,
-                        'reasoning'             => $this->rowValue($row, 'bonusTypeName', 'bonus_type_name'),
-                        'size'                  => $this->rowValue($row, 'techSize', 'ts_name'),
-                        'barcode'               => $this->rowValue($row, 'sku', 'barcode'),
-                        'warehouse'             => $this->rowValue($row, 'officeName', 'office_name'),
-                        'quantity'              => $quantity,
-                        'sum_to_transfer'       => $amount,
-                        'purchase_cost'         => (float) ($purchaseCost ?? 0),
-                        'logistics'             => $logisticsCost,
-                        'cost_adjustments'      => 0,
-                        'dop_rashod'            => 0,
-                        'cashback'              => $cashback,
-                        'nalog'                 => $nalogAmount,
-                        'margin'                => $profitMargin,
+                        'nm_id' => $this->rowValue($row, 'nmId', 'nm_id'),
+                        'sa_name' => $this->rowValue($row, 'vendorCode', 'sa_name'),
+                        'supplier_oper_name' => $operationName,
+                        'reasoning' => $this->rowValue($row, 'bonusTypeName', 'bonus_type_name'),
+                        'size' => $this->rowValue($row, 'techSize', 'ts_name'),
+                        'barcode' => $this->rowValue($row, 'sku', 'barcode'),
+                        'warehouse' => $this->rowValue($row, 'officeName', 'office_name'),
+                        'quantity' => $quantity,
+                        'sum_to_transfer' => $amount,
+                        'purchase_cost' => (float) ($purchaseCost ?? 0),
+                        'logistics' => $logisticsCost,
+                        'delivery' => 0,
+                        'cost_adjustments' => 0,
+                        'dop_rashod' => 0,
+                        'cashback' => $cashback,
+                        'nalog' => $nalogAmount,
+                        'margin' => $profitMargin,
                         'profitability_percent' => 0,
                     ]);
                 }
@@ -306,13 +341,15 @@ class ProcessProfitabilityReport implements ShouldQueue
             $totals['nalog'] = round($totals['nalog'], 2);
             $totals['sales_correction'] = round($totals['sales_correction'], 2);
             $totals['logistics'] = round($logisticsSum1 + $logisticsSum2, 2);
+            $totals['delivery'] = round($totals['delivery'], 2);
+            $totals['return_compensation'] = round($totals['return_compensation'], 2);
 
             $this->applyPurchaseCostsAndBaseMargins($itemsData, $totals, $operations, $costLookup);
 
             $logisticsSumByNmId = [];
             $salesCountByNmId = [];
             foreach ($itemsData as $item) {
-                if (!$item->nm_id) {
+                if (! $item->nm_id) {
                     continue;
                 }
 
@@ -336,6 +373,29 @@ class ProcessProfitabilityReport implements ShouldQueue
                 }
             }
 
+            $deliverySumByNmId = [];
+            foreach ($itemsData as $item) {
+                if (! $item->nm_id) {
+                    continue;
+                }
+
+                if (in_array($item->supplier_oper_name, [
+                    $operations['delivery'],
+                    $operations['delivery_correction'],
+                ], true)) {
+                    $deliverySumByNmId[$item->nm_id] = ($deliverySumByNmId[$item->nm_id] ?? 0)
+                        + (float) ($item->logistics ?: $item->sum_to_transfer);
+                }
+            }
+
+            $deliveryByNmId = [];
+            foreach ($deliverySumByNmId as $nmId => $sum) {
+                $count = $salesCountByNmId[$nmId] ?? 0;
+                if ($count > 0) {
+                    $deliveryByNmId[$nmId] = $this->safeDivide($sum, $count);
+                }
+            }
+
             foreach ($itemsData as $item) {
                 if (
                     $item->nm_id &&
@@ -343,6 +403,14 @@ class ProcessProfitabilityReport implements ShouldQueue
                     isset($logisticsByNmId[$item->nm_id])
                 ) {
                     $item->logistics = $logisticsByNmId[$item->nm_id];
+                }
+
+                if (
+                    $item->nm_id &&
+                    $item->supplier_oper_name === $operations['sales'] &&
+                    isset($deliveryByNmId[$item->nm_id])
+                ) {
+                    $item->delivery = $deliveryByNmId[$item->nm_id];
                 }
             }
 
@@ -400,6 +468,7 @@ class ProcessProfitabilityReport implements ShouldQueue
 
                     $item->margin = $item->margin
                         - $item->logistics
+                        - (float) ($item->delivery ?? 0)
                         - $item->cost_adjustments
                         - (float) ($item->cashback ?? 0)
                         - (float) ($item->nalog ?? 0)
@@ -418,8 +487,8 @@ class ProcessProfitabilityReport implements ShouldQueue
                         'cabinet_id' => $cabinet->id,
                     ],
                     [
-                        'date_from'  => $this->dateFrom,
-                        'date_to'    => $this->dateTo,
+                        'date_from' => $this->dateFrom,
+                        'date_to' => $this->dateTo,
                         ...$totals,
                     ]
                 );
@@ -430,9 +499,10 @@ class ProcessProfitabilityReport implements ShouldQueue
 
                 $revenue = $totals['sales_amount'];
                 $salesCorrection = $totals['sales_correction'] ?? 0;
-                $costs   = ($totals['returns_amount'] ?? 0)
+                $costs = ($totals['returns_amount'] ?? 0)
                     + ($totals['penalties'] ?? 0)
                     + ($totals['logistics'] ?? 0)
+                    + ($totals['delivery'] ?? 0)
                     + ($totals['deduction'] ?? 0)
                     + ($totals['storage_fee'] ?? 0)
                     + ($totals['cashback'] ?? 0)
@@ -442,17 +512,19 @@ class ProcessProfitabilityReport implements ShouldQueue
                     + ($salesCorrection < 0 ? abs($salesCorrection) : 0)
                     + ($totals['acceptance'] ?? 0);
 
-                $total  = $revenue - $costs;
-                $profit  = $total - ($totals['purchase_cost'] ?? 0);
+                $total = $revenue - $costs + ($totals['return_compensation'] ?? 0);
+                $profit = $total - ($totals['purchase_cost'] ?? 0);
 
                 $profitabilityPercent = ($totals['purchase_cost'] ?? 0) > 0
                     ? round($this->safeDivide($profit, $totals['purchase_cost']) * 100, 2)
                     : 0;
 
                 $report->update([
-                    'purchase_cost'     => $totals['purchase_cost'],
-                    'margin'     => $profit,
+                    'purchase_cost' => $totals['purchase_cost'],
+                    'margin' => $profit,
                     'cashback' => $totals['cashback'],
+                    'delivery' => $totals['delivery'],
+                    'return_compensation' => $totals['return_compensation'],
                     'dop_rashod' => $dopRashodTotal,
                     'nalog' => $totals['nalog'],
                     'nalog_percent' => $nalogPercent,
@@ -670,7 +742,7 @@ class ProcessProfitabilityReport implements ShouldQueue
 
         $message = $message ?: 'unknown error';
 
-        return 'Ошибка API: ' . $message . ($code ? " (код: {$code})" : '');
+        return 'Ошибка API: '.$message.($code ? " (код: {$code})" : '');
     }
 
     private function safeDivide(float $numerator, float $denominator): float
@@ -751,6 +823,7 @@ class ProcessProfitabilityReport implements ShouldQueue
 
             if ($item->supplier_oper_name === $operations['returns']) {
                 $totals['purchase_cost'] -= $purchaseCost;
+
                 continue;
             }
 
@@ -787,7 +860,7 @@ class ProcessProfitabilityReport implements ShouldQueue
     }
 
     /**
-     * @param array<string, array{sum: float, count: int}> $buckets
+     * @param  array<string, array{sum: float, count: int}>  $buckets
      */
     private function addCostToBucket(array &$buckets, string $key, float $cost): void
     {
@@ -800,7 +873,7 @@ class ProcessProfitabilityReport implements ShouldQueue
     }
 
     /**
-     * @param array<string, array{sum: float, count: int}> $buckets
+     * @param  array<string, array{sum: float, count: int}>  $buckets
      * @return array<string, float>
      */
     private function finalizeCostBuckets(array $buckets): array

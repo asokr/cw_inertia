@@ -93,4 +93,27 @@ final class WbBasketHost
     {
         return self::number(self::vol($nmId));
     }
+
+    /**
+     * URL первой миниатюры карточки на CDN WB.
+     */
+    public static function smallImageUrl(int|string $nmId, int $photoIndex = 1): ?string
+    {
+        $nmId = (int) $nmId;
+        if ($nmId <= 0 || $photoIndex < 1) {
+            return null;
+        }
+
+        $vol = self::vol($nmId);
+        $part = self::part($nmId);
+
+        return sprintf(
+            (string) config('wbConstants.URLS.IMAGES.SMALL'),
+            self::number($vol),
+            $vol,
+            $part,
+            (string) $nmId,
+            $photoIndex
+        );
+    }
 }
