@@ -300,10 +300,6 @@ Route::middleware(['permission:subscriber wb stock history'])
     ->group(function () {
         Route::get('/', [WbStockHistoryWorkspaceController::class, 'show'])->name('index');
         Route::get('/status', [WbStockHistoryWorkspaceController::class, 'status'])->name('status');
-        Route::get('/stocks/{nmId}/{chrtId}', [WbStockHistoryWorkspaceController::class, 'stockWarehouses'])
-            ->whereNumber('nmId')
-            ->whereNumber('chrtId')
-            ->name('stocks.warehouses');
         Route::post('/stocks/load', [WbStockHistoryWorkspaceController::class, 'loadStocks'])->name('stocks.load');
         Route::post('/stocks/refresh', [WbStockHistoryWorkspaceController::class, 'refreshStocks'])->name('stocks.refresh');
         Route::post('/stocks/start', [WbStockHistoryWorkspaceController::class, 'startStocks'])->name('stocks.start');

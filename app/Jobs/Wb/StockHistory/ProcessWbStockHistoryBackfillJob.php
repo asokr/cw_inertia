@@ -6,7 +6,6 @@ use App\Enums\WbHistoryLoadStatus;
 use App\Models\Subscribers\Wb\StockHistory\WbStockHistorySetting;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Services\Wb\StockHistory\WbStockHistorySyncService;
-use App\Support\Wb\WbStockHistoryCalendar;
 use App\Support\Wb\WbStockHistoryJobStatus;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -98,10 +97,11 @@ class ProcessWbStockHistoryBackfillJob implements ShouldBeUnique, ShouldQueue
                 'Уточняем текущие остатки',
                 75,
             );
-            $warehouses = $syncService->importWarehouseSnapshot($cabinet, WbStockHistoryCalendar::todayDate());
-            $warehouseWarning = ($warehouses['success'] ?? false)
+            // WB не отдаёт склады: текущие остатки и «в пути» — из wb-warehouses.
+            $current = $syncService->importCurrentStocks($cabinet);
+            $currentWarning = ($current['success'] ?? false)
                 ? null
-                : ($warehouses['messages'][0] ?? null);
+                : ($current['messages'][0] ?? null);
 
             WbStockHistoryJobStatus::stage(
                 $this->cabinetId,
@@ -117,7 +117,7 @@ class ProcessWbStockHistoryBackfillJob implements ShouldBeUnique, ShouldQueue
             $settings->stocks_status = $settings->stocks_tracking_enabled
                 ? WbHistoryLoadStatus::Active
                 : WbHistoryLoadStatus::Idle;
-            $settings->stocks_last_error = $warehouseWarning;
+            $settings->stocks_last_error = $currentWarning;
             $settings->save();
             WbStockHistoryJobStatus::done(
                 $this->cabinetId,

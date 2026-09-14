@@ -28,8 +28,6 @@ class WbStockHistorySyncService
 
     private const CURRENT_STOCKS_TTL_SECONDS = 86400;
 
-    private const OFFICES_TTL_SECONDS = 21600;
-
     public function __construct(
         private readonly WbStockHistoryApiClient $apiClient,
     ) {}
@@ -138,7 +136,7 @@ class WbStockHistorySyncService
         $dates = $this->dateList($from, $to);
         $existing = [];
         if ($force) {
-            // Перезаписываем дни целиком: иначе старые снимки по складам смешаются с отчётом WB.
+            // Перезаписываем дни целиком: иначе старые строки смешаются с отчётом WB.
             WbStockHistoryItem::query()
                 ->where('cabinet_id', $cabinet->id)
                 ->whereBetween('stock_date', [$from, $to])
@@ -179,9 +177,7 @@ class WbStockHistorySyncService
             ],
         ];
         $totals = [];
-        $named = [];
         $writeSet = array_fill_keys($datesToWrite, true);
-        $offices = $this->officesMap($cabinet);
 
         foreach ($rows as $row) {
             $nmId = (int) ($row['nmId'] ?? 0);
@@ -205,20 +201,12 @@ class WbStockHistorySyncService
                 'updated_at' => $now,
             ];
 
-            $warehouseId = (int) ($row['warehouseId'] ?? 0);
-            $resolved = $this->resolveWarehouse($warehouseId, (string) ($row['officeName'] ?? ''), $offices);
-
             foreach ((array) ($row['stocks'] ?? []) as $date => $qty) {
                 $iso = (string) $date;
                 if (! isset($writeSet[$iso])) {
                     continue;
                 }
-                $qty = max(0, (int) $qty);
-                $totals[$productKey][$iso] = ($totals[$productKey][$iso] ?? 0) + $qty;
-                if ($resolved !== null) {
-                    $named[$resolved['key']]['warehouse'] = $resolved;
-                    $named[$resolved['key']]['qty'][$productKey][$iso] = ($named[$resolved['key']]['qty'][$productKey][$iso] ?? 0) + $qty;
-                }
+                $totals[$productKey][$iso] = ($totals[$productKey][$iso] ?? 0) + max(0, (int) $qty);
             }
         }
 
@@ -236,32 +224,6 @@ class WbStockHistorySyncService
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
-            }
-        }
-        foreach ($named as $pack) {
-            $warehouse = $pack['warehouse'];
-            $warehouses[$warehouse['key']] = [
-                'cabinet_id' => $cabinet->id,
-                'warehouse_key' => $warehouse['key'],
-                'warehouse_id' => $warehouse['id'],
-                'warehouse_name' => $this->cut($warehouse['name']),
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-            foreach ($pack['qty'] as $productKey => $byDate) {
-                [$nmId, $chrtId] = array_map('intval', explode(':', $productKey, 2));
-                foreach ($byDate as $iso => $qty) {
-                    $items[] = [
-                        'cabinet_id' => $cabinet->id,
-                        'nm_id' => $nmId,
-                        'chrt_id' => $chrtId,
-                        'warehouse_key' => $warehouse['key'],
-                        'stock_date' => $iso,
-                        'qty' => $qty,
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ];
-                }
             }
         }
 
@@ -437,28 +399,22 @@ class WbStockHistorySyncService
     }
 
     /**
-     * Снимок остатков по складам WB на дату (warehouseId → имя из /api/v3/offices).
+     * Текущие остатки и «в пути» из wb-warehouses. Разбивки по складам у WB нет.
      *
      * @return array{success: bool, messages: list<string>}
      */
-    public function importWarehouseSnapshot(WbCabinet $cabinet, string $date): array
+    public function importCurrentStocks(WbCabinet $cabinet): array
     {
-        $offices = $this->officesMap($cabinet);
-
         try {
             $rows = $this->apiClient->fetchCurrentStocks((string) $cabinet->apikey);
         } catch (Throwable $e) {
             return [
                 'success' => false,
-                'messages' => [$this->userError($e, 'Не удалось загрузить остатки по складам.')],
+                'messages' => [$this->userError($e, 'Не удалось загрузить текущие остатки.')],
             ];
         }
 
-        $now = now();
-        $warehouses = [];
-        $items = [];
         $current = [];
-
         foreach ($rows as $row) {
             $nmId = (int) ($row['nmId'] ?? 0);
             $chrtId = (int) ($row['chrtId'] ?? 0);
@@ -471,101 +427,24 @@ class WbStockHistorySyncService
                     'quantity' => 0,
                     'in_way_to_client' => 0,
                     'in_way_from_client' => 0,
-                    'warehouses' => [],
                 ];
             }
-            $qty = (int) ($row['quantity'] ?? 0);
+            $current[$sizeKey]['quantity'] += (int) ($row['quantity'] ?? 0);
             $current[$sizeKey]['in_way_to_client'] += (int) ($row['inWayToClient'] ?? 0);
             $current[$sizeKey]['in_way_from_client'] += (int) ($row['inWayFromClient'] ?? 0);
-
-            $resolved = $this->resolveWarehouse(
-                (int) ($row['warehouseId'] ?? 0),
-                (string) ($row['warehouseName'] ?? ''),
-                $offices,
-            );
-            if ($resolved === null) {
-                $current[$sizeKey]['quantity'] += $qty;
-
-                continue;
-            }
-
-            $current[$sizeKey]['quantity'] += $qty;
-            $current[$sizeKey]['warehouses'][] = [
-                'warehouse_key' => $resolved['key'],
-                'name' => $resolved['name'],
-                'quantity' => $qty,
-            ];
-            $warehouses[$resolved['key']] = [
-                'cabinet_id' => $cabinet->id,
-                'warehouse_key' => $resolved['key'],
-                'warehouse_id' => $resolved['id'],
-                'warehouse_name' => $this->cut($resolved['name']),
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-            $items[] = [
-                'cabinet_id' => $cabinet->id,
-                'nm_id' => $nmId,
-                'chrt_id' => $chrtId,
-                'warehouse_key' => $resolved['key'],
-                'stock_date' => $date,
-                'qty' => max(0, $qty),
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
         }
-
-        foreach ($current as &$item) {
-            $byKey = [];
-            foreach ($item['warehouses'] as $warehouse) {
-                $key = $warehouse['warehouse_key'];
-                if (! isset($byKey[$key])) {
-                    $byKey[$key] = $warehouse;
-                    continue;
-                }
-                $byKey[$key]['quantity'] += (int) $warehouse['quantity'];
-            }
-            $list = array_values($byKey);
-            usort($list, static function (array $a, array $b): int {
-                return [$b['quantity'], $a['name']] <=> [$a['quantity'], $b['name']];
-            });
-            $item['warehouses'] = array_values(array_filter(
-                $list,
-                static fn (array $row): bool => (int) $row['quantity'] > 0,
-            ));
-        }
-        unset($item);
 
         Cache::put($this->currentStocksCacheKey((int) $cabinet->id), $current, self::CURRENT_STOCKS_TTL_SECONDS);
 
-        if ($warehouses !== []) {
-            DB::transaction(function () use ($cabinet, $warehouses, $items, $date, $now): void {
-                foreach (array_chunk(array_values($warehouses), self::UPSERT_CHUNK) as $chunk) {
-                    WbStockHistoryWarehouse::query()->upsert(
-                        $chunk,
-                        ['cabinet_id', 'warehouse_key'],
-                        ['warehouse_id', 'warehouse_name', 'updated_at'],
-                    );
-                }
-                foreach (array_chunk($items, self::UPSERT_CHUNK) as $chunk) {
-                    WbStockHistoryItem::query()->upsert(
-                        $chunk,
-                        ['cabinet_id', 'nm_id', 'chrt_id', 'warehouse_key', 'stock_date'],
-                        ['qty', 'updated_at'],
-                    );
-                }
-                WbStockHistoryDay::query()->upsert(
-                    [[
-                        'cabinet_id' => $cabinet->id,
-                        'stock_date' => $date,
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ]],
-                    ['cabinet_id', 'stock_date'],
-                    ['updated_at'],
-                );
-            });
-        }
+        // Старые строки разбивки по складам больше не показываем.
+        WbStockHistoryItem::query()
+            ->where('cabinet_id', $cabinet->id)
+            ->where('warehouse_key', '!=', self::TOTAL_WAREHOUSE_KEY)
+            ->delete();
+        WbStockHistoryWarehouse::query()
+            ->where('cabinet_id', $cabinet->id)
+            ->where('warehouse_key', '!=', self::TOTAL_WAREHOUSE_KEY)
+            ->delete();
 
         return [
             'success' => true,
@@ -576,12 +455,7 @@ class WbStockHistorySyncService
     /**
      * Текущие остатки из последнего снимка job. Страница API WB не вызывает.
      *
-     * @return array<string, array{
-     *     quantity: int,
-     *     in_way_to_client: int,
-     *     in_way_from_client: int,
-     *     warehouses: list<array{warehouse_key: string, name: string, quantity: int}>
-     * }>
+     * @return array<string, array{quantity: int, in_way_to_client: int, in_way_from_client: int}>
      */
     public function currentStocksBySize(int $cabinetId): array
     {
@@ -590,55 +464,9 @@ class WbStockHistorySyncService
         return is_array($cached) ? $cached : [];
     }
 
-    /**
-     * @return array<int, string>
-     */
-    public function officesMap(WbCabinet $cabinet): array
-    {
-        $cacheKey = 'wb-stock-history-offices-map-'.$cabinet->id;
-
-        return Cache::remember($cacheKey, self::OFFICES_TTL_SECONDS, function () use ($cabinet): array {
-            try {
-                return $this->apiClient->fetchOffices((string) $cabinet->apikey);
-            } catch (Throwable) {
-                return [];
-            }
-        });
-    }
-
-    /**
-     * @param  array<int, string>  $offices
-     * @return array{id: int, key: string, name: string}|null
-     */
-    public function resolveWarehouse(int $warehouseId, string $fallbackName, array $offices): ?array
-    {
-        if ($this->apiClient->isPlaceholderWarehouseId($warehouseId)) {
-            return null;
-        }
-
-        $name = trim((string) ($offices[$warehouseId] ?? ''));
-        if ($name === '') {
-            $name = trim($fallbackName);
-        }
-        if ($name === '' || $this->apiClient->isPlaceholderWarehouseName($name)) {
-            $name = 'Склад '.$warehouseId;
-        }
-
-        return [
-            'id' => $warehouseId,
-            'key' => (string) $warehouseId,
-            'name' => $name,
-        ];
-    }
-
     public function currentStocksCacheKey(int $cabinetId): string
     {
-        return 'wb-stock-history-current-v3-'.$cabinetId;
-    }
-
-    public function isPlaceholderWarehouseName(string $name): bool
-    {
-        return $this->apiClient->isPlaceholderWarehouseName($name);
+        return 'wb-stock-history-current-v4-'.$cabinetId;
     }
 
     public function pruneCabinet(int $cabinetId, int $retentionDays): int

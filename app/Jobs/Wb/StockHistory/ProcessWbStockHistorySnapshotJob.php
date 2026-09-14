@@ -62,13 +62,13 @@ class ProcessWbStockHistorySnapshotJob implements ShouldBeUnique, ShouldQueue
 
         try {
             $result = $syncService->importStockHistory($cabinet, $date, $date, false);
-            $warehouses = $syncService->importWarehouseSnapshot($cabinet, $date);
+            $current = $syncService->importCurrentStocks($cabinet);
             $settings->stocks_status = WbHistoryLoadStatus::Active;
             $error = null;
             if (! ($result['success'] ?? false)) {
                 $error = $result['messages'][0] ?? 'Не удалось обновить остатки за вчера.';
-            } elseif (! ($warehouses['success'] ?? false)) {
-                $error = $warehouses['messages'][0] ?? null;
+            } elseif (! ($current['success'] ?? false)) {
+                $error = $current['messages'][0] ?? null;
             }
             $settings->stocks_last_error = $error;
             $settings->save();

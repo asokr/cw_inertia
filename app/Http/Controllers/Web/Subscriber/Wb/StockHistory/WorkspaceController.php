@@ -96,29 +96,6 @@ class WorkspaceController extends SubscriberToolController
         ]);
     }
 
-    public function stockWarehouses(Request $request, int $nmId, int $chrtId): JsonResponse|Response
-    {
-        $cabinetOrResponse = $this->requireSelectedWbCabinetJson($request);
-        if (! $cabinetOrResponse instanceof WbCabinet) {
-            return $cabinetOrResponse;
-        }
-
-        $period = $this->stockHistoryService->resolvePeriod($request);
-        $detail = $this->stockHistoryService->listStockWarehouses($cabinetOrResponse, $nmId, $chrtId, $period);
-        if ($detail === null) {
-            return response()->json([
-                'success' => false,
-                'messages' => ['Товар не найден.'],
-            ], 404);
-        }
-
-        return response()->json([
-            'success' => true,
-            'messages' => [],
-            'data' => $detail,
-        ]);
-    }
-
     public function loadStocks(Request $request): RedirectResponse|JsonResponse|Response
     {
         $cabinetOrResponse = $this->requireSelectedWbCabinet($request, self::TOOL_NAME, $this->breadcrumbs());

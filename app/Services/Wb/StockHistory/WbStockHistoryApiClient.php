@@ -20,8 +20,6 @@ class WbStockHistoryApiClient
 
     private const CONTENT_BASE = 'https://content-api.wildberries.ru';
 
-    private const MARKETPLACE_BASE = 'https://marketplace-api.wildberries.ru';
-
     private const STOCKS_PAGE_LIMIT = 250000;
 
     private const CSV_POLL_ATTEMPTS = 40;
@@ -31,7 +29,7 @@ class WbStockHistoryApiClient
     private const ORDERS_PAGE_SLEEP_MS = 60_000;
 
     /**
-     * Текущие остатки на складах WB.
+     * Текущие остатки и «в пути» по размеру. WB не отдаёт разбивку по складам.
      *
      * @return list<array{
      *     nmId: int,
@@ -86,53 +84,6 @@ class WbStockHistoryApiClient
         } while ($count >= self::STOCKS_PAGE_LIMIT);
 
         return $items;
-    }
-
-    /**
-     * Справочник складов WB: id → название.
-     *
-     * @return array<int, string>
-     */
-    public function fetchOffices(string $apiKey): array
-    {
-        $response = $this->http($apiKey)
-            ->get(self::MARKETPLACE_BASE.'/api/v3/offices');
-        $this->assertOk($response->status(), 'список складов WB', $response->json());
-
-        $payload = $response->json();
-        if (! is_array($payload)) {
-            return [];
-        }
-
-        $map = [];
-        foreach ($payload as $office) {
-            if (! is_array($office)) {
-                continue;
-            }
-            $id = (int) ($office['id'] ?? 0);
-            $name = trim((string) ($office['name'] ?? ''));
-            if ($id > 0 && $name !== '') {
-                $map[$id] = $name;
-            }
-        }
-
-        return $map;
-    }
-
-    public function isPlaceholderWarehouseId(int $warehouseId): bool
-    {
-        return $warehouseId <= 0 || $warehouseId === -999999;
-    }
-
-    public function isPlaceholderWarehouseName(string $name): bool
-    {
-        $normalized = mb_strtolower(trim($name));
-        if ($normalized === '' || $normalized === 'склад wb' || $normalized === 'маркетплейс') {
-            return true;
-        }
-
-        return str_starts_with($normalized, 'всего ')
-            || str_starts_with($normalized, 'в пути');
     }
 
     /**

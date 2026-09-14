@@ -1,7 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Head, router } from "@inertiajs/vue3";
-import axios from "axios";
 import { Maximize2, PauseCircle, PlayCircle, X } from "lucide-vue-next";
 import HistorySelectionChart from "@/components/subscriber/wb/stock-history/HistorySelectionChart.vue";
 import OrdersHistoryTable from "@/components/subscriber/wb/stock-history/OrdersHistoryTable.vue";
@@ -67,9 +66,6 @@ const fullscreen = ref(false);
 const loadOpen = ref(false);
 const selectedStocks = ref({});
 const selectedOrders = ref({});
-const expanded = ref({});
-const details = ref({});
-const loadingKeys = ref({});
 
 const tabState = computed(() => (
     activeTab.value === "orders" ? props.tracking.orders : props.tracking.stocks
@@ -308,42 +304,6 @@ function toggleRow(row) {
     setSelectedMap(next);
 }
 
-function toggleWarehouse(row) {
-    toggleRow(row);
-}
-
-async function loadWarehouses(row) {
-    const key = stockHistoryRowKey(row);
-    if (loadingKeys.value[key] || details.value[key]) {
-        return;
-    }
-    loadingKeys.value = { ...loadingKeys.value, [key]: true };
-    try {
-        const { data } = await axios.get(`${baseUrl}/stocks/${row.nm_id}/${row.chrt_id}`, {
-            params: { from: fromInput.value, to: toInput.value },
-        });
-        if (data?.success) {
-            details.value = { ...details.value, [key]: data.data };
-        } else {
-            showError((data?.messages || []).join(" ") || "Не удалось открыть склады");
-        }
-    } catch {
-        showError("Не удалось открыть склады");
-    } finally {
-        loadingKeys.value = { ...loadingKeys.value, [key]: false };
-    }
-}
-
-async function toggleExpand(row) {
-    const key = stockHistoryRowKey(row);
-    if (expanded.value[key]) {
-        expanded.value = { ...expanded.value, [key]: false };
-        return;
-    }
-    expanded.value = { ...expanded.value, [key]: true };
-    await loadWarehouses(row);
-}
-
 function togglePage(checked) {
     const next = { ...selectedMap.value };
     for (const row of props.rows) {
@@ -364,26 +324,9 @@ function clearSelection() {
 watch(() => props.cabinet.id, () => {
     selectedStocks.value = {};
     selectedOrders.value = {};
-    expanded.value = {};
-    details.value = {};
 });
 
 const datesSignature = computed(() => (props.dates || []).join(","));
-
-watch(datesSignature, (next, prev) => {
-    if (!prev || next === prev) {
-        return;
-    }
-    details.value = {};
-    Object.keys(expanded.value).forEach((key) => {
-        if (expanded.value[key]) {
-            const row = props.rows.find((item) => stockHistoryRowKey(item) === key);
-            if (row) {
-                loadWarehouses(row);
-            }
-        }
-    });
-});
 
 watch(
     [() => props.rows, datesSignature],
@@ -493,6 +436,7 @@ onUnmounted(() => {
                         :current-stage="tabJob.stage || 'queued'"
                         :status-label="tabJob.status_label"
                         :progress-percent="resolveHistoryProgressPercent(tabJob)"
+                        waiting-hint="Можно закрыть страницу — мы продолжим сбор данных в фоновом режиме. Когда история будет готова, она появится здесь."
                         :started-at="tabJob.started_at"
                         :failed="tabJob.status === 'failed'"
                         :error="tabJob.error || lastError"
@@ -579,9 +523,6 @@ onUnmounted(() => {
                             </div>
                         </Card>
 
-                        <p class="mt-2 text-xs text-muted-foreground">
-                            Данные по отдельным складам Wildberries недоступны — показываем общий остаток по каждой позиции.
-                        </p>
                         <div v-if="rows.length === 0" class="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
                             Нет товаров с остатками за выбранный период.
                         </div>
@@ -669,15 +610,10 @@ onUnmounted(() => {
                     :dates="dates"
                     :rows="rows"
                     :selected-keys="selectedMap"
-                    :expanded="expanded"
-                    :details="details"
-                    :loading-keys="loadingKeys"
                     :fill-height="fullscreen"
                     max-height="calc(100dvh - 14rem)"
                     @toggle="toggleRow"
                     @toggle-page="togglePage"
-                    @toggle-expand="toggleExpand"
-                    @toggle-warehouse="toggleWarehouse"
                 />
                 <OrdersHistoryTable
                     v-else
@@ -749,7 +685,7 @@ onUnmounted(() => {
                         Загрузим историю остатков за последние 2 месяца и начнём ежедневно сохранять новые данные.
                     </p>
                     <p>
-                        История будет отображаться по товарам и размерам. Данные по отдельным складам Wildberries недоступны — сервис показывает общий остаток по каждой позиции.
+                        История будет по товарам и размерам: сколько было в наличии в разные дни и сколько сейчас в пути.
                     </p>
                     <p>
                         После запуска каждый день будет автоматически добавляться новый день в историю.

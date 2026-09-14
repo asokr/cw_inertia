@@ -286,6 +286,12 @@ class WbStockHistoryTest extends WebAuthTestCase
                 ->where('stock_date', '2026-09-09')
                 ->exists()
         );
+        $this->assertFalse(
+            WbStockHistoryItem::query()
+                ->where('cabinet_id', $cabinet->id)
+                ->where('warehouse_key', '!=', '_total')
+                ->exists()
+        );
 
         $settings = WbStockHistorySetting::query()->where('cabinet_id', $cabinet->id)->first();
         $this->assertTrue($settings->stocks_tracking_enabled);
@@ -299,21 +305,12 @@ class WbStockHistoryTest extends WebAuthTestCase
                 ->where('rows.0.quantity', 47)
                 ->where('rows.0.in_way_to_client', 5)
                 ->where('rows.0.in_way_from_client', 1)
-                ->where('rows.0.warehouse_count', 2)
                 ->where('rows.0.image_url', 'https://basket-01.wbbasket.ru/vol0/part0/111/images/c246x328/1.webp')
-                ->missing('rows.0.warehouse_name'));
-
-        $this->actingAs($user)
-            ->getJson('/panel/wb/stock-history/stocks/111/22?from=2026-09-10&to=2026-09-12')
-            ->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.warehouses.0.warehouse_name', 'Коледино')
-            ->assertJsonPath('data.warehouses.0.quantity', 40)
-            ->assertJsonPath('data.warehouses.1.warehouse_name', 'Казань')
-            ->assertJsonPath('data.warehouses.1.quantity', 7);
+                ->missing('rows.0.warehouse_name')
+                ->missing('rows.0.warehouse_count'));
     }
 
-    public function test_placeholder_warehouse_id_is_not_shown(): void
+    public function test_current_stocks_sum_rows_even_with_placeholder_warehouse(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-09-12 12:00:00', 'Europe/Moscow'));
         $user = $this->createSubscriberUser(withPermission: true);
@@ -325,8 +322,8 @@ class WbStockHistoryTest extends WebAuthTestCase
                 'warehouseId' => -999999,
                 'warehouseName' => 'Склад WB',
                 'quantity' => 9,
-                'inWayToClient' => 0,
-                'inWayFromClient' => 0,
+                'inWayToClient' => 2,
+                'inWayFromClient' => 1,
             ],
         ]);
 
@@ -334,9 +331,12 @@ class WbStockHistoryTest extends WebAuthTestCase
         $job->handle(app(WbStockHistorySyncService::class));
 
         $this->actingAs($user)
-            ->getJson('/panel/wb/stock-history/stocks/111/22?from=2026-09-10&to=2026-09-12')
+            ->get('/panel/wb/stock-history?from=2026-09-10&to=2026-09-11')
             ->assertOk()
-            ->assertJsonPath('data.warehouses', []);
+            ->assertInertia(fn ($page) => $page
+                ->where('rows.0.quantity', 9)
+                ->where('rows.0.in_way_to_client', 2)
+                ->where('rows.0.in_way_from_client', 1));
     }
 
     public function test_repeat_import_does_not_duplicate_stock_rows(): void
@@ -567,17 +567,6 @@ class WbStockHistoryTest extends WebAuthTestCase
             ],
         ]);
 
-        $mock->shouldReceive('fetchOffices')->andReturn([
-            1 => 'Коледино',
-            2 => 'Казань',
-            3 => 'Пустой',
-        ]);
-        $mock->shouldReceive('isPlaceholderWarehouseId')->andReturnUsing(fn (int $id): bool => $id <= 0 || $id === -999999);
-        $mock->shouldReceive('isPlaceholderWarehouseName')->andReturnUsing(function (string $name): bool {
-            $normalized = mb_strtolower(trim($name));
-
-            return $normalized === '' || $normalized === 'склад wb' || str_starts_with($normalized, 'всего ') || str_starts_with($normalized, 'в пути');
-        });
         $mock->shouldReceive('fetchOrders')->andReturn($orders ?? []);
 
         $this->app->instance(WbStockHistoryApiClient::class, $mock);

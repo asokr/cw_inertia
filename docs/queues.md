@@ -136,7 +136,7 @@ Fallback-команда: каждые 2 минуты, по одному job на
 | `App\Jobs\Wb\StockHistory\ProcessWbOrderHistoryBackfillJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `wb-order-history-backfill-{cabinetId}`) | `$this->onQueue('wb_stock_history')` |
 | `App\Jobs\Wb\StockHistory\ProcessWbOrderHistorySnapshotJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `wb-order-history-snapshot-{cabinetId}-{date}`) | `$this->onQueue('wb_stock_history')` |
 
-Диспатч: «Начать отслеживание» → backfill (карточки, CSV за два месяца по сегодня). GET страницы внешние API не вызывает. Ежедневно `subscriber:wb-stock-history-snapshot` в 01:00 МСК и `subscriber:wb-order-history-snapshot` в 01:20 МСК только при включённом отслеживании вкладки. Prune: `subscriber:wb-stock-history-prune` в 02:00 МСК.  
+Диспатч: «Начать отслеживание» → backfill (карточки, CSV за два месяца по сегодня, затем текущие остатки и «в пути» из `wb-warehouses`). Разбивки по складам нет — WB её не отдаёт. GET страницы внешние API не вызывает. Ежедневно `subscriber:wb-stock-history-snapshot` в 01:00 МСК и `subscriber:wb-order-history-snapshot` в 01:20 МСК только при включённом отслеживании вкладки. Prune: `subscriber:wb-stock-history-prune` в 02:00 МСК.  
 Документация: [wb-stock-history.md](wb-stock-history.md).
 
 ### `wb_ai_cabinet_analyzer`

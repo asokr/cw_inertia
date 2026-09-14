@@ -180,7 +180,7 @@ onUnmounted(() => {
                     v-if="!failed && !completed"
                     class="text-xs text-muted-foreground"
                 >
-                    Страницу можно закрыть — расчёт продолжится. Вернётесь позже — увидите результат.
+                    {{ waitingHint || "Страницу можно закрыть — расчёт продолжится. Вернётесь позже — увидите результат." }}
                 </p>
                 <p v-else-if="detail && !failed" class="text-xs text-muted-foreground">
                     {{ detail }}

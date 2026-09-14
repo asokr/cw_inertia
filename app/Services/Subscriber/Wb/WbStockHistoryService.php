@@ -11,7 +11,6 @@ use App\Models\Subscribers\Wb\StockHistory\WbStockHistoryDay;
 use App\Models\Subscribers\Wb\StockHistory\WbStockHistoryItem;
 use App\Models\Subscribers\Wb\StockHistory\WbStockHistoryProduct;
 use App\Models\Subscribers\Wb\StockHistory\WbStockHistorySetting;
-use App\Models\Subscribers\Wb\StockHistory\WbStockHistoryWarehouse;
 use App\Models\Subscribers\Wb\WbCabinet;
 use App\Services\Wb\StockHistory\WbStockHistorySyncService;
 use App\Support\Wb\WbBasketHost;
@@ -166,7 +165,6 @@ class WbStockHistoryService
                 'quantity' => (int) ($current[$key]['quantity'] ?? 0),
                 'in_way_to_client' => (int) ($current[$key]['in_way_to_client'] ?? 0),
                 'in_way_from_client' => (int) ($current[$key]['in_way_from_client'] ?? 0),
-                'warehouse_count' => count($current[$key]['warehouses'] ?? []),
             ];
             if (! $this->matchesFilters($row, $filters)) {
                 continue;
@@ -207,91 +205,6 @@ class WbStockHistoryService
                 'total' => $total,
             ],
         ];
-    }
-
-    /**
-     * @param  array{from: string, to: string, dates: list<string>}  $period
-     * @return array{warehouses: list<array<string, mixed>>}|null
-     */
-    public function listStockWarehouses(WbCabinet $cabinet, int $nmId, int $chrtId, array $period): ?array
-    {
-        $cabinetId = (int) $cabinet->id;
-        $exists = WbStockHistoryItem::query()
-            ->where('cabinet_id', $cabinetId)
-            ->where('nm_id', $nmId)
-            ->where('chrt_id', $chrtId)
-            ->exists();
-        if (! $exists) {
-            return null;
-        }
-
-        $from = $period['from'];
-        $to = $period['to'];
-        $dates = $period['dates'];
-        $current = $this->syncService->currentStocksBySize($cabinetId);
-        $currentMap = [];
-        foreach ($current[$nmId.':'.$chrtId]['warehouses'] ?? [] as $warehouse) {
-            $currentMap[(string) $warehouse['warehouse_key']] = $warehouse;
-        }
-
-        $items = WbStockHistoryItem::query()
-            ->where('cabinet_id', $cabinetId)
-            ->where('nm_id', $nmId)
-            ->where('chrt_id', $chrtId)
-            ->where('warehouse_key', '!=', WbStockHistorySyncService::TOTAL_WAREHOUSE_KEY)
-            ->whereBetween('stock_date', [$from, $to])
-            ->get();
-
-        $byKey = [];
-        foreach ($items as $item) {
-            $key = (string) $item->warehouse_key;
-            $date = Carbon::parse($item->stock_date)->toDateString();
-            $byKey[$key][$date] = (int) $item->qty;
-        }
-
-        $warehouses = WbStockHistoryWarehouse::query()
-            ->where('cabinet_id', $cabinetId)
-            ->where('warehouse_key', '!=', WbStockHistorySyncService::TOTAL_WAREHOUSE_KEY)
-            ->get()
-            ->keyBy('warehouse_key');
-
-        $keys = array_unique(array_merge(array_keys($byKey), array_keys($currentMap)));
-        $rows = [];
-        foreach ($keys as $key) {
-            $warehouse = $warehouses->get($key);
-            $name = $currentMap[$key]['name'] ?? $warehouse?->warehouse_name ?: $key;
-            if ($this->syncService->isPlaceholderWarehouseName((string) $name) && ! isset($currentMap[$key])) {
-                continue;
-            }
-            $qtyByDate = $byKey[$key] ?? [];
-            $series = [];
-            foreach ($dates as $date) {
-                $series[] = array_key_exists($date, $qtyByDate) ? (int) $qtyByDate[$date] : null;
-            }
-            $quantity = (int) ($currentMap[$key]['quantity'] ?? 0);
-            $hadQty = $quantity > 0;
-            foreach ($series as $value) {
-                if ((int) $value > 0) {
-                    $hadQty = true;
-                    break;
-                }
-            }
-            if (! $hadQty) {
-                continue;
-            }
-            $rows[] = [
-                'warehouse_key' => $key,
-                'warehouse_name' => $name,
-                'quantity' => $quantity,
-                'series' => $series,
-            ];
-        }
-
-        usort($rows, static function (array $a, array $b): int {
-            return [$b['quantity'], $a['warehouse_name']] <=> [$a['quantity'], $b['warehouse_name']];
-        });
-
-        return ['warehouses' => $rows];
     }
 
     /**
@@ -659,7 +572,7 @@ class WbStockHistoryService
     }
 
     /**
-     * История размера: итог `_total`, иначе сумма всех складов (старые данные).
+     * История размера: итог `_total`, иначе сумма старых строк по складам.
      *
      * @param  list<array<string, mixed>>  $slice
      * @return array<string, array<string, int>>
