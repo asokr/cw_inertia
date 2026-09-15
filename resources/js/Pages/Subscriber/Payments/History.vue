@@ -4,25 +4,18 @@ import { h } from "vue";
 import DataTable from "@/components/DataTable.vue";
 import Badge from "@/components/ui/Badge.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
+import { formatPaymentStatusLabel, paymentStatusBadgeVariant } from "@/utils/paymentStatus";
 
-const props = defineProps({
+defineProps({
     transactions: { type: Array, default: () => [] },
 });
-
-const statusVariant = {
-    CONFIRMED: "success",
-    CREATE: "secondary",
-    CREATED: "secondary",
-    FAILED: "destructive",
-    CANCELED: "destructive",
-    RETURNED: "warning",
-};
 
 const columns = [
     {
         accessorKey: "created_at",
         header: "Дата",
-        cell: ({ row }) => formatDate(row.original.created_at),
+        // Дата уже в формате d.m.Y H:i с модели — Date.parse его не понимает
+        cell: ({ row }) => row.original.created_at || "—",
     },
     {
         accessorKey: "description",
@@ -35,28 +28,18 @@ const columns = [
         cell: ({ row }) => `${row.original.amount} ₽`,
     },
     {
-        accessorKey: "system",
-        header: "Система",
-        cell: ({ row }) => row.original.system ?? "—",
-    },
-    {
         accessorKey: "status",
         header: "Статус",
         cell: ({ row }) => {
             const status = row.original.status;
             return h(
                 Badge,
-                { variant: statusVariant[status] ?? "secondary" },
-                () => status ?? "—"
+                { variant: paymentStatusBadgeVariant(status) },
+                () => formatPaymentStatusLabel(status)
             );
         },
     },
 ];
-
-function formatDate(value) {
-    if (!value) return "—";
-    return new Date(value).toLocaleString("ru-RU");
-}
 </script>
 
 <template>

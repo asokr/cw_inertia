@@ -32,6 +32,7 @@ class Report extends Model
         'nalog',
         'nalog_percent',
         'correction_sales',
+        'correction_returns',
         'total_profitability',
         'itog',
     ];
@@ -54,6 +55,7 @@ class Report extends Model
         'nalog' => 'float',
         'nalog_percent' => 'float',
         'correction_sales' => 'float',
+        'correction_returns' => 'float',
         'total_profitability' => 'float',
         'itog' => 'float',
     ];

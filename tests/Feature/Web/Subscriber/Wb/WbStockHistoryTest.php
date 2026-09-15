@@ -96,6 +96,21 @@ class WbStockHistoryTest extends WebAuthTestCase
                 ->where('filters.to', '2026-09-12'));
     }
 
+    public function test_period_to_is_clamped_to_today(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-12 12:00:00', 'Europe/Moscow'));
+        $user = $this->createSubscriberUser(withPermission: true);
+        $this->createCabinet($user);
+
+        $this->actingAs($user)
+            ->get('/panel/wb/stock-history?from=2026-09-10&to=2026-09-20')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('filters.from', '2026-09-10')
+                ->where('filters.to', '2026-09-12')
+                ->where('dates', ['2026-09-10', '2026-09-11', '2026-09-12']));
+    }
+
     public function test_orders_tab_is_independent(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
@@ -297,11 +312,19 @@ class WbStockHistoryTest extends WebAuthTestCase
         $this->assertTrue($settings->stocks_tracking_enabled);
         $this->assertSame(WbHistoryLoadStatus::Active, $settings->stocks_status);
 
+        $this->assertDatabaseHas('wb_stock_history_items', [
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 111,
+            'stock_date' => '2026-09-12',
+            'warehouse_key' => '_total',
+            'qty' => 47,
+        ]);
+
         $this->actingAs($user)
-            ->get('/panel/wb/stock-history?from=2026-09-10&to=2026-09-11')
+            ->get('/panel/wb/stock-history?from=2026-09-10&to=2026-09-12')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('rows.0.series', [15, 0])
+                ->where('rows.0.series', [15, 0, 47])
                 ->where('rows.0.quantity', 47)
                 ->where('rows.0.in_way_to_client', 5)
                 ->where('rows.0.in_way_from_client', 1)
@@ -443,6 +466,64 @@ class WbStockHistoryTest extends WebAuthTestCase
                 ->where('rows.0.series', [2, 0])
                 ->where('rows.0.barcode', '200')
                 ->where('rows.0.image_url', 'https://basket-01.wbbasket.ru/vol0/part0/111/images/c246x328/1.webp'));
+    }
+
+    public function test_snapshot_writes_today_from_current_stocks_and_overwrites(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-12 12:00:00', 'Europe/Moscow'));
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user);
+        WbStockHistorySetting::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'stocks_tracking_enabled' => true,
+            'retention_days' => 90,
+        ]);
+
+        $this->mockApi();
+        $job = new ProcessWbStockHistorySnapshotJob((int) $cabinet->id);
+        $job->handle(app(WbStockHistorySyncService::class));
+
+        $this->assertDatabaseHas('wb_stock_history_items', [
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 111,
+            'chrt_id' => 22,
+            'warehouse_key' => '_total',
+            'stock_date' => '2026-09-11',
+            'qty' => 0,
+        ]);
+        $this->assertDatabaseHas('wb_stock_history_items', [
+            'cabinet_id' => $cabinet->id,
+            'nm_id' => 111,
+            'chrt_id' => 22,
+            'warehouse_key' => '_total',
+            'stock_date' => '2026-09-12',
+            'qty' => 47,
+        ]);
+
+        $this->mockApi(currentStocks: [[
+            'nmId' => 111,
+            'chrtId' => 22,
+            'warehouseId' => 1,
+            'warehouseName' => 'Коледино',
+            'quantity' => 10,
+            'inWayToClient' => 0,
+            'inWayFromClient' => 0,
+        ]]);
+        $job->handle(app(WbStockHistorySyncService::class));
+
+        $this->assertSame(10, (int) WbStockHistoryItem::query()
+            ->where('cabinet_id', $cabinet->id)
+            ->where('stock_date', '2026-09-12')
+            ->where('warehouse_key', '_total')
+            ->value('qty'));
+        $this->assertSame(1, WbStockHistoryItem::query()
+            ->where('cabinet_id', $cabinet->id)
+            ->where('stock_date', '2026-09-12')
+            ->count());
+        $this->assertSame(0, (int) WbStockHistoryItem::query()
+            ->where('cabinet_id', $cabinet->id)
+            ->where('stock_date', '2026-09-11')
+            ->value('qty'));
     }
 
     public function test_snapshot_commands_skip_disabled_cabinets(): void

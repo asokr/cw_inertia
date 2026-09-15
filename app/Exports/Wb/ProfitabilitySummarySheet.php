@@ -45,6 +45,7 @@ class ProfitabilitySummarySheet implements FromArray, WithTitle
             ['Логистика', $this->report['logistics'] ?? 0],
             ['Доставка', $this->report['delivery'] ?? 0],
             ['Компенсация при возврате', $this->report['return_compensation'] ?? 0],
+            ['Коррекция возвратов', $this->report['correction_returns'] ?? 0],
             ['Себестоимость', $this->report['purchase_cost'] ?? 0],
             ['Итог', $this->report['itog'] ?? 0],
             ['Маржа', $this->report['margin'] ?? 0],

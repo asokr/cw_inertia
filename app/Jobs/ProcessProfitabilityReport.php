@@ -69,6 +69,7 @@ class ProcessProfitabilityReport implements ShouldQueue
                 'logistics_correction' => 'Коррекция логистики',
                 'delivery_correction' => 'Коррекция стоимости доставки',
                 'sales_correction' => 'Коррекция продаж',
+                'returns_correction' => 'Коррекция возвратов',
                 'return_compensation' => 'Добровольная компенсация при возврате',
             ];
 
@@ -94,6 +95,7 @@ class ProcessProfitabilityReport implements ShouldQueue
                 'cashback' => 0,
                 'nalog' => 0,
                 'sales_correction' => 0,
+                'returns_correction' => 0,
                 'logistics' => 0,
                 'delivery' => 0,
                 'return_compensation' => 0,
@@ -268,6 +270,11 @@ class ProcessProfitabilityReport implements ShouldQueue
                             $totals['sales_correction'] += $value;
                             $amount = 0;
                             break;
+                        case 'returns_correction':
+                            // Коррекция возвратов — расход: сумму к перечислению вычитаем из итога.
+                            $amount = (float) $this->rowValue($row, 'forPay', 'ppvz_for_pay', 0);
+                            $totals['returns_correction'] += $amount;
+                            break;
                         case 'return_compensation':
                             $amount = (float) $this->rowValue($row, 'forPay', 'ppvz_for_pay', 0);
                             if ($this->rowValue($row, 'docTypeName', 'doc_type_name', '') === 'Возврат') {
@@ -340,6 +347,7 @@ class ProcessProfitabilityReport implements ShouldQueue
             $totals['cashback'] = round($totals['cashback'], 2);
             $totals['nalog'] = round($totals['nalog'], 2);
             $totals['sales_correction'] = round($totals['sales_correction'], 2);
+            $totals['returns_correction'] = round($totals['returns_correction'], 2);
             $totals['logistics'] = round($logisticsSum1 + $logisticsSum2, 2);
             $totals['delivery'] = round($totals['delivery'], 2);
             $totals['return_compensation'] = round($totals['return_compensation'], 2);
@@ -510,7 +518,8 @@ class ProcessProfitabilityReport implements ShouldQueue
                     + $dopRashodTotal
                     - ($salesCorrection > 0 ? $salesCorrection : 0)
                     + ($salesCorrection < 0 ? abs($salesCorrection) : 0)
-                    + ($totals['acceptance'] ?? 0);
+                    + ($totals['acceptance'] ?? 0)
+                    + ($totals['returns_correction'] ?? 0);
 
                 $total = $revenue - $costs + ($totals['return_compensation'] ?? 0);
                 $profit = $total - ($totals['purchase_cost'] ?? 0);
@@ -529,6 +538,7 @@ class ProcessProfitabilityReport implements ShouldQueue
                     'nalog' => $totals['nalog'],
                     'nalog_percent' => $nalogPercent,
                     'correction_sales' => $totals['sales_correction'],
+                    'correction_returns' => $totals['returns_correction'],
                     'total_profitability' => $profitabilityPercent,
                     'itog' => $total,
                 ]);

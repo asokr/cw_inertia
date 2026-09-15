@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Ежедневный снимок остатков WB за вчера.
+ * Снимок остатков WB: вчера из CSV (если ещё нет) и сегодня из живых остатков.
  */
 class ProcessWbStockHistorySnapshotJob implements ShouldBeUnique, ShouldQueue
 {
@@ -26,7 +26,8 @@ class ProcessWbStockHistorySnapshotJob implements ShouldBeUnique, ShouldQueue
     use Queueable;
     use SerializesModels;
 
-    public int $uniqueFor = 3600;
+    /** Пока job в очереди или в работе, не ставить второй снимок за тот же день. Интервал расписания — 4 часа. */
+    public int $uniqueFor = 14400;
 
     public int $tries = 2;
 
@@ -41,7 +42,7 @@ class ProcessWbStockHistorySnapshotJob implements ShouldBeUnique, ShouldQueue
 
     public function uniqueId(): string
     {
-        $date = $this->stockDate ?: WbStockHistoryCalendar::yesterdayDate();
+        $date = $this->stockDate ?: WbStockHistoryCalendar::todayDate();
 
         return 'wb-stock-history-snapshot-'.$this->cabinetId.'-'.$date;
     }
@@ -58,15 +59,15 @@ class ProcessWbStockHistorySnapshotJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $date = $this->stockDate ?: $syncService->yesterdayDate();
+        $historyDate = $this->stockDate ?: $syncService->yesterdayDate();
 
         try {
-            $result = $syncService->importStockHistory($cabinet, $date, $date, false);
+            $result = $syncService->importStockHistory($cabinet, $historyDate, $historyDate, false);
             $current = $syncService->importCurrentStocks($cabinet);
             $settings->stocks_status = WbHistoryLoadStatus::Active;
             $error = null;
             if (! ($result['success'] ?? false)) {
-                $error = $result['messages'][0] ?? 'Не удалось обновить остатки за вчера.';
+                $error = $result['messages'][0] ?? 'Не удалось обновить историю остатков.';
             } elseif (! ($current['success'] ?? false)) {
                 $error = $current['messages'][0] ?? null;
             }
@@ -75,11 +76,11 @@ class ProcessWbStockHistorySnapshotJob implements ShouldBeUnique, ShouldQueue
         } catch (Throwable $e) {
             Log::error('[ProcessWbStockHistorySnapshotJob] snapshot failed', [
                 'cabinet_id' => $this->cabinetId,
-                'stock_date' => $date,
+                'stock_date' => $historyDate,
                 'message' => $e->getMessage(),
             ]);
             $settings->stocks_status = WbHistoryLoadStatus::Active;
-            $settings->stocks_last_error = 'Не удалось обновить остатки за вчера. Попробуем снова завтра.';
+            $settings->stocks_last_error = 'Не удалось обновить остатки. Попробуем снова позже.';
             $settings->save();
             throw $e;
         }
@@ -97,7 +98,7 @@ class ProcessWbStockHistorySnapshotJob implements ShouldBeUnique, ShouldQueue
             return;
         }
         $settings->stocks_status = WbHistoryLoadStatus::Active;
-        $settings->stocks_last_error = 'Не удалось обновить остатки за вчера. Попробуем снова завтра.';
+        $settings->stocks_last_error = 'Не удалось обновить остатки. Попробуем снова позже.';
         $settings->save();
     }
 }

@@ -41,6 +41,7 @@ class WbProfitabilityReportService
         'Удержание',
         'Коррекция логистики',
         'Коррекция стоимости доставки',
+        'Коррекция возвратов',
         'Добровольная компенсация при возврате',
     ];
 
@@ -50,6 +51,7 @@ class WbProfitabilityReportService
         'Удержание',
         'Коррекция логистики',
         'Коррекция стоимости доставки',
+        'Коррекция возвратов',
         'Хранение',
         'Добровольная компенсация при возврате',
     ];
@@ -764,6 +766,7 @@ class WbProfitabilityReportService
             'nalog',
             'nalog_percent',
             'correction_sales',
+            'correction_returns',
             'return_compensation',
             'total_profitability',
             'itog',
@@ -899,6 +902,7 @@ class WbProfitabilityReportService
                 'Удержание' => 'Удержание',
                 'Коррекция логистики' => 'Коррекция логистики',
                 'Коррекция стоимости доставки' => 'Коррекция доставки',
+                'Коррекция возвратов' => 'Коррекция возвратов',
                 'Добровольная компенсация при возврате' => 'Компенсация при возврате',
             ];
 
@@ -1033,6 +1037,7 @@ class WbProfitabilityReportService
             'nalog' => $this->finiteFloat($row->nalog ?? 0),
             'nalog_percent' => $this->finiteFloat($row->nalog_percent ?? 0),
             'correction_sales' => $this->finiteFloat($row->correction_sales ?? 0),
+            'correction_returns' => $this->finiteFloat($row->correction_returns ?? 0),
             'return_compensation' => $this->finiteFloat($row->return_compensation ?? 0),
             'total_profitability' => $this->finiteFloat($row->total_profitability ?? 0),
             'itog' => $this->finiteFloat($row->itog ?? 0),

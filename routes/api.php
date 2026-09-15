@@ -13,4 +13,6 @@ use App\Http\Controllers\Web\Webhook\YooKassaWebhookController;
 |
 */
 
-Route::post('/payments/yoo/callback', YooKassaWebhookController::class)->name('payment.callback');
+Route::post('/payments/yoo/callback', YooKassaWebhookController::class)
+    ->withoutMiddleware('throttle:api')
+    ->name('payment.callback');

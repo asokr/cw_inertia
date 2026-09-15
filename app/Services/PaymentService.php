@@ -14,17 +14,26 @@ class PaymentService
         return $client;
     }
 
-    public function createPayment(float $amount, string $description, array $options = [], ?string $returnUrl = null)
+    /**
+     * @return array{url: string, id: string}
+     */
+    public function createPayment(float $amount, string $description, array $options = [], ?string $returnUrl = null): array
     {
         $client = $this->getClient();
 
-        $metadata = [
-            'transaction_id' => $options['transaction_id'] ?? null,
-            'user_id' => $options['user_id'] ?? auth()->id(),
-        ];
+        $metadata = [];
+
+        if (isset($options['transaction_id']) && $options['transaction_id'] !== null && $options['transaction_id'] !== '') {
+            $metadata['transaction_id'] = (string) $options['transaction_id'];
+        }
+
+        $userId = $options['user_id'] ?? auth()->id();
+        if ($userId !== null && $userId !== '') {
+            $metadata['user_id'] = (string) $userId;
+        }
 
         if (! empty($options['plan_id'])) {
-            $metadata['plan_id'] = $options['plan_id'];
+            $metadata['plan_id'] = (string) $options['plan_id'];
         }
 
         $payment = $client->createPayment(
@@ -63,6 +72,9 @@ class PaymentService
             uniqid('', true)
         );
 
-        return $payment->getConfirmation()->getConfirmationUrl();
+        return [
+            'url' => $payment->getConfirmation()->getConfirmationUrl(),
+            'id' => (string) $payment->getId(),
+        ];
     }
 }

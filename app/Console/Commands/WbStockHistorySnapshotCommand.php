@@ -7,13 +7,13 @@ use App\Models\Subscribers\Wb\StockHistory\WbStockHistorySetting;
 use Illuminate\Console\Command;
 
 /**
- * Ставит дневной снимок остатков WB только для кабинетов с включённым сбором.
+ * Ставит снимок остатков WB только для кабинетов с включённым сбором.
  */
 class WbStockHistorySnapshotCommand extends Command
 {
     protected $signature = 'subscriber:wb-stock-history-snapshot';
 
-    protected $description = 'Поставить в очередь дневной снимок истории остатков WB';
+    protected $description = 'Поставить в очередь снимок истории остатков WB (вчера и сегодня)';
 
     public function handle(): int
     {

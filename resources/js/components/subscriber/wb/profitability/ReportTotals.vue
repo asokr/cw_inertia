@@ -318,6 +318,11 @@ async function downloadReport() {
             </Card>
 
             <Card class="min-w-0 p-3 sm:p-4">
+                <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Коррекция возвратов</h3>
+                <p class="break-words text-lg font-medium sm:text-xl">{{ formatNumber(report.correction_returns) }}</p>
+            </Card>
+
+            <Card class="min-w-0 p-3 sm:p-4">
                 <h3 class="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Себестоимость</h3>
                 <p class="break-words text-lg font-medium sm:text-xl">
                     {{ Math.round(report.purchase_cost).toLocaleString("ru-RU") }}

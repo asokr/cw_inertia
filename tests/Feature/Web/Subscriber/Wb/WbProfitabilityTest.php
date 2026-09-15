@@ -815,6 +815,109 @@ class WbProfitabilityTest extends WebAuthTestCase
         $this->assertSame(0, $ignoredCount);
     }
 
+    public function test_workspace_exposes_returns_correction_in_other_group(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Returns Correction Items Cabinet');
+
+        $report = Report::query()->create([
+            'cabinet_id' => $cabinet->id,
+            'date_from' => '2026-01-01',
+            'date_to' => '2026-01-15',
+            'sales_quantity' => 1,
+            'sales_amount' => 1000,
+            'correction_returns' => 80,
+            'itog' => 920,
+            'margin' => 920,
+        ]);
+
+        Item::query()->create([
+            'report_id' => $report->id,
+            'nm_id' => 666,
+            'sa_name' => 'RET-CORR',
+            'supplier_oper_name' => 'Коррекция возвратов',
+            'quantity' => 1,
+            'sum_to_transfer' => 80,
+        ]);
+
+        Cache::flush();
+
+        $this->actingAs($user)
+            ->get('/panel/wb/profitability')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('groupMeta.other', 1)
+                ->where('report.correction_returns', 80));
+
+        $this->actingAs($user)
+            ->getJson('/panel/wb/profitability/items?group=other')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.sa_name', 'RET-CORR')
+            ->assertJsonPath('data.0.type', 'Коррекция возвратов')
+            ->assertJsonPath('data.0.sum_to_transfer', 80);
+    }
+
+    public function test_process_report_subtracts_returns_correction_from_itog(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Returns Correction Job Cabinet');
+
+        $this->ensurePriceCalcV3Table();
+
+        $api = \Mockery::mock(ProfitabilityApiService::class);
+        $api->shouldReceive('getReportDetailByPeriod')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => [
+                    [
+                        'sellerOperName' => 'Продажа',
+                        'forPay' => 1000,
+                        'retailAmount' => 1000,
+                        'quantity' => 1,
+                        'nmId' => 666,
+                        'vendorCode' => 'SKU-6',
+                        'sku' => 'barcode-6',
+                        'officeName' => 'Коледино',
+                    ],
+                    [
+                        'sellerOperName' => 'Коррекция возвратов',
+                        'forPay' => 80,
+                        'quantity' => 1,
+                        'nmId' => 666,
+                        'vendorCode' => 'SKU-6',
+                        'sku' => 'barcode-6',
+                        'officeName' => 'Коледино',
+                    ],
+                ],
+            ]);
+
+        $job = new ProcessProfitabilityReport(
+            (int) $cabinet->id,
+            '2026-05-01',
+            '2026-05-07',
+            (int) $user->id
+        );
+        $job->handle($api);
+
+        $report = Report::query()->where('cabinet_id', $cabinet->id)->first();
+        $this->assertNotNull($report);
+        $this->assertEqualsWithDelta(80.0, (float) $report->correction_returns, 0.001);
+        $this->assertEqualsWithDelta(1000.0, (float) $report->sales_amount, 0.001);
+        // 1000 продажи − 80 коррекция возвратов
+        $this->assertEqualsWithDelta(920.0, (float) $report->itog, 0.001);
+        $this->assertEqualsWithDelta(920.0, (float) $report->margin, 0.001);
+
+        $correction = Item::query()
+            ->where('report_id', $report->id)
+            ->where('supplier_oper_name', 'Коррекция возвратов')
+            ->first();
+        $this->assertNotNull($correction);
+        $this->assertEqualsWithDelta(80.0, (float) $correction->sum_to_transfer, 0.001);
+    }
+
     public function test_cabinet_show_survives_widget_items_without_sales_rows(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
@@ -1405,6 +1508,7 @@ class WbProfitabilityTest extends WebAuthTestCase
                 $table->decimal('nalog', 14, 2)->default(0);
                 $table->decimal('nalog_percent', 5, 2)->default(0);
                 $table->decimal('correction_sales', 14, 2)->default(0);
+                $table->decimal('correction_returns', 14, 2)->default(0);
                 $table->decimal('total_profitability', 8, 2)->default(0);
                 $table->decimal('itog', 14, 2)->default(0);
                 $table->timestamps();
@@ -1453,6 +1557,12 @@ class WbProfitabilityTest extends WebAuthTestCase
         if (Schema::hasTable('wb_profitability_reports') && ! Schema::hasColumn('wb_profitability_reports', 'return_compensation')) {
             Schema::table('wb_profitability_reports', function (Blueprint $table) {
                 $table->decimal('return_compensation', 14, 2)->default(0);
+            });
+        }
+
+        if (Schema::hasTable('wb_profitability_reports') && ! Schema::hasColumn('wb_profitability_reports', 'correction_returns')) {
+            Schema::table('wb_profitability_reports', function (Blueprint $table) {
+                $table->decimal('correction_returns', 14, 2)->default(0);
             });
         }
 

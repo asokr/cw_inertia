@@ -152,6 +152,7 @@ Ozon использует **единый** кабинет (`oz_cabinets`) — с
 | [local-dev.md](local-dev.md) | Локальный запуск одной командой (`node dev.js`: artisan serve, Vite, очередь, планировщик) |
 | [deploy.md](deploy.md) | После выкладки на прод: `scripts/prod-reload.sh` (кеш + рестарт очередей) |
 | [credits-billing.md](credits-billing.md) | Единый баланс кредитов; AI-анализ кабинета, ответы на отзывы WB и AI Инструменты списывают кредиты |
+| [payments.md](payments.md) | ЮKassa: колбек, события, зачисление баланса, лог `storage/logs/balance-YYYY-MM-DD.log` |
 | [queues.md](queues.md) | Все очереди и jobs проекта (обновлять при изменении/добавлении) |
 | [wb-ai-cabinet-analyzer-sales-funnel-fields.md](wb-ai-cabinet-analyzer-sales-funnel-fields.md) | Маппинг полей WB Sales Funnel |
 | [ozon-price-calculation-frontend-columns.md](ozon-price-calculation-frontend-columns.md) | Колонки таблиц Ozon Price Calc для фронта |
@@ -162,7 +163,7 @@ Ozon использует **единый** кабинет (`oz_cabinets`) — с
 
 - **Подписки и лимиты** — `SubscribersSubscriptions`, `limits_plan` (кабинеты WB/Ozon, репрайсер). AI-услуги тарифицируются кредитами.
 - **Кредиты** — единый баланс и стоимость AI (`credit_accounts`, `credit_ledger`, `credit_services`). Админка, покупка, AI-анализ кабинета, ответы на отзывы WB и AI Инструменты на кредитах: [credits-billing.md](credits-billing.md)
-- **Платежи** — YooKassa (`/payments/yoo/*`)
+- **Платежи** — ЮKassa (`POST /api/payments/yoo/callback`). Подробно: [payments.md](payments.md). История в кабинете: `/panel/user/history`. Дата приходит с бэкенда уже как `d.m.Y H:i` (аксессор модели). Статусы на экране по-русски (`CREATE`/`CREATED` → «Создан», `CONFIRMED` → «Подтверждён», `FAILED` → «Неудачный», `CANCELED` → «Отменён», `RETURNED` → «Возврат»). Колонку платёжной системы не показываем — система одна. Хронология пополнения: `storage/logs/balance-YYYY-MM-DD.log` (`balance_before` / `balance_after`).
 - **Баланс** — пополнение/списание через wallet, лог `balance`. В шапке панели рядом с рублями показывается остаток кредитов; модалка «Пополнить» умеет и пополнить счёт, и купить кредиты.
 - **Админка подписчиков** — управление планами, купонами, ролями (Super-Admin)
 

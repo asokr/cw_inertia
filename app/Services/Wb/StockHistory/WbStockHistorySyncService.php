@@ -123,16 +123,6 @@ class WbStockHistorySyncService
      */
     public function importStockHistory(WbCabinet $cabinet, string $from, string $to, bool $force = false): array
     {
-        try {
-            $rows = $this->apiClient->fetchDailyStockHistory((string) $cabinet->apikey, $from, $to);
-        } catch (Throwable $e) {
-            return [
-                'success' => false,
-                'messages' => [$this->userError($e, 'Не удалось загрузить историю остатков.')],
-                'days' => [],
-            ];
-        }
-
         $dates = $this->dateList($from, $to);
         $existing = [];
         if ($force) {
@@ -156,10 +146,20 @@ class WbStockHistorySyncService
             static fn (string $date): bool => $force || ! isset($existing[$date]),
         ));
 
-        if ($datesToWrite === [] && $rows === []) {
+        if ($datesToWrite === []) {
             return [
                 'success' => true,
                 'messages' => ['История остатков за выбранные дни уже загружена.'],
+                'days' => [],
+            ];
+        }
+
+        try {
+            $rows = $this->apiClient->fetchDailyStockHistory((string) $cabinet->apikey, $from, $to);
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'messages' => [$this->userError($e, 'Не удалось загрузить историю остатков.')],
                 'days' => [],
             ];
         }
@@ -446,10 +446,94 @@ class WbStockHistorySyncService
             ->where('warehouse_key', '!=', self::TOTAL_WAREHOUSE_KEY)
             ->delete();
 
+        $this->persistTodayFromCurrent($cabinet, $current);
+
         return [
             'success' => true,
             'messages' => [],
         ];
+    }
+
+    /**
+     * CSV WB — остаток на 23:59, для сегодняшнего дня его нет.
+     * Пишем сегодня из живых wb-warehouses и перезаписываем при каждом снимке.
+     *
+     * @param  array<string, array{quantity: int, in_way_to_client: int, in_way_from_client: int}>  $current
+     */
+    private function persistTodayFromCurrent(WbCabinet $cabinet, array $current): void
+    {
+        $today = WbStockHistoryCalendar::todayDate();
+        $now = now();
+        $cabinetId = (int) $cabinet->id;
+
+        $sizeKeys = [];
+        foreach (array_keys($current) as $key) {
+            $sizeKeys[(string) $key] = true;
+        }
+        $products = WbStockHistoryProduct::query()
+            ->where('cabinet_id', $cabinetId)
+            ->get(['nm_id', 'chrt_id']);
+        foreach ($products as $product) {
+            $sizeKeys[$product->nm_id.':'.$product->chrt_id] = true;
+        }
+
+        $items = [];
+        foreach (array_keys($sizeKeys) as $sizeKey) {
+            [$nmId, $chrtId] = array_map('intval', explode(':', $sizeKey, 2));
+            if ($nmId <= 0) {
+                continue;
+            }
+            $items[] = [
+                'cabinet_id' => $cabinetId,
+                'nm_id' => $nmId,
+                'chrt_id' => $chrtId,
+                'warehouse_key' => self::TOTAL_WAREHOUSE_KEY,
+                'stock_date' => $today,
+                'qty' => (int) ($current[$sizeKey]['quantity'] ?? 0),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        DB::transaction(function () use ($cabinetId, $items, $today, $now): void {
+            WbStockHistoryWarehouse::query()->upsert(
+                [[
+                    'cabinet_id' => $cabinetId,
+                    'warehouse_key' => self::TOTAL_WAREHOUSE_KEY,
+                    'warehouse_id' => null,
+                    'warehouse_name' => 'Все склады',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]],
+                ['cabinet_id', 'warehouse_key'],
+                ['warehouse_id', 'warehouse_name', 'updated_at'],
+            );
+
+            WbStockHistoryItem::query()
+                ->where('cabinet_id', $cabinetId)
+                ->where('stock_date', $today)
+                ->where('warehouse_key', self::TOTAL_WAREHOUSE_KEY)
+                ->delete();
+
+            foreach (array_chunk($items, self::UPSERT_CHUNK) as $chunk) {
+                WbStockHistoryItem::query()->upsert(
+                    $chunk,
+                    ['cabinet_id', 'nm_id', 'chrt_id', 'warehouse_key', 'stock_date'],
+                    ['qty', 'updated_at'],
+                );
+            }
+
+            WbStockHistoryDay::query()->upsert(
+                [[
+                    'cabinet_id' => $cabinetId,
+                    'stock_date' => $today,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]],
+                ['cabinet_id', 'stock_date'],
+                ['updated_at'],
+            );
+        });
     }
 
     /**

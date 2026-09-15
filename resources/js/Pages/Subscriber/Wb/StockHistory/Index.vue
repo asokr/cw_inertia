@@ -52,6 +52,8 @@ const breadcrumbs = [
 const baseUrl = "/panel/wb/stock-history";
 const { showError, showSuccess } = useFlashToast();
 
+// Вкладка заказов скрыта в интерфейсе; маршруты и сбор данных остаются.
+const showOrdersTab = false;
 const activeTab = ref(props.tab === "orders" ? "orders" : "stocks");
 const subjectInput = ref(props.filters.subject ?? "");
 const vendorInput = ref(props.filters.vendor_code ?? "");
@@ -91,6 +93,8 @@ const jobProgressTitle = computed(() => (
 const isRetentionSaved = computed(() => (
     Number(retentionDays.value) === Number(props.tracking.retention_days)
 ));
+
+const latestHistoryDate = computed(() => props.tracking.today || "");
 
 const poll = useToolPoll(2500, {
     requestOptions: {
@@ -376,17 +380,17 @@ onUnmounted(() => {
     <SubscriberLayout :title="cabinet.name" :breadcrumbs="breadcrumbs">
         <ToolPageHeader
             title="История остатков и заказов"
-            description="Смотрите, как менялись остатки товаров и сколько заказов было каждый день"
+            description="Смотрите, как менялись остатки товаров каждый день"
         />
 
         <div class="space-y-4">
             <Tabs :model-value="activeTab" @update:model-value="changeTab">
-                <TabsList>
+                <TabsList v-if="showOrdersTab">
                     <TabsTrigger value="stocks">История остатков</TabsTrigger>
                     <TabsTrigger value="orders">История заказов</TabsTrigger>
                 </TabsList>
 
-                <Card class="mt-4 p-4 sm:p-5">
+                <Card :class="showOrdersTab ? 'mt-4 p-4 sm:p-5' : 'p-4 sm:p-5'">
                     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div class="space-y-2">
                             <h3 class="font-medium">История данных</h3>
@@ -500,11 +504,11 @@ onUnmounted(() => {
                                 </div>
                                 <div class="space-y-1.5">
                                     <Label>С</Label>
-                                    <Input v-model="fromInput" type="date" @change="applyPeriod" />
+                                    <Input v-model="fromInput" type="date" :max="latestHistoryDate" @change="applyPeriod" />
                                 </div>
                                 <div class="space-y-1.5">
                                     <Label>По</Label>
-                                    <Input v-model="toInput" type="date" @change="applyPeriod" />
+                                    <Input v-model="toInput" type="date" :max="latestHistoryDate" @change="applyPeriod" />
                                 </div>
                             </div>
                             <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
@@ -558,11 +562,11 @@ onUnmounted(() => {
                                 </div>
                                 <div class="space-y-1.5">
                                     <Label>С</Label>
-                                    <Input v-model="fromInput" type="date" @change="applyPeriod" />
+                                    <Input v-model="fromInput" type="date" :max="latestHistoryDate" @change="applyPeriod" />
                                 </div>
                                 <div class="space-y-1.5">
                                     <Label>По</Label>
-                                    <Input v-model="toInput" type="date" @change="applyPeriod" />
+                                    <Input v-model="toInput" type="date" :max="latestHistoryDate" @change="applyPeriod" />
                                 </div>
                             </div>
                             <div class="mt-3 flex flex-wrap items-center justify-between gap-2">

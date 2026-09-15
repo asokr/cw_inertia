@@ -117,6 +117,33 @@ class PanelTest extends WebAuthTestCase
                 ->where('dashboard.recent_payments.0.description', 'Пополнение баланса'));
     }
 
+    public function test_subscriber_can_open_payment_history(): void
+    {
+        $user = $this->createSubscriberUser();
+
+        PaymentsTransaction::query()->create([
+            'user_id' => $user->id,
+            'amount' => 500,
+            'description' => 'Пополнение баланса',
+            'status' => 'CREATE',
+            'system' => 'YooKassa',
+        ]);
+
+        $this->actingAs($user)
+            ->get('/panel/user/history')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Subscriber/Payments/History')
+                ->has('transactions', 1)
+                ->where('transactions.0.status', 'CREATE')
+                ->where('transactions.0.amount', 500)
+                ->where('transactions.0.description', 'Пополнение баланса')
+                ->where(
+                    'transactions.0.created_at',
+                    fn ($value) => is_string($value) && preg_match('/^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/', $value) === 1
+                ));
+    }
+
     private function createSubscriberUser(): User
     {
         $user = User::factory()->create([

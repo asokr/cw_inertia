@@ -16,14 +16,20 @@ const PAYMENT_STATUS_VARIANTS = {
     RETURNED: "warning",
 };
 
+function normalizeStatus(status) {
+    return String(status ?? "").trim().toUpperCase();
+}
+
 export function formatPaymentStatusLabel(status) {
     if (!status) {
         return "—";
     }
 
-    return PAYMENT_STATUS_LABELS[status] ?? status;
+    const key = normalizeStatus(status);
+
+    return PAYMENT_STATUS_LABELS[key] ?? status;
 }
 
 export function paymentStatusBadgeVariant(status) {
-    return PAYMENT_STATUS_VARIANTS[status] ?? "outline";
+    return PAYMENT_STATUS_VARIANTS[normalizeStatus(status)] ?? "outline";
 }

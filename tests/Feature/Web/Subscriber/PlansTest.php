@@ -256,7 +256,10 @@ class PlansTest extends WebAuthTestCase
         $paymentService = \Mockery::mock(PaymentService::class);
         $paymentService->shouldReceive('createPayment')
             ->once()
-            ->andReturn('https://yookassa.test/pay');
+            ->andReturn([
+                'url' => 'https://yookassa.test/pay',
+                'id' => 'yoo-payment-1',
+            ]);
         $this->instance(PaymentService::class, $paymentService);
 
         $this->actingAs($user)
@@ -270,6 +273,7 @@ class PlansTest extends WebAuthTestCase
         $this->assertNotNull($transaction);
         $this->assertSame(1, (int) $transaction->plan_id);
         $this->assertSame(500.0, (float) $transaction->amount);
+        $this->assertSame('yoo-payment-1', $transaction->system_id);
         $this->assertStringContainsString('тарифа', (string) $transaction->description);
     }
 

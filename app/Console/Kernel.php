@@ -144,7 +144,7 @@ class Kernel extends ConsoleKernel
             ->runInBackground();
 
         $schedule->command('subscriber:wb-stock-history-snapshot')
-            ->dailyAt('01:00')
+            ->cron('0 1,5,9,13,17,21 * * *')
             ->timezone('Europe/Moscow')
             ->withoutOverlapping()
             ->onOneServer()
