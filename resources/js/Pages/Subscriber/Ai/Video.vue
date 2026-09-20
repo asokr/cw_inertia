@@ -12,7 +12,7 @@ import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import Button from "@/components/ui/Button.vue";
 import Skeleton from "@/components/ui/Skeleton.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
-import { normalizeVideoItem, toAiMediaUrl } from "@/composables/useAiMediaUrl";
+import { normalizeVideoItem } from "@/composables/useAiMediaUrl";
 import { useFlashToast } from "@/composables/useFlashToast";
 import { useMarketplaceAi } from "@/composables/useMarketplaceAi";
 import { formatCredits } from "@/utils/credits";
@@ -57,6 +57,7 @@ const {
     refreshLimits,
     runVideoTask,
     runSceneVideoTask,
+    runEditVideoTask,
     rememberActiveGeneration,
     stopVideoPolling,
 } = useMarketplaceAi({}, {
@@ -115,15 +116,31 @@ function getTaskPosterUrl(task) {
         }
     }
 
-    if (task?.image) {
-        return { url: task.image, videoUrl: "" };
-    }
-
-    if (Array.isArray(task?.images) && task.images.length > 0) {
-        return { url: task.images[0], videoUrl: "" };
-    }
-
     return { url: "", videoUrl: "" };
+}
+
+function getTaskSourceUrls(task) {
+    if (Array.isArray(task?.images) && task.images.length > 0) {
+        return task.images;
+    }
+
+    if (task?.image) {
+        return [task.image];
+    }
+
+    return [];
+}
+
+function getTaskGalleryKey(task) {
+    if (task?.request_id) {
+        return task.request_id;
+    }
+
+    if (task?.id != null) {
+        return `task-${task.id}`;
+    }
+
+    return null;
 }
 
 const galleryItems = computed(() => {
@@ -131,14 +148,16 @@ const galleryItems = computed(() => {
     const tasks = [...videoHistory.value].reverse();
 
     for (const task of tasks) {
-        if (!task?.request_id) {
+        const taskKey = getTaskGalleryKey(task);
+        if (!taskKey) {
             continue;
         }
 
         const poster = getTaskPosterUrl(task);
+        const sourceUrls = getTaskSourceUrls(task);
 
         items.push({
-            id: task.request_id,
+            id: taskKey,
             status: task.status,
             url: poster.url,
             videoUrl: poster.videoUrl,
@@ -147,8 +166,9 @@ const galleryItems = computed(() => {
             duration: task.duration || 5,
             resolution: task.resolution || "480p",
             aspect_ratio: task.aspect_ratio || "16:9",
-            image: task.image || "",
-            images: Array.isArray(task.images) ? [...task.images] : [],
+            image: task.image || sourceUrls[0] || "",
+            images: [...sourceUrls],
+            source_video: task.source_video || "",
             task,
         });
     }
@@ -398,16 +418,21 @@ async function seedFormFromGalleryItem(item) {
             aspect_ratio: item.aspect_ratio || "16:9",
             image: "",
             images: [],
+            source_video: "",
         };
 
         if (item.task_type === "generate_video_from_image" && item.image) {
             const dataUrl = await urlToDataUrl(item.image);
             seed.image = dataUrl || "";
-        } else if (item.task_type === "generate_video_from_scene") {
+        } else if (item.task_type === "generate_video_from_scene" || (Array.isArray(item.images) && item.images.length > 0)) {
             const refs = Array.isArray(item.images) && item.images.length > 0
                 ? item.images
                 : (item.image ? [item.image] : []);
+            seed.task_type = "generate_video_from_scene";
             seed.images = await resolveReferenceImages(refs);
+        } else if (item.task_type === "edit_video") {
+            seed.task_type = "edit_video";
+            seed.source_video = item.source_video || "";
         }
 
         videoFormRef.value.applySeed(seed);
@@ -421,6 +446,7 @@ async function seedFormFromGalleryItem(item) {
             aspect_ratio: item.aspect_ratio,
             image: "",
             images: [],
+            source_video: item.source_video || "",
         });
         showError("Не удалось подготовить данные для повторной генерации");
     } finally {
@@ -459,22 +485,45 @@ function scrollGalleryToBottom() {
     container.scrollTop = container.scrollHeight;
 }
 
-function buildPendingPreviewUrl(snapshot) {
-    if (snapshot?.image) {
-        return toAiMediaUrl(snapshot.image, { allowDataUrl: true }) || "";
+function quoteVideoCost(resolution, duration) {
+    const byResolution = props.pricing?.video?.amounts?.[resolution] ?? {};
+    const exact = Number(byResolution[String(duration)]);
+    if (Number.isFinite(exact) && exact > 0) {
+        return exact;
     }
 
-    const firstImage = snapshot?.images?.[0];
-    if (firstImage) {
-        return toAiMediaUrl(firstImage, { allowDataUrl: true }) || "";
+    const perSecond = Number(byResolution["5"] ?? 0) / 5;
+
+    return Math.max(0, Math.round(perSecond * Number(duration || 0)));
+}
+
+function handleFormTaskTypeChange(type) {
+    if (type !== "edit_video" || !videoFormRef.value) {
+        return;
     }
 
-    return "";
+    const snapshot = videoFormRef.value.getSnapshot?.() ?? {};
+    if (snapshot.source_video) {
+        return;
+    }
+
+    const resultUrl = normalizeVideoItem(activeCanvasTask.value?.video)?.url
+        || activeGalleryItem.value?.videoUrl
+        || "";
+    if (!resultUrl) {
+        return;
+    }
+
+    videoFormRef.value.applySeed({
+        ...snapshot,
+        task_type: "edit_video",
+        source_video: resultUrl,
+    });
 }
 
 async function handleVideoSubmit(payload) {
     const duration = Number(payload?.duration || 5);
-    const totalCost = Number(props.pricing?.video?.amounts?.[payload?.resolution]?.[String(duration)] ?? 0);
+    const totalCost = quoteVideoCost(payload?.resolution, duration);
     const available = Number(creditsAvailable.value ?? 0);
 
     if (!hasVideoLimit.value || available < totalCost) {
@@ -485,12 +534,11 @@ async function handleVideoSubmit(payload) {
     const rollbackSnapshot = videoFormRef.value?.getSnapshot?.() ?? null;
     const previousActiveGalleryId = activeGalleryId.value;
     const pendingId = `pending-${Date.now()}`;
-    const previewUrl = buildPendingPreviewUrl(rollbackSnapshot);
 
     pendingGalleryItem.value = {
         id: pendingId,
         status: "pending",
-        url: previewUrl,
+        url: "",
         videoUrl: "",
         prompt: rollbackSnapshot?.sourcePrompt || rollbackSnapshot?.prompt || "",
         task_type: rollbackSnapshot?.task_type || "generate_video",
@@ -499,6 +547,7 @@ async function handleVideoSubmit(payload) {
         aspect_ratio: rollbackSnapshot?.aspect_ratio || "16:9",
         image: rollbackSnapshot?.image || "",
         images: Array.isArray(rollbackSnapshot?.images) ? [...rollbackSnapshot.images] : [],
+        source_video: rollbackSnapshot?.source_video || "",
     };
     activeGalleryId.value = pendingId;
 
@@ -508,6 +557,8 @@ async function handleVideoSubmit(payload) {
     let result;
     if (payload.task_type === "generate_video_from_scene") {
         result = await runSceneVideoTask(payload);
+    } else if (payload.task_type === "edit_video") {
+        result = await runEditVideoTask(payload);
     } else {
         result = await runVideoTask(payload);
     }
@@ -613,7 +664,7 @@ watch(
         <div class="flex h-[calc(100dvh-10.5rem)] max-h-[calc(100dvh-10.5rem)] flex-col overflow-hidden">
             <ToolPageHeader
                 title="Генерация видео"
-                description="Text-to-video, анимация изображений и сцены по референсам"
+                description="Видео по тексту, изображению, сцене и редактирование ролика"
                 class="!mb-3 shrink-0"
             >
                 <template #actions>
@@ -689,6 +740,7 @@ watch(
                         :pricing="pricing"
                         @submit="handleVideoSubmit"
                         @error="showError"
+                        @task-type-change="handleFormTaskTypeChange"
                     />
                 </div>
             </template>

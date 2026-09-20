@@ -6,6 +6,7 @@ use App\Mail\EmailVerification;
 use App\Services\Ozon\OzonPerformanceApiService;
 use App\Services\PaymentService;
 use App\Services\Gemini\GeminiApiClient;
+use App\Services\Ai\AiMediaStorageService;
 use App\Services\Grok\GrokVideoApiClient;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\URL;
@@ -41,7 +42,8 @@ class AppServiceProvider extends ServiceProvider
             return new GrokVideoApiClient(
                 apiKey: config('services.grok.api_key'),
                 baseUrl: config('services.grok.base_url'),
-                videoModel: config('services.grok.video_model', 'grok-imagine-video')
+                videoModel: config('services.grok.video_model', 'grok-imagine-video'),
+                mediaStorage: $app->make(AiMediaStorageService::class),
             );
         });
 

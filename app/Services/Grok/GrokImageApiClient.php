@@ -56,9 +56,16 @@ class GrokImageApiClient
                 ->withToken($apiKey)
                 ->timeout(120);
 
+            $httpOptions = [];
             $proxy = (string) config('services.proxy', '');
             if ($proxy !== '') {
-                $request = $request->withOptions(['proxy' => $proxy]);
+                $httpOptions['proxy'] = $proxy;
+            }
+            if (! (bool) config('services.grok.http_verify', true)) {
+                $httpOptions['verify'] = false;
+            }
+            if ($httpOptions !== []) {
+                $request = $request->withOptions($httpOptions);
             }
 
             $response = $request->post($baseUrl . $endpoint, $payload);

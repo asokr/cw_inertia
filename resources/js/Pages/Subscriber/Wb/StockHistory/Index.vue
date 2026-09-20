@@ -12,6 +12,7 @@ import {
     WB_STOCK_HISTORY_STAGES,
 } from "@/config/wbStockHistoryJobStages";
 import {
+    groupHistoryRowsByNomenclature,
     orderHistoryRowKey,
     orderHistoryRowLabel,
     stockHistoryRowKey,
@@ -52,8 +53,7 @@ const breadcrumbs = [
 const baseUrl = "/panel/wb/stock-history";
 const { showError, showSuccess } = useFlashToast();
 
-// Вкладка заказов скрыта в интерфейсе; маршруты и сбор данных остаются.
-const showOrdersTab = false;
+const showOrdersTab = true;
 const activeTab = ref(props.tab === "orders" ? "orders" : "stocks");
 const subjectInput = ref(props.filters.subject ?? "");
 const vendorInput = ref(props.filters.vendor_code ?? "");
@@ -269,6 +269,18 @@ function changePage(page) {
     reload({ page });
 }
 
+const stockGroups = computed(() => (
+    activeTab.value === "stocks"
+        ? groupHistoryRowsByNomenclature(props.rows)
+        : []
+));
+
+const orderGroups = computed(() => (
+    activeTab.value === "orders"
+        ? groupHistoryRowsByNomenclature(props.rows)
+        : []
+));
+
 function currentRowKey(row) {
     return activeTab.value === "orders" ? orderHistoryRowKey(row) : stockHistoryRowKey(row);
 }
@@ -310,7 +322,8 @@ function toggleRow(row) {
 
 function togglePage(checked) {
     const next = { ...selectedMap.value };
-    for (const row of props.rows) {
+    const pageRows = activeTab.value === "orders" ? orderGroups.value : stockGroups.value;
+    for (const row of pageRows) {
         const key = currentRowKey(row);
         if (checked) {
             next[key] = row;
@@ -343,6 +356,15 @@ watch(
         const byKey = {};
         for (const row of rows) {
             byKey[currentRowKey(row)] = row;
+        }
+        if (activeTab.value === "stocks") {
+            for (const group of stockGroups.value) {
+                byKey[stockHistoryRowKey(group)] = group;
+            }
+        } else {
+            for (const group of orderGroups.value) {
+                byKey[orderHistoryRowKey(group)] = group;
+            }
         }
         const next = {};
         for (const [key, row] of Object.entries(current)) {
@@ -380,7 +402,7 @@ onUnmounted(() => {
     <SubscriberLayout :title="cabinet.name" :breadcrumbs="breadcrumbs">
         <ToolPageHeader
             title="История остатков и заказов"
-            description="Смотрите, как менялись остатки товаров каждый день"
+            description="Смотрите, как менялись остатки и заказы товаров каждый день"
         />
 
         <div class="space-y-4">
@@ -513,7 +535,7 @@ onUnmounted(() => {
                             </div>
                             <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
                                 <p class="text-xs text-muted-foreground">
-                                    Отметьте строки, чтобы построить график внизу.
+                                    В строке товара — сумма по всем размерам. Раскройте строку, чтобы увидеть каждый размер. Отметьте строки, чтобы построить график внизу.
                                 </p>
                                 <Button
                                     v-if="rows.length > 0"
@@ -571,7 +593,7 @@ onUnmounted(() => {
                             </div>
                             <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
                                 <p class="text-xs text-muted-foreground">
-                                    Отметьте строки, чтобы построить график внизу.
+                                    В строке товара — сумма заказов по всем размерам. Раскройте строку, чтобы увидеть каждый размер. Отметьте строки, чтобы построить график внизу.
                                 </p>
                                 <Button
                                     v-if="rows.length > 0"
@@ -612,7 +634,7 @@ onUnmounted(() => {
                 <StocksHistoryTable
                     v-if="activeTab === 'stocks'"
                     :dates="dates"
-                    :rows="rows"
+                    :rows="stockGroups"
                     :selected-keys="selectedMap"
                     :fill-height="fullscreen"
                     max-height="calc(100dvh - 14rem)"
@@ -622,7 +644,7 @@ onUnmounted(() => {
                 <OrdersHistoryTable
                     v-else
                     :dates="dates"
-                    :rows="rows"
+                    :rows="orderGroups"
                     :selected-keys="selectedMap"
                     :fill-height="fullscreen"
                     max-height="calc(100dvh - 14rem)"

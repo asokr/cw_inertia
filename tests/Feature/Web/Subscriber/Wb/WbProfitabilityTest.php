@@ -667,6 +667,59 @@ class WbProfitabilityTest extends WebAuthTestCase
         $this->assertEqualsWithDelta(20.0, (float) $correction->logistics, 0.001);
     }
 
+    public function test_process_report_calculates_percent_buy_from_delivery_to_client_types(): void
+    {
+        $report = $this->processReportWithRows('Buyout Delivery Cabinet', [
+            $this->deliveryApiRow('К клиенту при продаже', 111),
+            $this->deliveryApiRow('К клиенту при продаже', 111),
+            $this->deliveryApiRow('К клиенту при отмене', 111),
+            [
+                'sellerOperName' => 'Логистика',
+                'deliveryService' => 40,
+                'forPay' => 0,
+                'quantity' => 1,
+                'nmId' => 111,
+                'vendorCode' => 'SKU-1',
+                'sku' => 'barcode-1',
+                'officeName' => 'Коледино',
+                'bonusTypeName' => 'К клиенту при продаже',
+            ],
+            $this->deliveryApiRow('От клиента при возврате', 111),
+        ]);
+
+        $this->assertEqualsWithDelta(66.67, (float) $report->percent_buy, 0.001);
+    }
+
+    public function test_process_report_percent_buy_is_zero_when_only_delivery_cancellations(): void
+    {
+        $report = $this->processReportWithRows('Buyout Cancel Only Cabinet', [
+            $this->deliveryApiRow('К клиенту при отмене', 222),
+            $this->deliveryApiRow('К клиенту при отмене', 222),
+        ]);
+
+        $this->assertEqualsWithDelta(0.0, (float) $report->percent_buy, 0.001);
+    }
+
+    public function test_process_report_percent_buy_is_zero_without_delivery_to_client_types(): void
+    {
+        $report = $this->processReportWithRows('Buyout No Types Cabinet', [
+            $this->deliveryApiRow('До покупателя', 333),
+            [
+                'sellerOperName' => 'Логистика',
+                'deliveryService' => 15,
+                'forPay' => 0,
+                'quantity' => 1,
+                'nmId' => 333,
+                'vendorCode' => 'SKU-3',
+                'sku' => 'barcode-3',
+                'officeName' => 'Коледино',
+                'bonusTypeName' => 'К клиенту при продаже',
+            ],
+        ]);
+
+        $this->assertEqualsWithDelta(0.0, (float) $report->percent_buy, 0.001);
+    }
+
     public function test_workspace_exposes_return_compensation_in_other_group(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
@@ -1381,6 +1434,56 @@ class WbProfitabilityTest extends WebAuthTestCase
                 'date_to' => '2026-01-15',
             ])
             ->assertForbidden();
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function processReportWithRows(string $cabinetName, array $rows): Report
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, $cabinetName);
+        $this->ensurePriceCalcV3Table();
+
+        $api = \Mockery::mock(ProfitabilityApiService::class);
+        $api->shouldReceive('getReportDetailByPeriod')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'code' => 200,
+                'data' => $rows,
+            ]);
+
+        $job = new ProcessProfitabilityReport(
+            (int) $cabinet->id,
+            '2026-01-01',
+            '2026-01-15',
+            (int) $user->id
+        );
+        $job->handle($api);
+
+        $report = Report::query()->where('cabinet_id', $cabinet->id)->first();
+        $this->assertNotNull($report);
+
+        return $report;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function deliveryApiRow(string $bonusType, int $nmId): array
+    {
+        return [
+            'sellerOperName' => 'Доставка',
+            'deliveryService' => 10,
+            'forPay' => 0,
+            'quantity' => 1,
+            'nmId' => $nmId,
+            'vendorCode' => 'SKU-'.$nmId,
+            'sku' => 'barcode-'.$nmId,
+            'officeName' => 'Коледино',
+            'bonusTypeName' => $bonusType,
+        ];
     }
 
     private function createSubscriberUser(bool $withPermission = false): User

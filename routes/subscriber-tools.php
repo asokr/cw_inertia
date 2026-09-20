@@ -411,6 +411,7 @@ Route::prefix('ai')
                 ->name('image.generations.destroy');
             Route::post('/video/start', [AiMarketplaceController::class, 'videoStart'])->name('video.start');
             Route::post('/video/reference/start', [AiMarketplaceController::class, 'videoReferenceStart'])->name('video.reference.start');
+            Route::post('/video/edit/start', [AiMarketplaceController::class, 'videoEditStart'])->name('video.edit.start');
             Route::get('/video/status/{requestId}', [AiMarketplaceController::class, 'videoStatus'])
                 ->withoutMiddleware('throttle:api')
                 ->name('video.status');

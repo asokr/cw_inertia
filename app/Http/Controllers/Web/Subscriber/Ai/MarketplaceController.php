@@ -8,6 +8,7 @@ use App\Http\Requests\Web\Subscriber\QuoteAiMarketplaceRequest;
 use App\Http\Requests\Web\Subscriber\RunAiMarketplaceRequest;
 use App\Http\Requests\Web\Subscriber\StartAiImageRequest;
 use App\Http\Requests\Web\Subscriber\StartAiReferenceVideoRequest;
+use App\Http\Requests\Web\Subscriber\StartAiVideoEditRequest;
 use App\Http\Requests\Web\Subscriber\StartAiVideoRequest;
 use App\Services\Ai\AiImageGenerationService;
 use App\Services\Ai\AiVideoGenerationService;
@@ -202,6 +203,11 @@ class MarketplaceController extends SubscriberToolController
     public function videoReferenceStart(StartAiReferenceVideoRequest $request): JsonResponse
     {
         return $this->aiVideoService->referenceStart($request);
+    }
+
+    public function videoEditStart(StartAiVideoEditRequest $request): JsonResponse
+    {
+        return $this->aiVideoService->editStart($request);
     }
 
     public function videoStatus(string $requestId): JsonResponse

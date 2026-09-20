@@ -1,10 +1,12 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import { ChevronDown, ChevronRight } from "lucide-vue-next";
 import Checkbox from "@/components/ui/Checkbox.vue";
 import { formatHistoryChartDate, orderHistoryRowKey } from "@/utils/wbStockHistoryRows";
 import HistoryQtyCells from "./HistoryQtyCells.vue";
 import ProductThumb from "./ProductThumb.vue";
 
+// rows — уже сгруппированные номенклатуры с sizes[] (см. groupHistoryRowsByNomenclature).
 const props = defineProps({
     dates: { type: Array, default: () => [] },
     rows: { type: Array, default: () => [] },
@@ -14,6 +16,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["toggle", "toggle-page"]);
+
+const expanded = ref({});
 
 const latestDate = computed(() => {
     const dates = Array.isArray(props.dates) ? props.dates : [];
@@ -32,6 +36,21 @@ function isSelected(row) {
 
 function stickyClass(row) {
     return isSelected(row) ? "bg-primary/5 group-hover:bg-primary/10" : "bg-card group-hover:bg-muted";
+}
+
+function isOpen(nmId) {
+    return Boolean(expanded.value[nmId]);
+}
+
+function toggleExpand(nmId) {
+    expanded.value = {
+        ...expanded.value,
+        [nmId]: !expanded.value[nmId],
+    };
+}
+
+function sizeLabel(row) {
+    return row.tech_size ? String(row.tech_size) : "—";
 }
 </script>
 
@@ -68,37 +87,80 @@ function stickyClass(row) {
                 </tr>
             </thead>
             <tbody>
-                <tr
-                    v-for="row in rows"
-                    :key="orderHistoryRowKey(row)"
-                    class="group cursor-pointer border-b"
-                    :class="isSelected(row) ? 'bg-primary/5' : 'hover:bg-accent/40'"
-                    @click="emit('toggle', row)"
-                >
-                    <td class="sticky left-0 z-20 w-10 px-2 py-2" :class="stickyClass(row)" @click.stop>
-                        <Checkbox
-                            :model-value="isSelected(row)"
-                            @update:model-value="emit('toggle', row)"
+                <template v-for="group in rows" :key="orderHistoryRowKey(group)">
+                    <tr
+                        class="group cursor-pointer border-b"
+                        :class="isSelected(group) ? 'bg-primary/5' : 'hover:bg-accent/40'"
+                        @click="emit('toggle', group)"
+                    >
+                        <td class="sticky left-0 z-20 w-10 px-2 py-2" :class="stickyClass(group)" @click.stop>
+                            <Checkbox
+                                :model-value="isSelected(group)"
+                                @update:model-value="emit('toggle', group)"
+                            />
+                        </td>
+                        <td class="sticky left-10 z-10 w-14 px-2 py-2" :class="stickyClass(group)">
+                            <ProductThumb :src="group.image_url" />
+                        </td>
+                        <td class="sticky left-24 z-10 min-w-[9rem] max-w-[14rem] px-3 py-2" :class="stickyClass(group)">
+                            <div class="flex min-w-0 items-center gap-1.5">
+                                <button
+                                    type="button"
+                                    class="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                    :aria-expanded="isOpen(group.nm_id)"
+                                    :aria-label="isOpen(group.nm_id) ? 'Свернуть размеры' : 'Показать размеры'"
+                                    @click.stop="toggleExpand(group.nm_id)"
+                                >
+                                    <ChevronDown v-if="isOpen(group.nm_id)" class="h-4 w-4" />
+                                    <ChevronRight v-else class="h-4 w-4" />
+                                </button>
+                                <p class="truncate font-medium">{{ group.subject || "—" }}</p>
+                            </div>
+                        </td>
+                        <td class="min-w-[8rem] px-3 py-2">
+                            <p class="truncate">{{ group.vendor_code || "—" }}</p>
+                        </td>
+                        <td class="min-w-[7rem] px-3 py-2 tabular-nums">{{ group.nm_id || "—" }}</td>
+                        <td class="min-w-[5rem] px-3 py-2 text-muted-foreground">—</td>
+                        <td class="min-w-[8rem] px-3 py-2 text-muted-foreground">—</td>
+                        <HistoryQtyCells
+                            :dates="dates"
+                            :values="group.series || []"
+                            :latest-date="latestDate"
                         />
-                    </td>
-                    <td class="sticky left-10 z-10 w-14 px-2 py-2" :class="stickyClass(row)">
-                        <ProductThumb :src="row.image_url" />
-                    </td>
-                    <td class="sticky left-24 z-10 min-w-[9rem] max-w-[14rem] px-3 py-2" :class="stickyClass(row)">
-                        <p class="truncate font-medium">{{ row.subject || "—" }}</p>
-                    </td>
-                    <td class="min-w-[8rem] px-3 py-2">
-                        <p class="truncate">{{ row.vendor_code || "—" }}</p>
-                    </td>
-                    <td class="min-w-[7rem] px-3 py-2 tabular-nums">{{ row.nm_id || "—" }}</td>
-                    <td class="min-w-[5rem] px-3 py-2">{{ row.tech_size || "—" }}</td>
-                    <td class="min-w-[8rem] px-3 py-2 tabular-nums">{{ row.barcode || "—" }}</td>
-                    <HistoryQtyCells
-                        :dates="dates"
-                        :values="row.series || []"
-                        :latest-date="latestDate"
-                    />
-                </tr>
+                    </tr>
+                    <tr
+                        v-for="size in (isOpen(group.nm_id) ? (group.sizes || []) : [])"
+                        :key="orderHistoryRowKey(size)"
+                        class="group cursor-pointer border-b bg-background/60"
+                        :class="isSelected(size) ? 'bg-primary/5' : 'hover:bg-accent/30'"
+                        @click="emit('toggle', size)"
+                    >
+                        <td class="sticky left-0 z-20 w-10 px-2 py-2" :class="stickyClass(size)" @click.stop>
+                            <Checkbox
+                                :model-value="isSelected(size)"
+                                @update:model-value="emit('toggle', size)"
+                            />
+                        </td>
+                        <td class="sticky left-10 z-10 w-14 px-2 py-2" :class="stickyClass(size)">
+                            <ProductThumb :src="size.image_url" />
+                        </td>
+                        <td class="sticky left-24 z-10 min-w-[9rem] max-w-[14rem] px-3 py-2 pl-9" :class="stickyClass(size)">
+                            <p class="truncate text-sm">{{ sizeLabel(size) }}</p>
+                        </td>
+                        <td class="min-w-[8rem] px-3 py-2">
+                            <p class="truncate">{{ size.vendor_code || "—" }}</p>
+                        </td>
+                        <td class="min-w-[7rem] px-3 py-2 tabular-nums">{{ size.nm_id || "—" }}</td>
+                        <td class="min-w-[5rem] px-3 py-2">{{ sizeLabel(size) }}</td>
+                        <td class="min-w-[8rem] px-3 py-2 tabular-nums">{{ size.barcode || "—" }}</td>
+                        <HistoryQtyCells
+                            :dates="dates"
+                            :values="size.series || []"
+                            :latest-date="latestDate"
+                        />
+                    </tr>
+                </template>
             </tbody>
         </table>
     </div>

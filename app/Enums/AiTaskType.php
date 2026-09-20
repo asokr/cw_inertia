@@ -16,6 +16,7 @@ enum AiTaskType: string
     case EDIT_IMAGE = 'edit_image';
     case GENERATE_VIDEO = 'generate_video';
     case GENERATE_VIDEO_FROM_IMAGE = 'generate_video_from_image';
+    case EDIT_VIDEO = 'edit_video';
     case WB_FEEDBACK_ANSWER_AI = 'wb_feedback_answer_ai';
     case WB_FEEDBACK_ANSWER_TEMPLATE = 'wb_feedback_answer_template';
     case OZON_FEEDBACK_ANSWER_AI = 'ozon_feedback_answer_ai';

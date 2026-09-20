@@ -42,13 +42,21 @@ return [
         'base_url' => env('GROK_BASE_URL', 'https://api.x.ai'),
         'video_model' => env('GROK_VIDEO_MODEL', 'grok-imagine-video'),
         'image_model' => env('GROK_IMAGE_MODEL', 'grok-imagine-image-quality'),
+        // JSON к /v1/videos/generations: шлюз xAI отвечает «The POST data is too large» около 4 МБ.
+        'max_video_json_bytes' => (int) env('GROK_MAX_VIDEO_JSON_BYTES', 3145728),
+        // TTL файла в Files API (секунды, минимум 3600). Картинки грузим туда вместо base64 в JSON.
+        'files_expires_after' => (int) env('GROK_FILES_EXPIRES_AFTER', 3600),
+        // На Windows/OSPanel PHP cURL часто не доверяет цепочке (антивирус MITM). false — только локально.
+        'http_verify' => filter_var(env('GROK_HTTP_VERIFY', true), FILTER_VALIDATE_BOOLEAN),
     ],
     'ai_media' => [
         'disk' => env('AI_MEDIA_DISK', 'private'),
         'image_prefix' => env('AI_MEDIA_IMAGE_PREFIX', 'ai/source-images'),
         'video_prefix' => env('AI_MEDIA_VIDEO_PREFIX', 'ai/generated-videos'),
+        'source_video_prefix' => env('AI_MEDIA_SOURCE_VIDEO_PREFIX', 'ai/source-videos'),
         'max_image_bytes' => (int) env('AI_MEDIA_MAX_IMAGE_BYTES', 10485760),
         'max_video_bytes' => (int) env('AI_MEDIA_MAX_VIDEO_BYTES', 104857600),
+        'max_source_video_bytes' => (int) env('AI_MEDIA_MAX_SOURCE_VIDEO_BYTES', 26214400),
     ],
     'blog_media' => [
         'public_base_path' => env('BLOG_MEDIA_PUBLIC_BASE_PATH', '/media'),

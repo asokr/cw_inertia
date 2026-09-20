@@ -267,7 +267,28 @@ class AiVideoGenerationService
     public function mapTaskForFrontend(AiVideoGenerationTask $task): array
     {
         $sourceImages = is_array($task->source_images) ? $task->source_images : [];
-        $firstImage = $this->resolveSourceImageUrl($sourceImages[0] ?? null);
+        $sourceVideoUrl = null;
+        $sourceUrls = [];
+
+        foreach ($sourceImages as $sourceItem) {
+            if (! is_array($sourceItem)) {
+                continue;
+            }
+
+            $url = $this->resolveSourceImageUrl($sourceItem);
+            if ($url === null || $url === '') {
+                continue;
+            }
+
+            if ($this->isSourceVideoItem($sourceItem)) {
+                $sourceVideoUrl ??= $url;
+                continue;
+            }
+
+            $sourceUrls[] = $url;
+        }
+
+        $firstImage = $sourceUrls[0] ?? null;
         $resultVideo = is_array($task->result_video) ? $task->result_video : null;
         $videoUrl = $this->resolveResultVideoUrl($resultVideo);
 
@@ -293,11 +314,12 @@ class AiVideoGenerationService
             $mapped['image'] = $firstImage;
         }
 
-        if (count($sourceImages) > 1 || $task->task_type === 'generate_video_from_scene') {
-            $mapped['images'] = array_values(array_filter(array_map(
-                fn (?array $image): ?string => $this->resolveSourceImageUrl($image),
-                $sourceImages,
-            )));
+        if ($sourceUrls !== []) {
+            $mapped['images'] = $sourceUrls;
+        }
+
+        if ($sourceVideoUrl) {
+            $mapped['source_video'] = $sourceVideoUrl;
         }
 
         if ($videoUrl) {
@@ -428,6 +450,21 @@ class AiVideoGenerationService
             url: (string) ($resultVideo['url'] ?? $resultVideo['url_preview'] ?? $resultVideo['signed_url'] ?? ''),
             path: (string) ($resultVideo['path'] ?? ''),
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     */
+    private function isSourceVideoItem(array $item): bool
+    {
+        $mime = mb_strtolower(trim((string) ($item['mime_type'] ?? '')));
+        if (str_starts_with($mime, 'video/')) {
+            return true;
+        }
+
+        $path = mb_strtolower((string) ($item['path'] ?? ''));
+
+        return str_ends_with($path, '.mp4') || str_ends_with($path, '.webm');
     }
 
     /**

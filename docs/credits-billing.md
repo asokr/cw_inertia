@@ -143,7 +143,7 @@ credits = max(1, ceil(сумма raw))
 
 - Текст (`POST /panel/ai/marketplace`): проверка баланса → генерация → `spend` после успешного текста. Fallback Gemini→GPT списывает один раз.
 - Изображение (`POST /panel/ai/image/start`): quote по `task_type` + `resolution` → генерация → `spend` после сохранения картинки. Fallback Grok — одно списание. Модерация и пустой ответ не списывают.
-- Видео (`/panel/ai/video/start`, `/reference/start`, polling `/status/{id}`): `reserve` до вызова Grok; `capture` на первом успешном `done` после сохранения файла; `release` на ошибке, модерации, истечении и если файл не сохранился. Повторный poll и просмотр готового видео не списывают снова.
+- Видео (`/panel/ai/video/start`, `/reference/start`, `/edit/start`, polling `/status/{id}`): `reserve` до вызова Grok; `capture` на первом успешном `done` после сохранения файла; `release` на ошибке, модерации, истечении и если файл не сохранился. Повторный poll и просмотр готового видео не списывают снова. Для редактирования длительность и разрешение берутся из исходного ролика.
 
 Ключи: `generate_text:user:{userId}:{uuid}`, `generate_image|edit_image:user:{userId}:{uuid}`, `generate_video:task:{uuid}` (колонка `ai_video_generation_tasks.credit_idempotency_key`).
 

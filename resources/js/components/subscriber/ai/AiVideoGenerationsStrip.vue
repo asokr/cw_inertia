@@ -21,7 +21,9 @@ function previewUrl(item) {
 }
 
 function isVideoPreview(url) {
-    return /\.(mp4|webm|mov)(\?|$)/i.test(url) || url.includes("/generated-videos/");
+    return /\.(mp4|webm|mov)(\?|$)/i.test(url)
+        || url.includes("/generated-videos/")
+        || url.includes("/source-videos/");
 }
 </script>
 

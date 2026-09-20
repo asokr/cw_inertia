@@ -1,7 +1,8 @@
 <script setup>
-import { computed, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { Clapperboard } from "lucide-vue-next";
 import AiImageUploader from "@/components/subscriber/ai/AiImageUploader.vue";
+import AiVideoUploader from "@/components/subscriber/ai/AiVideoUploader.vue";
 import Button from "@/components/ui/Button.vue";
 import Label from "@/components/ui/Label.vue";
 import Textarea from "@/components/ui/Textarea.vue";
@@ -14,7 +15,7 @@ const props = defineProps({
     pricing: { type: Object, default: () => ({}) },
 });
 
-const emit = defineEmits(["submit", "error"]);
+const emit = defineEmits(["submit", "error", "task-type-change"]);
 
 function createDefaultForm() {
     return {
@@ -22,6 +23,9 @@ function createDefaultForm() {
         prompt: "",
         image: "",
         images: [],
+        source_video: "",
+        source_video_duration: null,
+        source_video_height: null,
         duration: 5,
         resolution: "480p",
         aspect_ratio: "16:9",
@@ -30,6 +34,7 @@ function createDefaultForm() {
 
 const form = reactive(createDefaultForm());
 const sourcePrompt = ref("");
+const sourceVideoObjectUrl = ref("");
 
 const MIN_DURATION = 3;
 const MAX_DURATION = 15;
@@ -38,6 +43,7 @@ const taskTypes = [
     { value: "generate_video", label: "Текст" },
     { value: "generate_video_from_image", label: "Изображение" },
     { value: "generate_video_from_scene", label: "Сцена" },
+    { value: "edit_video", label: "Редактирование" },
 ];
 
 const aspectRatios = [
@@ -72,10 +78,13 @@ function clampDuration(taskType = form.task_type, duration = form.duration) {
     return Math.min(parsed, max);
 }
 
+const isEditVideo = computed(() => form.task_type === "edit_video");
+
 const hasReferenceContext = computed(() =>
     Boolean(sourcePrompt.value.trim())
     || form.image
-    || form.images.length > 0,
+    || form.images.length > 0
+    || Boolean(form.source_video),
 );
 
 const inputPlaceholder = computed(() => {
@@ -91,15 +100,51 @@ const inputPlaceholder = computed(() => {
             : "Подробно опишите сцену по референсам...";
     }
 
+    if (form.task_type === "edit_video") {
+        return form.source_video
+            ? "Опишите, что изменить в этом ролике..."
+            : "Загрузите ролик и опишите, что изменить...";
+    }
+
     return hasReferenceContext.value
         ? "Опишите правки для этого видео..."
         : "Опишите, что создать...";
 });
 
-const totalCost = computed(() => {
-    const byResolution = props.pricing?.video?.amounts?.[form.resolution] ?? {};
+function billedDuration(seconds) {
+    const parsed = Number(seconds);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return 5;
+    }
 
-    return Number(byResolution[String(form.duration)] ?? 0);
+    return Math.max(1, Math.ceil(parsed - 1e-9));
+}
+
+function billedResolution(height) {
+    return Number(height) > 0 && Number(height) <= 480 ? "480p" : "720p";
+}
+
+function quoteVideoCost(resolution, duration) {
+    const byResolution = props.pricing?.video?.amounts?.[resolution] ?? {};
+    const exact = Number(byResolution[String(duration)]);
+    if (Number.isFinite(exact) && exact > 0) {
+        return exact;
+    }
+
+    const perSecond = Number(byResolution["5"] ?? 0) / 5;
+
+    return Math.max(0, Math.round(perSecond * duration));
+}
+
+const editDuration = computed(() => billedDuration(form.source_video_duration));
+const editResolution = computed(() => billedResolution(form.source_video_height));
+
+const totalCost = computed(() => {
+    if (isEditVideo.value) {
+        return quoteVideoCost(editResolution.value, editDuration.value);
+    }
+
+    return quoteVideoCost(form.resolution, form.duration);
 });
 
 function resolvePreviewUrl(value) {
@@ -120,6 +165,42 @@ const scenePreviewUrls = computed(() =>
     form.images.map((img) => resolvePreviewUrl(img)).filter(Boolean),
 );
 
+const sourceVideoPreviewUrl = computed(() => {
+    if (form.source_video instanceof File) {
+        return sourceVideoObjectUrl.value;
+    }
+
+    if (typeof form.source_video === "string" && form.source_video) {
+        return toAiMediaUrl(form.source_video, { allowDataUrl: true }) || form.source_video;
+    }
+
+    return "";
+});
+
+function revokeSourceVideoUrl() {
+    if (sourceVideoObjectUrl.value) {
+        URL.revokeObjectURL(sourceVideoObjectUrl.value);
+        sourceVideoObjectUrl.value = "";
+    }
+}
+
+function clearSourceVideo() {
+    form.source_video = "";
+    form.source_video_duration = null;
+    form.source_video_height = null;
+}
+
+watch(() => form.source_video, (value) => {
+    revokeSourceVideoUrl();
+    if (value instanceof File) {
+        sourceVideoObjectUrl.value = URL.createObjectURL(value);
+    }
+});
+
+onBeforeUnmount(() => {
+    revokeSourceVideoUrl();
+});
+
 const canGenerate = computed(() => {
     if (!form.prompt.trim()) {
         return false;
@@ -133,6 +214,10 @@ const canGenerate = computed(() => {
         if (!form.images.length || form.images.length > 7) {
             return false;
         }
+    }
+
+    if (form.task_type === "edit_video" && !form.source_video) {
+        return false;
     }
 
     return true;
@@ -158,15 +243,33 @@ function setTaskType(value) {
     if (value === "generate_video") {
         form.image = "";
         form.images = [];
+        clearSourceVideo();
     } else if (value === "generate_video_from_image") {
         form.images = [];
-    } else {
+        clearSourceVideo();
+    } else if (value === "generate_video_from_scene") {
         form.image = "";
+        clearSourceVideo();
+    } else if (value === "edit_video") {
+        form.image = "";
+        form.images = [];
+        emit("task-type-change", value);
     }
 }
 
 function submit() {
     if (!canGenerate.value) {
+        return;
+    }
+
+    if (form.task_type === "edit_video") {
+        emit("submit", {
+            task_type: form.task_type,
+            prompt: form.prompt.trim(),
+            video: form.source_video,
+            duration: editDuration.value,
+            resolution: editResolution.value,
+        });
         return;
     }
 
@@ -249,13 +352,33 @@ function updateImage(idx, imgBase64) {
     }
 }
 
+function onSourceVideoAdded(result) {
+    if (!result?.file) {
+        return;
+    }
+
+    form.source_video = result.file;
+    form.source_video_duration = result.duration;
+    form.source_video_height = result.height;
+}
+
 function handleImageError(type) {
     const messages = {
         "size-exceeded": "Размер файла не должен превышать 10 МБ",
         "format-not-allowed": "Формат не поддерживается. Загрузите PNG, JPG, JPEG, WEBP или статичный GIF.",
         "animated-gif": "Анимированные GIF не поддерживаются.",
+        "duration-exceeded": "Ролик слишком длинный. Нужен файл не длиннее 8 секунд.",
     };
     emit("error", messages[type] || "Ошибка загрузки изображения");
+}
+
+function handleVideoError(type) {
+    const messages = {
+        "size-exceeded": "Файл слишком большой. Загрузите ролик до 25 МБ.",
+        "format-not-allowed": "Этот ролик не подходит. Загрузите обычный MP4-файл.",
+        "duration-exceeded": "Ролик слишком длинный. Нужен файл не длиннее 8 секунд.",
+    };
+    emit("error", messages[type] || "Не удалось загрузить ролик");
 }
 
 function resetForm() {
@@ -273,6 +396,9 @@ function getSnapshot() {
         aspect_ratio: form.aspect_ratio,
         image: form.image,
         images: [...form.images],
+        source_video: form.source_video,
+        source_video_duration: form.source_video_duration,
+        source_video_height: form.source_video_height,
     };
 }
 
@@ -311,6 +437,34 @@ function applySnapshot(snapshot = {}) {
     if (Array.isArray(snapshot.images)) {
         form.images = [...snapshot.images];
     }
+
+    if ("source_video" in snapshot) {
+        form.source_video = snapshot.source_video || "";
+    }
+
+    if (snapshot.source_video_duration != null) {
+        form.source_video_duration = snapshot.source_video_duration;
+    }
+
+    if (snapshot.source_video_height != null) {
+        form.source_video_height = snapshot.source_video_height;
+    }
+
+    if (typeof form.source_video === "string" && form.source_video && form.source_video_duration == null) {
+        probeSourceVideoUrl(form.source_video);
+    }
+}
+
+function probeSourceVideoUrl(url) {
+    const resolved = toAiMediaUrl(url, { allowDataUrl: true }) || url;
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.src = resolved;
+    video.onloadedmetadata = () => {
+        form.source_video_duration = Number(video.duration);
+        form.source_video_height = Number(video.videoHeight);
+    };
 }
 
 function applySeed(seed = {}) {
@@ -394,6 +548,38 @@ defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm, addImages });
             />
         </div>
 
+        <div
+            v-else-if="form.task_type === 'edit_video'"
+            class="flex flex-wrap items-center gap-2"
+        >
+            <div
+                v-if="sourceVideoPreviewUrl"
+                class="relative h-12 w-12 overflow-hidden rounded-lg border bg-muted"
+            >
+                <video
+                    :src="sourceVideoPreviewUrl"
+                    muted
+                    playsinline
+                    preload="metadata"
+                    class="h-full w-full object-cover"
+                />
+                <button
+                    v-if="!disabled"
+                    type="button"
+                    class="absolute inset-0 bg-black/0 text-[10px] text-white opacity-0 transition-opacity hover:bg-black/40 hover:opacity-100"
+                    @click="clearSourceVideo"
+                >
+                    ×
+                </button>
+            </div>
+            <AiVideoUploader
+                v-if="!form.source_video"
+                :disabled="disabled"
+                @files-added="onSourceVideoAdded"
+                @error="handleVideoError"
+            />
+        </div>
+
         <div class="overflow-hidden rounded-2xl border border-border/80 bg-muted/25 shadow-sm">
             <button
                 v-if="sourcePrompt.trim()"
@@ -430,6 +616,13 @@ defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm, addImages });
         </div>
 
         <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            <template v-if="isEditVideo">
+                <span v-if="form.source_video_duration" class="text-[11px]">
+                    Длительность ролика: {{ Math.round(form.source_video_duration) }} с
+                </span>
+                <span class="text-[11px]">{{ totalCost }} {{ pluralCredits(totalCost) }}</span>
+            </template>
+            <template v-else>
             <div class="flex items-center gap-1.5">
                 <Label class="text-[11px]">Длительность</Label>
                 <div class="flex gap-1">
@@ -482,6 +675,7 @@ defineExpose({ applySeed, applySnapshot, getSnapshot, resetForm, addImages });
             </div>
 
             <span class="text-[11px]">{{ totalCost }} {{ pluralCredits(totalCost) }}</span>
+            </template>
         </div>
     </div>
 </template>

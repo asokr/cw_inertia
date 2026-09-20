@@ -15,6 +15,7 @@ AI Marketplace - единый backend-инструмент для AI-функц�
 - генерация и адаптация текстов карточек;
 - генерация и редактирование изображений;
 - генерация видео по тексту, изображению и набору референсов;
+- редактирование загруженного ролика;
 - проверка баланса кредитов и списание через единый каталог стоимости;
 - централизованное логирование запросов/ответов провайдеров;
 - аналитика расходов AI в админке.
@@ -106,7 +107,8 @@ AI Marketplace - единый backend-инструмент для AI-функц�
 
 - text-to-video;
 - image-to-video;
-- scene/reference-to-video (`reference/start`, 1..7 изображений).
+- scene/reference-to-video (`reference/start`, 1..7 изображений);
+- редактирование ролика (`edit/start`): исходник грузится в xAI Files API, затем `POST /v1/videos/edits`.
 
 Особенности:
 
@@ -114,7 +116,22 @@ AI Marketplace - единый backend-инструмент для AI-функц�
 - стоимость — каталог `generate_video`: цена секунды выбранного разрешения × длительность;
 - перед стартом кредиты резервируются, на первом успешном `done` списываются, при ошибке/модерации/истечении возвращаются;
 - при `done` видео сохраняется во внутреннее private-хранилище и отдается через backend endpoint;
-- для `generate_video_from_image` можно передавать URL/data URI/base64.
+- для `generate_video_from_image` и сцены можно передавать URL, data URI, base64 и пути из истории (`/panel/ai/media/...`);
+- бинарные входные изображения не кладутся в JSON: они загружаются в xAI Files API (`POST /v1/files`) и в генерацию передаётся `file_id`. Публичные HTTP(S) URL уходят как `url`;
+- для сцены все входные референсы сохраняются в `source_images` задачи и отдаются в истории сессии полем `images` (даже если запуск у провайдера не удался и нет `request_id`). В ленте справа только сгенерированное видео; кадры сцены показываются рядом с промптом. Повторная генерация из истории отправляет эти пути — бэкенд читает файлы с диска и грузит их в Files API.
+- для редактирования исходный ролик сохраняется и отдаётся полем `source_video` (в `images` не попадает). В ленте справа только результат; исходник — рядом с промптом. Повтор из истории шлёт panel-путь. Если открыть готовый ролик и переключить режим на «Редактирование», в форму подставляется этот результат.
+
+Лимиты xAI Video API, которые учитываем:
+
+| Ограничение | Значение | Как обрабатываем |
+|-------------|----------|------------------|
+| JSON-тело `POST /v1/videos/generations` | шлюз отклоняет крупный payload ошибкой `The POST data is too large` (типичный потолок ~4 МБ, gRPC-транс코딩) | base64 не отправляем; перед запросом проверяем размер JSON (`GROK_MAX_VIDEO_JSON_BYTES`, по умолчанию 3 МБ) |
+| Входное изображение | JPEG / PNG / WebP; для Files API до 50 МБ, у нас пользовательский лимит 10 МБ | валидация на фронте и бэкенде; сверх лимита — понятное сообщение |
+| Image-to-video | 1 изображение; duration 1–15 с; 480p / 720p | как раньше |
+| Reference-to-video | 1–7 изображений; duration до 10 с на `grok-imagine-video`; resolution не выше 720p | как раньше |
+| Редактирование видео | MP4; кодек H.264 / H.265 / AV1; не длиннее 8,7 с; `duration` / `aspect_ratio` / `resolution` у провайдера игнорируются (выход как у входа, потолок 720p) | проверяем контейнер, кодек и длительность до Files API (`Mp4MediaProbe`); пользовательский лимит файла 25 МБ (`AI_MEDIA_MAX_SOURCE_VIDEO_BYTES`); на Grok уходит `file_id` |
+| Files API | `expires_after` 1 час…30 дней, поле должно идти **до** `file` | TTL по умолчанию 3600 с (`GROK_FILES_EXPIRES_AFTER`) |
+| TLS к api.x.ai / vidgen.x.ai | PHP cURL на Windows/OSPanel может не доверять цепочке (антивирус MITM, ошибка `cURL error 60`) | локально `GROK_HTTP_VERIFY=false` и для API, и для скачивания готового ролика; в проде оставить `true` |
 
 ## Subscriber API
 
@@ -149,7 +166,7 @@ AI Marketplace - единый backend-инструмент для AI-функц�
 - `duration`;
 - `resolution` (`480p|720p`);
 - `aspect_ratio` (или alias `aspectRatio`);
-- `image` (для image-to-video, до 10MB).
+- `image` (для image-to-video, до 10 МБ; на Grok уходит как `file_id` или публичный URL).
 
 Возвращает:
 
@@ -167,7 +184,28 @@ AI Marketplace - единый backend-инструмент для AI-функц�
 - `duration`: до 10 секунд;
 - допустимые `resolution` и `aspect_ratio`.
 
-### 4) `GET /subscriber/ai/video/status/{request_id}`
+### 4) `POST /panel/ai/video/edit/start`
+
+Старт редактирования ролика.
+
+Параметры:
+
+- `prompt`;
+- `video`: multipart MP4 **или** путь `/panel/ai/media/...` из истории (свой файл).
+
+Дополнительная валидация до Grok:
+
+- только MP4;
+- длительность ≤ 8,7 с;
+- кодек H.264 / H.265 / AV1;
+- размер до 25 МБ;
+- panel-путь принадлежит текущему пользователю.
+
+Стоимость — каталог `generate_video`: `ceil(длительность)` × разрешение по высоте кадра (≤480 → 480p, иначе 720p). Параметры длительности/качества/формата на выход не передаются.
+
+Опрос статуса — тот же `GET /panel/ai/video/status/{request_id}`.
+
+### 5) `GET /subscriber/ai/video/status/{request_id}`
 
 Проверка состояния видео-задачи.
 
@@ -178,14 +216,14 @@ AI Marketplace - единый backend-инструмент для AI-функц�
 - `expired`: возвращается понятная ошибка;
 - `filtered_by_moderation`: отдельное сообщение, что контент не прошёл модерацию.
 
-### 5) `GET /subscriber/ai/media/{path}`
+### 6) `GET /subscriber/ai/media/{path}`
 
 Выдача private AI media для владельца файла.
 
 Особенности:
 
 - доступ только для авторизованного пользователя;
-- разрешены только пути под `image_prefix`/`video_prefix`;
+- разрешены только пути под `image_prefix` / `video_prefix` / `source_video_prefix`;
 - путь обязан содержать префикс `user-{auth_user_id}`;
 - файл отдается stream-ответом с `Content-Type` и `Content-Length`.
 
@@ -232,10 +270,10 @@ AI Marketplace - единый backend-инструмент для AI-функц�
 
 ### Для видео
 
-1. Клиент вызывает `POST /subscriber/ai/video/start` или `POST /subscriber/ai/video/reference/start`.
-2. Контроллер валидирует payload и резервирует кредиты.
-3. Входные изображения при необходимости сохраняются через `AiMediaStorageService`.
-4. `GrokVideoApiClient` запускает задачу у провайдера.
+1. Клиент вызывает `POST /panel/ai/video/start`, `POST /panel/ai/video/reference/start` или `POST /panel/ai/video/edit/start`.
+2. Контроллер валидирует payload (для редактирования — MP4, кодек и длительность) и резервирует кредиты.
+3. Входные изображения или исходный ролик при необходимости сохраняются через `AiMediaStorageService`.
+4. `GrokVideoApiClient` запускает задачу у провайдера (`/v1/videos/generations` или `/v1/videos/edits`).
 5. Клиент опрашивает `GET /panel/ai/video/status/{request_id}`.
 6. При первом `done` видео сохраняется в private-хранилище, резерв списывается один раз.
 7. При ошибке, модерации или истечении резерв возвращается.
@@ -293,6 +331,7 @@ Inertia-страницы получают проп `pricing`. Точную су�
 
 - используется внутренний диск `private` (локальное хранилище);
 - входные/выходные файлы хранятся в структуре `.../user-{id}/YYYY/...`;
+- сцена (reference-to-video) сохраняет **все** загруженные изображения, не только первое; при открытии сессии из истории они возвращаются в `tasks[].images`;
 - доступ к файлам только через backend endpoints (`/subscriber/ai/media/{path}`, `/admin/services/ai/media/{path}`);
 - медиафайлы удаляются при удалении генерации пользователем через `AiMediaStorageService` (`deleteTaskMedia`, `deleteImageTaskMedia`).
 
@@ -300,6 +339,7 @@ Inertia-страницы получают проп `pricing`. Точную су�
 
 - для Gemini high-load/429 возвращается понятное сообщение о временной перегрузке;
 - видео-статусы Grok интерпретируются в пользовательские сообщения;
+- `The POST data is too large` / HTTP 413 показывается как «Изображение слишком большое для создания видео. Загрузите файл меньшего размера.» — сырой текст провайдера пользователю не отдаём;
 - все внешние ошибки логируются с расширенным контекстом для диагностики;
 - при частичных ошибках провайдера сохраняется максимально полезный диагностический payload.
 
@@ -325,7 +365,7 @@ Inertia-страницы получают проп `pricing`. Точную су�
 
 - Текст: `generate_description`, `rewrite_text`, `rewrite_ozon`, `rewrite_wb`, `adapt_wb`, `adapt_ozon`, `generate_ozon_rich`, `rich_description`
 - Изображения: `generate_image`, `edit_image`
-- Видео: `generate_video`, `generate_video_from_image`
+- Видео: `generate_video`, `generate_video_from_image`, `generate_video_from_scene`, `edit_video`
 - Смежные: `wb_feedback_answer_ai`, `ozon_feedback_answer_ai`, `wb_ai_cabinet_analyzer_ai`
 
 ## Контракт Grok Video (для фронта)
@@ -339,6 +379,8 @@ Inertia-страницы получают проп `pricing`. Точную су�
 - `aspect_ratio`: `1:1` | `16:9` | `9:16` | `4:3` | `3:4` | `3:2` | `2:3` (только для text-to-video, default `16:9`)
 - `image`: data URI/base64 (обязательно для `generate_video_from_image`)
 
-Для scene/reference-to-video: `POST /subscriber/ai/video/reference/start` — до 7 изображений, `duration` до 10 сек.
+Для scene/reference-to-video: `POST /panel/ai/video/reference/start` — до 7 изображений, `duration` до 10 сек. Входные картинки на Grok уходят как `file_id` (Files API), а не как base64 в JSON.
+
+Для редактирования: `POST /panel/ai/video/edit/start` — `prompt` + `video` (multipart MP4 или путь из истории). Длительность/качество/формат не передаются. Исходник на Grok уходит как `file_id`.
 
 Polling: `GET /panel/ai/video/status/{request_id}` — статусы `pending`, `done`, `expired`, `filtered_by_moderation`. Кредиты списываются один раз при первом `done`.

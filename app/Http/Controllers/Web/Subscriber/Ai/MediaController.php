@@ -49,9 +49,7 @@ class MediaController extends Controller
 
     private function isVideoPath(string $normalizedPath): bool
     {
-        $videoPrefix = trim((string) config('services.ai_media.video_prefix', 'ai/generated-videos'), '/');
-
-        return str_starts_with($normalizedPath, $videoPrefix . '/');
+        return $this->aiMediaStorageService->isStreamableVideoPath($normalizedPath);
     }
 
     private function respondWithBinary(
@@ -183,14 +181,9 @@ class MediaController extends Controller
             return null;
         }
 
-        $imagePrefix = trim((string) config('services.ai_media.image_prefix', 'ai/source-images'), '/');
-        $videoPrefix = trim((string) config('services.ai_media.video_prefix', 'ai/generated-videos'), '/');
         $userPrefix = 'user-' . (int) auth()->id() . '/';
 
-        $isImagePath = str_starts_with($normalizedPath, $imagePrefix . '/' . $userPrefix);
-        $isVideoPath = str_starts_with($normalizedPath, $videoPrefix . '/' . $userPrefix);
-
-        if (! $isImagePath && ! $isVideoPath) {
+        if (! $this->aiMediaStorageService->isAllowedMediaPath($normalizedPath, $userPrefix)) {
             return null;
         }
 

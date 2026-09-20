@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class AiMediaStorageService
 {
@@ -73,8 +74,25 @@ class AiMediaStorageService
             throw new RuntimeException('Не указан пользователь для сохранения медиа');
         }
 
-        $response = Http::timeout(120)->get($trimmedUrl);
+        try {
+            $response = Http::timeout(120)
+                ->withOptions($this->providerDownloadHttpOptions())
+                ->get($trimmedUrl);
+        } catch (Throwable $exception) {
+            Log::warning('AI media video download failed', [
+                'url' => $trimmedUrl,
+                'error' => $exception->getMessage(),
+            ]);
+
+            throw new RuntimeException('Не удалось скачать сгенерированное видео по ссылке провайдера');
+        }
+
         if (! $response->successful()) {
+            Log::warning('AI media video download returned non-success', [
+                'url' => $trimmedUrl,
+                'status' => $response->status(),
+            ]);
+
             throw new RuntimeException('Не удалось скачать сгенерированное видео по ссылке провайдера');
         }
 
@@ -90,7 +108,11 @@ class AiMediaStorageService
         }
 
         $contentType = strtolower(trim((string) $response->header('Content-Type', '')));
-        $mimeType = $this->normalizeVideoMime($contentType !== '' ? explode(';', $contentType)[0] : '');
+        $mimeType = $this->detectVideoMime(
+            $binary,
+            $contentType !== '' ? explode(';', $contentType)[0] : '',
+            $trimmedUrl,
+        );
         if ($mimeType === null) {
             throw new RuntimeException('Неподдерживаемый формат видео');
         }
@@ -120,6 +142,119 @@ class AiMediaStorageService
             'mime_type' => $mimeType,
             'size' => $size,
         ];
+    }
+
+    /**
+     * Сохраняет исходный ролик для редактирования.
+     *
+     * @return array{path:string,signed_url:string,url_preview:string,mime_type:string,size:int}
+     */
+    public function storeSourceVideoBinary(string $binary, int $userId): array
+    {
+        if ($userId <= 0) {
+            throw new RuntimeException('Не указан пользователь для сохранения медиа');
+        }
+
+        $size = strlen($binary);
+        if ($size <= 0) {
+            throw new RuntimeException('Ролик не передан');
+        }
+
+        $maxBytes = max(1, (int) config('services.ai_media.max_source_video_bytes', 25 * 1024 * 1024));
+        if ($size > $maxBytes) {
+            throw new RuntimeException('Файл слишком большой. Загрузите ролик до 25 МБ.');
+        }
+
+        $prefix = trim((string) config('services.ai_media.source_video_prefix', 'ai/source-videos'), '/');
+        $path = $prefix.'/user-'.$userId.'/'.now()->format('Y').'/'.Str::uuid().'.mp4';
+        $diskName = (string) config('services.ai_media.disk', 'private');
+        $putResult = $this->safePut($diskName, $path, $binary, [
+            'visibility' => 'private',
+            'ContentType' => 'video/mp4',
+        ]);
+
+        if (! $putResult) {
+            throw new RuntimeException('Не удалось сохранить ролик');
+        }
+
+        $mediaUrl = $this->buildAccessibleMediaUrl($path);
+
+        return [
+            'path' => $path,
+            'signed_url' => $mediaUrl,
+            'url_preview' => $mediaUrl,
+            'mime_type' => 'video/mp4',
+            'size' => $size,
+        ];
+    }
+
+    /**
+     * Читает уже сохранённый ролик пользователя без повторной записи.
+     *
+     * @return array{0:string,1:array{path:string,signed_url:string,url_preview:string,mime_type:string,size:int}}
+     */
+    public function resolveOwnedSourceVideo(string $input, int $userId): array
+    {
+        if (! $this->panelMediaBelongsToUser($input, $userId)) {
+            throw new RuntimeException('Ролик не найден');
+        }
+
+        [$binary, $mimeType] = $this->resolveVideoBinaryAndMime($input);
+        $path = (string) $this->resolveStoragePathFromMediaUrl($input);
+        $size = strlen($binary);
+        $maxBytes = max(1, (int) config('services.ai_media.max_source_video_bytes', 25 * 1024 * 1024));
+        if ($size > $maxBytes) {
+            throw new RuntimeException('Файл слишком большой. Загрузите ролик до 25 МБ.');
+        }
+
+        $mediaUrl = $this->buildAccessibleMediaUrl($path);
+
+        return [
+            $binary,
+            [
+                'path' => $path,
+                'signed_url' => $mediaUrl,
+                'url_preview' => $mediaUrl,
+                'mime_type' => $mimeType,
+                'size' => $size,
+            ],
+        ];
+    }
+
+    /**
+     * @return array{0:string,1:string} [binary, mimeType]
+     */
+    public function resolveVideoBinaryAndMime(string $videoInput): array
+    {
+        $trimmed = trim($videoInput);
+        if ($trimmed === '') {
+            throw new RuntimeException('Ролик не передан');
+        }
+
+        $storagePath = $this->resolveStoragePathFromMediaUrl($trimmed);
+        if ($storagePath !== null) {
+            return $this->readVideoBinaryFromStoragePath($storagePath);
+        }
+
+        if (str_starts_with($trimmed, 'data:')) {
+            if (! preg_match('/^data:(?<mime>[-\w.+\/]+);base64,(?<data>.+)$/s', $trimmed, $matches)) {
+                throw new RuntimeException('Этот ролик не подходит. Загрузите обычный MP4-файл.');
+            }
+
+            $mimeType = $this->normalizeVideoMime((string) ($matches['mime'] ?? ''));
+            if ($mimeType !== 'video/mp4') {
+                throw new RuntimeException('Этот ролик не подходит. Загрузите обычный MP4-файл.');
+            }
+
+            $binary = base64_decode(preg_replace('/\s+/', '', (string) ($matches['data'] ?? '')) ?: '', true);
+            if ($binary === false || $binary === '') {
+                throw new RuntimeException('Этот ролик не подходит. Загрузите обычный MP4-файл.');
+            }
+
+            return [$binary, $mimeType];
+        }
+
+        throw new RuntimeException('Этот ролик не подходит. Загрузите обычный MP4-файл.');
     }
 
     public function buildAccessibleMediaUrl(string $path): string
@@ -237,7 +372,8 @@ class AiMediaStorageService
         }
 
         return str_starts_with($normalized, 'generated-videos/')
-            || str_starts_with($normalized, 'source-images/');
+            || str_starts_with($normalized, 'source-images/')
+            || str_starts_with($normalized, 'source-videos/');
     }
 
     /**
@@ -317,7 +453,7 @@ class AiMediaStorageService
             return false;
         }
 
-        if ($this->resolveStoragePathFromMediaUrl($trimmed) !== null) {
+        if ($this->isPanelMediaInput($trimmed)) {
             return true;
         }
 
@@ -326,6 +462,57 @@ class AiMediaStorageService
         }
 
         return false;
+    }
+
+    public function isPanelMediaInput(string $imageInput): bool
+    {
+        return $this->resolveStoragePathFromMediaUrl($imageInput) !== null;
+    }
+
+    public function isStreamableVideoPath(string $path): bool
+    {
+        $normalized = $this->normalizeStoragePath($path);
+        $videoPrefix = trim((string) config('services.ai_media.video_prefix', 'ai/generated-videos'), '/');
+        $sourceVideoPrefix = trim((string) config('services.ai_media.source_video_prefix', 'ai/source-videos'), '/');
+
+        return str_starts_with($normalized, $videoPrefix.'/')
+            || str_starts_with($normalized, $sourceVideoPrefix.'/');
+    }
+
+    public function isAllowedMediaPath(string $path, ?string $userPrefix = null): bool
+    {
+        $normalized = $this->normalizeStoragePath($path);
+        $prefixes = [
+            trim((string) config('services.ai_media.image_prefix', 'ai/source-images'), '/'),
+            trim((string) config('services.ai_media.video_prefix', 'ai/generated-videos'), '/'),
+            trim((string) config('services.ai_media.source_video_prefix', 'ai/source-videos'), '/'),
+        ];
+
+        foreach ($prefixes as $prefix) {
+            $needle = $userPrefix !== null && $userPrefix !== ''
+                ? $prefix.'/'.$userPrefix
+                : $prefix.'/';
+
+            if (str_starts_with($normalized, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function panelMediaBelongsToUser(string $imageInput, int $userId): bool
+    {
+        if ($userId <= 0) {
+            return false;
+        }
+
+        $path = $this->resolveStoragePathFromMediaUrl($imageInput);
+        if ($path === null) {
+            return false;
+        }
+
+        return str_contains('/'.$path.'/', '/user-'.$userId.'/');
     }
 
     private function resolveStoragePathFromMediaUrl(string $url): ?string
@@ -376,6 +563,7 @@ class AiMediaStorageService
             && (
                 str_starts_with($normalizedPath, 'source-images/')
                 || str_starts_with($normalizedPath, 'generated-videos/')
+                || str_starts_with($normalizedPath, 'source-videos/')
             )
         ) {
             $normalizedPath = 'ai/' . $normalizedPath;
@@ -431,6 +619,39 @@ class AiMediaStorageService
         return [$binary, $mimeType];
     }
 
+    /**
+     * @return array{0:string,1:string}
+     */
+    private function readVideoBinaryFromStoragePath(string $path): array
+    {
+        $resolvedDisk = $this->resolveDiskForPath($path);
+        if ($resolvedDisk === null) {
+            throw new RuntimeException('Ролик не найден');
+        }
+
+        $disk = $resolvedDisk['disk'];
+        $resolvedPath = (string) ($resolvedDisk['path'] ?? $path);
+
+        $binary = $disk->get($resolvedPath);
+        if (! is_string($binary) || $binary === '') {
+            throw new RuntimeException('Ролик не найден');
+        }
+
+        $mimeType = $this->normalizeVideoMime((string) ($disk->mimeType($resolvedPath) ?: ''));
+        if ($mimeType === null) {
+            $mimeType = match (mb_strtolower((string) pathinfo($resolvedPath, PATHINFO_EXTENSION))) {
+                'mp4' => 'video/mp4',
+                default => null,
+            };
+        }
+
+        if ($mimeType !== 'video/mp4') {
+            throw new RuntimeException('Этот ролик не подходит. Загрузите обычный MP4-файл.');
+        }
+
+        return [$binary, $mimeType];
+    }
+
     private function normalizeMime(string $mimeType): ?string
     {
         return match (mb_strtolower(trim($mimeType))) {
@@ -450,11 +671,57 @@ class AiMediaStorageService
         };
     }
 
+    /**
+     * Те же TLS/proxy, что у Grok-клиента: локально GROK_HTTP_VERIFY=false,
+     * иначе скачивание с vidgen.x.ai падает с cURL 60.
+     *
+     * @return array<string, mixed>
+     */
+    private function providerDownloadHttpOptions(): array
+    {
+        $options = [];
+        $proxy = config('services.proxy');
+
+        if ($proxy !== null && $proxy !== '') {
+            $options['proxy'] = $proxy;
+        }
+
+        if (! (bool) config('services.grok.http_verify', true)) {
+            $options['verify'] = false;
+        }
+
+        return $options;
+    }
+
+    private function detectVideoMime(string $binary, string $contentType, string $url): ?string
+    {
+        $normalized = $this->normalizeVideoMime($contentType);
+        if ($normalized !== null) {
+            return $normalized;
+        }
+
+        $path = mb_strtolower((string) (parse_url($url, PHP_URL_PATH) ?? ''));
+        if (str_ends_with($path, '.mp4')) {
+            return 'video/mp4';
+        }
+
+        if (str_ends_with($path, '.webm')) {
+            return 'video/webm';
+        }
+
+        if (strlen($binary) >= 8 && substr($binary, 4, 4) === 'ftyp') {
+            return 'video/mp4';
+        }
+
+        return $this->normalizeVideoMime($contentType);
+    }
+
     private function normalizeVideoMime(string $mimeType): ?string
     {
         return match (mb_strtolower(trim($mimeType))) {
             'video/mp4' => 'video/mp4',
             'video/webm' => 'video/webm',
+            'application/octet-stream', 'binary/octet-stream' => null,
             default => null,
         };
     }

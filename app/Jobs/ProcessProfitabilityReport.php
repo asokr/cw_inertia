@@ -104,8 +104,8 @@ class ProcessProfitabilityReport implements ShouldQueue
             $dopRashodTotal = max((float) $this->dopRashod, 0);
             $nalogPercent = min(max((float) $this->nalogPercent, 0), 100);
 
-            $logisticsSaleBonusCount = 0;
-            $logisticsRelevantCount = 0;
+            $deliverySaleCount = 0;
+            $deliveryOrderCount = 0;
             $logisticsSum1 = 0;
             $logisticsSum2 = 0;
 
@@ -224,13 +224,6 @@ class ProcessProfitabilityReport implements ShouldQueue
                             $amount = (float) $this->rowValue($row, 'deliveryService', 'delivery_rub', 0);
                             $logisticsCost = $amount;
                             $logisticsSum1 += $amount;
-                            $bonusType = $this->rowValue($row, 'bonusTypeName', 'bonus_type_name');
-                            if ($bonusType === 'К клиенту при продаже') {
-                                $logisticsSaleBonusCount++;
-                            }
-                            if (in_array($bonusType, ['От клиента при возврате', 'От клиента при отмене', 'К клиенту при продаже'], true)) {
-                                $logisticsRelevantCount++;
-                            }
                             break;
                         case 'logistics_correction':
                             $amount = (float) $this->rowValue($row, 'deliveryService', 'delivery_rub', 0);
@@ -245,6 +238,17 @@ class ProcessProfitabilityReport implements ShouldQueue
                                 : (float) $this->rowValue($row, 'forPay', 'ppvz_for_pay', 0);
                             $logisticsCost = $amount;
                             $totals['delivery'] += $amount;
+
+                            // % выкупа — только «Доставка» по видам к клиенту.
+                            if ($operationKey === 'delivery') {
+                                $bonusType = (string) $this->rowValue($row, 'bonusTypeName', 'bonus_type_name');
+                                if ($bonusType === 'К клиенту при продаже') {
+                                    $deliverySaleCount++;
+                                    $deliveryOrderCount++;
+                                } elseif ($bonusType === 'К клиенту при отмене') {
+                                    $deliveryOrderCount++;
+                                }
+                            }
                             break;
                         case 'acceptance':
                             $amount = (float) $this->rowValue($row, 'paidAcceptance', 'acceptance', 0);
@@ -329,14 +333,9 @@ class ProcessProfitabilityReport implements ShouldQueue
 
             $this->updateStatusProgress('analyzing', ['waiting_for_api' => false]);
 
-            if ($logisticsRelevantCount > 0) {
-                if ($logisticsSaleBonusCount === 0) {
-                    $logisticsSaleBonusCount = 1;
-                }
-                $totals['percent_buy'] = $this->safeDivide($logisticsSaleBonusCount, $logisticsRelevantCount) * 100;
-            } else {
-                $totals['percent_buy'] = 0;
-            }
+            $totals['percent_buy'] = $deliveryOrderCount > 0
+                ? round($this->safeDivide($deliverySaleCount, $deliveryOrderCount) * 100, 2)
+                : 0;
 
             $totals['sales_amount'] = round($totals['sales_amount'], 2);
             $totals['returns_amount'] = round($totals['returns_amount'], 2);

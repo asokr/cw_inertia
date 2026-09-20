@@ -86,13 +86,7 @@ class MediaController extends Controller
             return null;
         }
 
-        $imagePrefix = trim((string) config('services.ai_media.image_prefix', 'ai/source-images'), '/');
-        $videoPrefix = trim((string) config('services.ai_media.video_prefix', 'ai/generated-videos'), '/');
-
-        $isImagePath = str_starts_with($normalizedPath, $imagePrefix . '/');
-        $isVideoPath = str_starts_with($normalizedPath, $videoPrefix . '/');
-
-        if (! $isImagePath && ! $isVideoPath) {
+        if (! $this->aiMediaStorageService->isAllowedMediaPath($normalizedPath)) {
             return null;
         }
 

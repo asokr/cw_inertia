@@ -8,10 +8,13 @@ use App\Enums\AiTaskType;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Models\AiVideoGenerationTask;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use App\Services\Grok\GrokVideoApiClient;
 use App\Services\Ai\AiMediaStorageService;
 use App\Services\Ai\AiVideoGenerationService;
+use App\Services\Ai\Mp4MediaProbe;
+use Illuminate\Http\UploadedFile;
 use App\Models\Subscribers\SubscribersSubscriptions;
 use App\Models\User;
 use App\Services\Subscriber\Concerns\ChargesMarketplaceAiCredits;
@@ -23,12 +26,14 @@ class SubscriberAiVideoService
     private const PUBLIC_ERROR_MESSAGE = 'Ошибка при работе. Попробуйте позже.';
     private const HIGH_DEMAND_PUBLIC_ERROR_MESSAGE = 'ИИ временно перегружен, попробуйте позже.';
     private const MODERATION_PUBLIC_ERROR_MESSAGE = 'Видео не прошло модерацию. Измените запрос и попробуйте снова.';
-    private const MAX_INPUT_IMAGE_BYTES = 10485760;
+    private const PAYLOAD_TOO_LARGE_PUBLIC_ERROR_MESSAGE = 'Изображение слишком большое для создания видео. Загрузите файл меньшего размера.';
+    private const CONNECTION_PUBLIC_ERROR_MESSAGE = 'Не удалось связаться с сервисом генерации видео. Попробуйте позже.';
 
     public function __construct(
         private readonly GrokVideoApiClient $grokVideoApiClient,
         private readonly AiMediaStorageService $aiMediaStorageService,
         private readonly AiVideoGenerationService $aiVideoGenerationService,
+        private readonly Mp4MediaProbe $mp4MediaProbe,
     ) {}
 
     public function start(Request $request): JsonResponse
@@ -71,11 +76,18 @@ class SubscriberAiVideoService
             }
 
             if ($taskType === AiTaskType::GENERATE_VIDEO_FROM_IMAGE->value) {
-                if (trim((string) $request->input('image', '')) === '') {
+                $imageInput = (string) $request->input('image', '');
+                if (trim($imageInput) === '') {
                     $validator->errors()->add('image', 'Для генерации видео из фото нужно передать image');
                 }
 
-                $imageError = $this->validateInputImageSize((string) $request->input('image', ''));
+                $userId = (int) ($request->user()?->id ?? 0);
+                $imageFormatError = $this->validateInputImageFormat($imageInput, $userId);
+                if ($imageFormatError !== null) {
+                    $validator->errors()->add('image', $imageFormatError);
+                }
+
+                $imageError = $this->validateInputImageSize($imageInput);
                 if ($imageError !== null) {
                     $validator->errors()->add('image', $imageError);
                 }
@@ -196,7 +208,7 @@ class SubscriberAiVideoService
                         : AiVideoGenerationTask::STATUS_FAILED,
                     externalRequestId: null,
                     model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
-                    errorMessage: $message,
+                    errorMessage: $publicMessage,
                 );
 
                 $this->releaseMarketplaceCredits($creditKey);
@@ -250,6 +262,7 @@ class SubscriberAiVideoService
             ], 200);
         } catch (Throwable $exception) {
             $this->releaseMarketplaceCredits($creditKey);
+            $this->logUnexpectedFailure('start', $exception);
 
             return response()->json([
                 'success' => false,
@@ -293,8 +306,10 @@ class SubscriberAiVideoService
                 return;
             }
 
+            $userId = (int) ($request->user()?->id ?? 0);
+
             foreach ($images as $index => $imageInput) {
-                $imageFormatError = $this->validateInputImageFormat($imageInput);
+                $imageFormatError = $this->validateInputImageFormat($imageInput, $userId);
                 if ($imageFormatError !== null) {
                     $validator->errors()->add('images.' . $index, $imageFormatError);
                     continue;
@@ -405,7 +420,7 @@ class SubscriberAiVideoService
                         : AiVideoGenerationTask::STATUS_FAILED,
                     externalRequestId: null,
                     model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
-                    errorMessage: $message,
+                    errorMessage: $publicMessage,
                 );
 
                 $this->releaseMarketplaceCredits($creditKey);
@@ -459,12 +474,245 @@ class SubscriberAiVideoService
             ], 200);
         } catch (Throwable $exception) {
             $this->releaseMarketplaceCredits($creditKey);
+            $this->logUnexpectedFailure('referenceStart', $exception);
 
             return response()->json([
                 'success' => false,
                 'messages' => [$this->resolvePublicErrorMessage($exception->getMessage(), 500)],
             ], 200);
         }
+    }
+
+    public function editStart(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'prompt' => 'required|string|max:4000',
+            'generation_uuid' => 'nullable|uuid',
+            'generation_id' => 'nullable|integer|min:1',
+        ], [
+            'prompt.required' => 'Не передан prompt',
+        ]);
+
+        $validator->after(function ($validator) use ($request) {
+            $videoFile = $request->file('video');
+            $videoInput = $request->input('video');
+
+            if ($videoFile instanceof UploadedFile) {
+                $maxBytes = max(1, (int) config('services.ai_media.max_source_video_bytes', 25 * 1024 * 1024));
+                if ($videoFile->getSize() > $maxBytes) {
+                    $validator->errors()->add('video', 'Файл слишком большой. Загрузите ролик до 25 МБ.');
+                }
+
+                $extension = mb_strtolower((string) $videoFile->getClientOriginalExtension());
+                $mime = mb_strtolower((string) $videoFile->getMimeType());
+                if ($extension !== 'mp4' && $mime !== 'video/mp4') {
+                    $validator->errors()->add('video', Mp4MediaProbe::UNSUPPORTED_VIDEO_MESSAGE);
+                }
+
+                return;
+            }
+
+            if (! is_string($videoInput) || trim($videoInput) === '') {
+                $validator->errors()->add('video', 'Для редактирования нужно загрузить ролик');
+
+                return;
+            }
+
+            $userId = (int) ($request->user()?->id ?? 0);
+            if (! $this->aiMediaStorageService->isPanelMediaInput($videoInput)) {
+                $validator->errors()->add('video', Mp4MediaProbe::UNSUPPORTED_VIDEO_MESSAGE);
+
+                return;
+            }
+
+            if ($userId > 0 && ! $this->aiMediaStorageService->panelMediaBelongsToUser($videoInput, $userId)) {
+                $validator->errors()->add('video', 'Ролик не найден');
+            }
+        });
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'messages' => $validator->errors()->all(),
+            ], 200);
+        }
+
+        $user = auth()->user();
+        $userId = (int) ($user?->id ?? 0);
+        $subscriberId = (int) data_get($user, 'subscriber.id');
+
+        if (! $user instanceof User || $userId <= 0) {
+            return response()->json([
+                'success' => false,
+                'messages' => ['Пользователь не авторизован'],
+            ], 401);
+        }
+
+        /** @var SubscribersSubscriptions|null $subscription */
+        $subscription = SubscribersSubscriptions::where([
+            'subscribers_id' => $subscriberId,
+            'status' => 1,
+        ])->first();
+
+        if (! $subscription) {
+            return response()->json([
+                'success' => false,
+                'messages' => ['Активная подписка не найдена'],
+            ], 200);
+        }
+
+        try {
+            [$binary, $pendingSourceMeta] = $this->resolveEditVideoInput($request, $userId);
+            $probe = $this->mp4MediaProbe->probe($binary);
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'messages' => [$exception->getMessage() !== '' ? $exception->getMessage() : Mp4MediaProbe::UNSUPPORTED_VIDEO_MESSAGE],
+            ], 200);
+        }
+
+        $duration = $this->mp4MediaProbe->billedDuration((float) $probe['duration']);
+        $resolution = $this->mp4MediaProbe->billedResolution((int) $probe['height']);
+        $charge = $this->beginMarketplaceVideoReserve($user, $resolution, $duration);
+        if ($charge instanceof JsonResponse) {
+            return $charge;
+        }
+        $creditKey = (string) $charge['key'];
+
+        $prompt = trim((string) $request->input('prompt', ''));
+        $generation = $this->aiVideoGenerationService->resolveForStart(
+            $this->resolveGenerationUuidFromRequest($request),
+            $subscriberId,
+            $userId,
+            $prompt,
+        );
+
+        try {
+            $sourceVideoMeta = $pendingSourceMeta ?? $this->aiMediaStorageService->storeSourceVideoBinary($binary, $userId);
+        } catch (Throwable $exception) {
+            $this->releaseMarketplaceCredits($creditKey);
+
+            return response()->json([
+                'success' => false,
+                'messages' => [$exception->getMessage()],
+            ], 200);
+        }
+
+        $taskType = AiTaskType::EDIT_VIDEO->value;
+        $providerVideo = (string) ($sourceVideoMeta['signed_url'] ?? '');
+
+        try {
+            $response = $this->grokVideoApiClient->startEdit($prompt, [
+                'video' => $providerVideo,
+            ]);
+
+            if (! ($response['success'] ?? false)) {
+                $message = (string) (($response['messages'][0] ?? null) ?: 'Ошибка Grok API');
+                $statusCode = (int) ($response['status'] ?? 503);
+                $publicMessage = $this->resolvePublicErrorMessage($message, $statusCode);
+                $isModerationError = $this->isModerationError($message);
+
+                $this->aiVideoGenerationService->createTask(
+                    generation: $generation,
+                    subscriberId: $subscriberId,
+                    userId: $userId,
+                    taskType: $taskType,
+                    prompt: $prompt,
+                    duration: $duration,
+                    resolution: $resolution,
+                    aspectRatio: null,
+                    sourceImages: [$sourceVideoMeta],
+                    status: $isModerationError
+                        ? AiVideoGenerationTask::STATUS_FILTERED
+                        : AiVideoGenerationTask::STATUS_FAILED,
+                    externalRequestId: null,
+                    model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
+                    errorMessage: $publicMessage,
+                );
+
+                $this->releaseMarketplaceCredits($creditKey);
+
+                return response()->json([
+                    'success' => false,
+                    'messages' => [$publicMessage],
+                    'meta' => [
+                        'credits' => $this->marketplaceCreditsPayload($user),
+                    ],
+                ], 200);
+            }
+
+            $requestId = trim((string) data_get($response, 'data.request_id', ''));
+            if ($requestId === '') {
+                $this->releaseMarketplaceCredits($creditKey);
+
+                return response()->json([
+                    'success' => false,
+                    'messages' => ['Grok API не вернул request_id'],
+                ], 200);
+            }
+
+            $this->aiVideoGenerationService->createTask(
+                generation: $generation,
+                subscriberId: $subscriberId,
+                userId: $userId,
+                taskType: $taskType,
+                prompt: $prompt,
+                duration: $duration,
+                resolution: $resolution,
+                aspectRatio: null,
+                sourceImages: [$sourceVideoMeta],
+                status: AiVideoGenerationTask::STATUS_PENDING,
+                externalRequestId: $requestId,
+                model: (string) data_get($response, 'data.model', config('services.grok.video_model')),
+                creditIdempotencyKey: $creditKey,
+            );
+
+            return response()->json([
+                'success' => true,
+                'messages' => ['Задача редактирования видео создана'],
+                'data' => [
+                    'request_id' => $requestId,
+                    'status' => 'pending',
+                    'generation_uuid' => $generation->uuid,
+                    'generation_id' => $generation->id,
+                ],
+                'credits' => $this->marketplaceCreditsPayload($user),
+                'credits_cost' => $charge['quote']->amount,
+            ], 200);
+        } catch (Throwable $exception) {
+            $this->releaseMarketplaceCredits($creditKey);
+            $this->logUnexpectedFailure('editStart', $exception);
+
+            return response()->json([
+                'success' => false,
+                'messages' => [$this->resolvePublicErrorMessage($exception->getMessage(), 500)],
+            ], 200);
+        }
+    }
+
+    /**
+     * @return array{0: string, 1: array<string, mixed>|null}
+     */
+    private function resolveEditVideoInput(Request $request, int $userId): array
+    {
+        $videoFile = $request->file('video');
+        if ($videoFile instanceof UploadedFile) {
+            $binary = $videoFile->getContent();
+            if ($binary === false || $binary === '') {
+                throw new RuntimeException('Ролик не передан');
+            }
+
+            $maxBytes = max(1, (int) config('services.ai_media.max_source_video_bytes', 25 * 1024 * 1024));
+            if (strlen($binary) > $maxBytes) {
+                throw new RuntimeException('Файл слишком большой. Загрузите ролик до 25 МБ.');
+            }
+
+            return [$binary, null];
+        }
+
+        $videoInput = trim((string) $request->input('video', ''));
+
+        return $this->aiMediaStorageService->resolveOwnedSourceVideo($videoInput, $userId);
     }
 
     public function status(string $requestId): JsonResponse
@@ -542,7 +790,7 @@ class SubscriberAiVideoService
             $taskRecord->update([
                 'model' => (string) data_get($response, 'data.model', $taskRecord->model ?? config('services.grok.video_model')),
                 'status' => $generationStatus,
-                'error_message' => $message,
+                'error_message' => $this->resolvePublicErrorMessage($message, $statusCode),
             ]);
             $this->aiVideoGenerationService->touchGeneration($taskRecord->generation);
             $this->releaseMarketplaceCredits((string) ($taskRecord->credit_idempotency_key ?? ''));
@@ -644,6 +892,12 @@ class SubscriberAiVideoService
                 $userId
             );
         } catch (Throwable $exception) {
+            Log::error('AI video store failed', [
+                'request_id' => $requestId,
+                'provider_url' => $providerVideoUrl,
+                'exception' => $exception->getMessage(),
+            ]);
+
             $taskRecord->update([
                 'model' => (string) data_get($response, 'data.model', $taskRecord->model ?? config('services.grok.video_model')),
                 'status' => AiVideoGenerationTask::STATUS_FAILED,
@@ -726,11 +980,40 @@ class SubscriberAiVideoService
             return self::MODERATION_PUBLIC_ERROR_MESSAGE;
         }
 
+        if ($this->isPayloadTooLargeError($providerMessage, $statusCode)) {
+            return self::PAYLOAD_TOO_LARGE_PUBLIC_ERROR_MESSAGE;
+        }
+
+        if ($this->isConnectionError($providerMessage, $statusCode)) {
+            return self::CONNECTION_PUBLIC_ERROR_MESSAGE;
+        }
+
         if ($this->isHighDemandError($providerMessage, $statusCode)) {
             return self::HIGH_DEMAND_PUBLIC_ERROR_MESSAGE;
         }
 
         return self::PUBLIC_ERROR_MESSAGE;
+    }
+
+    private function isConnectionError(?string $providerMessage, ?int $statusCode = null): bool
+    {
+        if ((int) $statusCode === 503 && $this->grokVideoApiClient->isConnectionError($providerMessage)) {
+            return true;
+        }
+
+        return $this->grokVideoApiClient->isConnectionError($providerMessage);
+    }
+
+    private function isPayloadTooLargeError(?string $providerMessage, ?int $statusCode = null): bool
+    {
+        if ((int) $statusCode === 413) {
+            return true;
+        }
+
+        $message = mb_strtolower((string) $providerMessage);
+
+        return $this->grokVideoApiClient->isPayloadTooLargeMessage($providerMessage)
+            || str_contains($message, 'изображение слишком большое');
     }
 
     private function isHighDemandError(?string $providerMessage, ?int $statusCode = null): bool
@@ -769,6 +1052,10 @@ class SubscriberAiVideoService
             return null;
         }
 
+        if ($this->aiMediaStorageService->isPanelMediaInput($trimmed)) {
+            return null;
+        }
+
         $base64Part = $trimmed;
         if (str_starts_with($trimmed, 'data:')) {
             if (! preg_match('/^data:[^;]+;base64,(.*)$/s', $trimmed, $matches)) {
@@ -788,8 +1075,9 @@ class SubscriberAiVideoService
         }
 
         $decodedSize = $this->estimateDecodedBase64Bytes($normalizedBase64);
-        if ($decodedSize > self::MAX_INPUT_IMAGE_BYTES) {
-            return 'Размер изображения не должен превышать 10MB';
+        $maxBytes = max(1, (int) config('services.ai_media.max_image_bytes', 10 * 1024 * 1024));
+        if ($decodedSize > $maxBytes) {
+            return 'Размер изображения не должен превышать 10 МБ';
         }
 
         return null;
@@ -820,11 +1108,19 @@ class SubscriberAiVideoService
         return null;
     }
 
-    private function validateInputImageFormat(string $imageInput): ?string
+    private function validateInputImageFormat(string $imageInput, int $userId = 0): ?string
     {
         $trimmed = trim($imageInput);
         if ($trimmed === '') {
             return 'Изображение не передано';
+        }
+
+        if ($this->aiMediaStorageService->isPanelMediaInput($trimmed)) {
+            if ($userId > 0 && ! $this->aiMediaStorageService->panelMediaBelongsToUser($trimmed, $userId)) {
+                return 'Изображение не найдено';
+            }
+
+            return null;
         }
 
         if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
@@ -860,6 +1156,13 @@ class SubscriberAiVideoService
         }
 
         return $normalized;
+    }
+
+    private function logUnexpectedFailure(string $action, Throwable $exception): void
+    {
+        Log::error('AI video '.$action.' failed', [
+            'exception' => $exception->getMessage(),
+        ]);
     }
 
     private function estimateDecodedBase64Bytes(string $base64): int

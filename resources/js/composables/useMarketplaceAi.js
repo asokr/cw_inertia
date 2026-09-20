@@ -102,16 +102,18 @@ function pickPreferredVideoTaskId(tasks = []) {
     }
 
     const doneWithVideo = tasks.find((task) => task.status === "done" && task.video?.url);
-    if (doneWithVideo?.request_id) {
-        return doneWithVideo.request_id;
+    if (doneWithVideo?.request_id || doneWithVideo?.id) {
+        return doneWithVideo.request_id || `task-${doneWithVideo.id}`;
     }
 
     const pending = tasks.find((task) => task.status === "pending");
-    if (pending?.request_id) {
-        return pending.request_id;
+    if (pending?.request_id || pending?.id) {
+        return pending.request_id || `task-${pending.id}`;
     }
 
-    return tasks[0]?.request_id ?? null;
+    const first = tasks[0];
+
+    return first?.request_id || (first?.id != null ? `task-${first.id}` : null);
 }
 
 function mapApiTask(task) {
@@ -120,7 +122,8 @@ function mapApiTask(task) {
     }
 
     const mapped = {
-        request_id: task.request_id,
+        id: task.id,
+        request_id: task.request_id || null,
         status: task.status,
         prompt: task.prompt,
         task_type: task.task_type,
@@ -136,6 +139,13 @@ function mapApiTask(task) {
 
     if (Array.isArray(task.images) && task.images.length > 0) {
         mapped.images = normalizeHistoryImages(task.images);
+        if (!mapped.image && mapped.images[0]) {
+            mapped.image = mapped.images[0];
+        }
+    }
+
+    if (task.source_video) {
+        mapped.source_video = toAiMediaUrl(task.source_video) || task.source_video;
     }
 
     const video = normalizeVideoItem(task.video);
@@ -143,7 +153,8 @@ function mapApiTask(task) {
         mapped.video = video;
     }
 
-    return mapped.request_id ? mapped : null;
+    // Задача без request_id тоже нужна в истории: у сцены остаются сохранённые референсы.
+    return mapped.id || mapped.request_id ? mapped : null;
 }
 
 function buildVideoStartPayload(payload, generationUuid) {
@@ -664,6 +675,82 @@ export function useMarketplaceAi(_initialLimits = {}, { onVideoError, onVideoDon
         }
     }
 
+    async function runEditVideoTask(payload) {
+        loading.value = true;
+        const body = new FormData();
+        body.append("prompt", String(payload.prompt || "").trim());
+        body.append("task_type", "edit_video");
+
+        if (activeGenerationUuid.value) {
+            body.append("generation_uuid", activeGenerationUuid.value);
+        }
+
+        if (payload.video instanceof File) {
+            body.append("video", payload.video, payload.video.name || "source.mp4");
+        } else if (typeof payload.video === "string" && payload.video) {
+            body.append("video", payload.video);
+        }
+
+        try {
+            const response = await aiFetch("/panel/ai/video/edit/start", {
+                method: "POST",
+                body,
+            });
+
+            if (!response?.success) {
+                return { ok: false, message: extractAiMessage(response, "Запрос не выполнен") };
+            }
+
+            const reqId = response?.data?.request_id;
+            const generationUuid = response?.data?.generation_uuid ?? null;
+
+            applyCredits(response);
+
+            if (generationUuid) {
+                rememberActiveGeneration(generationUuid);
+            }
+
+            if (reqId) {
+                const sourceVideo = payload.video instanceof File
+                    ? URL.createObjectURL(payload.video)
+                    : (typeof payload.video === "string" ? payload.video : "");
+                const task = {
+                    request_id: reqId,
+                    status: "pending",
+                    prompt: String(payload.prompt || "").trim(),
+                    task_type: "edit_video",
+                    duration: payload.duration,
+                    resolution: payload.resolution,
+                    source_video: sourceVideo,
+                };
+                videoHistory.value.unshift(task);
+                videoPoll.start(reqId);
+            }
+
+            await loadGenerations();
+
+            return { ok: true, requestId: reqId, generationUuid };
+        } catch (error) {
+            const status = error?.status;
+            const errorPayload = error?.payload || {};
+
+            if (status === 402) {
+                return {
+                    ok: false,
+                    message: extractAiMessage(errorPayload, "Недостаточно кредитов"),
+                    limitError: true,
+                };
+            }
+
+            return {
+                ok: false,
+                message: extractAiMessage(errorPayload, "Ошибка. Попробуйте позже."),
+            };
+        } finally {
+            loading.value = false;
+        }
+    }
+
     return {
         loading,
         limitsLoading,
@@ -694,6 +781,7 @@ export function useMarketplaceAi(_initialLimits = {}, { onVideoError, onVideoDon
         runImageTask,
         runVideoTask,
         runSceneVideoTask,
+        runEditVideoTask,
         stopVideoPolling: videoPoll.stop,
     };
 }
