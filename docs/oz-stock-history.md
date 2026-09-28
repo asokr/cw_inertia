@@ -21,7 +21,7 @@ Ozon не отдаёт историю остатков за прошлые да�
 3. Нажать «Начать отслеживание».
 4. Сначала загружаются **все товары кабинета**. Без каталога отслеживание не включается.
 5. Затем сохраняются остатки за вчера.
-6. Каждый день в 00:05 МСК дописывается снимок за вчера, пока отслеживание включено.
+6. Каждый день в 00:05 МСК дописывается снимок за вчера, пока отслеживание включено. Если не получилось — повтор в 00:50 МСК.
 7. «Остановить отслеживание» — новые дни не пишутся, история на экране остаётся.
 
 ## Ozon Seller API
@@ -35,7 +35,9 @@ Ozon не отдаёт историю остатков за прошлые да�
 | `POST /v1/cluster/list` | Кластеры России и склады FBO |
 | `POST /v1/analytics/stocks` | Остаток «доступно к продаже» по SKU × склад × кластер (пачки до 100 SKU) |
 
-Аналитика Ozon обновляется около 07:00 и 16:00 UTC (10:00 и 19:00 МСК). Снимок ставится в 00:05 МСК и датируется вчерашним днём: на 5-е число пишутся остатки за 4-е.
+`POST /v1/analytics/stocks` на стороне Ozon очень узкий: отвечает 429 (`You have reached request rate limit per second`) и 500 (`code: 2`) при частых вызовах. Все кабинеты и ИИ-анализ ходят через общий шлюз `OzonAnalyticsStocksGate`: не чаще одного запроса в 20 секунд, при 429/500 пауза 60–180 с, до 8 попыток на пачку.
+
+Аналитика Ozon обновляется около 07:00 и 16:00 UTC (10:00 и 19:00 МСК). Снимок ставится в 00:05 МСК и датируется вчерашним днём: на 5-е число пишутся остатки за 4-е. Если снимок не успел, команда повторяется в 00:50 МСК — ещё по вечернему обновлению за вчера.
 
 FBS/rFBS в инструмент не входят.
 
@@ -85,7 +87,7 @@ php artisan queue:work --queue=oz_stock_history,default --tries=2 --timeout=1800
 | `ProcessOzStockHistoryStartJob` | 1800 | кабинет |
 | `ProcessOzStockHistorySnapshotJob` | 1800 | кабинет + дата |
 
-Расписание: `subscriber:oz-stock-history-snapshot` в 00:05 МСК (только `tracking_enabled`), prune в 01:30 МСК.
+Расписание: `subscriber:oz-stock-history-snapshot` в 00:05 и 00:50 МСК (только `tracking_enabled`). Кабинеты ставятся в очередь с шагом 45 с. Prune в 01:30 МСК.
 
 ## UI
 
@@ -100,6 +102,7 @@ php artisan queue:work --queue=oz_stock_history,default --tries=2 --timeout=1800
 - `app/Http/Controllers/Web/Subscriber/Oz/StockHistory/WorkspaceController.php`
 - `app/Services/Subscriber/Oz/OzStockHistoryService.php`
 - `app/Services/Oz/StockHistory/OzStockHistorySyncService.php`
+- `app/Services/Ozon/OzonAnalyticsStocksGate.php`
 - Jobs: `app/Jobs/Oz/StockHistory/*`
 - Models: `app/Models/Subscribers/Oz/StockHistory/*`
 

@@ -21,6 +21,10 @@ class OzAbExperimentJournal
 
     public const TYPE_CAMPAIGN_PAUSED = 'campaign.paused';
 
+    public const TYPE_PHOTO_PENDING = 'photo.pending';
+
+    public const TYPE_PHOTO_CONFIRMED = 'photo.confirmed';
+
     public const TYPE_PHOTO_SET = 'photo.set';
 
     public const TYPE_PHOTO_SWITCHED = 'photo.switched';

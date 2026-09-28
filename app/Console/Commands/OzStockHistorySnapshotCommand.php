@@ -25,7 +25,8 @@ class OzStockHistorySnapshotCommand extends Command
 
         $count = 0;
         foreach ($cabinetIds as $cabinetId) {
-            ProcessOzStockHistorySnapshotJob::dispatch((int) $cabinetId, null, $force, false);
+            ProcessOzStockHistorySnapshotJob::dispatch((int) $cabinetId, null, $force, false)
+                ->delay(now()->addSeconds($count * 45));
             $count++;
         }
 

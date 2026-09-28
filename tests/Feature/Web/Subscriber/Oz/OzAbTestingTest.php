@@ -17,9 +17,11 @@ use App\Services\Ozon\OzonApiService;
 use App\Services\Ozon\OzonPerformanceApiService;
 use App\Services\Subscriber\Oz\AbTesting\OzAbExperimentEngine;
 use Illuminate\Database\Schema\Blueprint;
+use App\Services\Subscriber\Oz\AbTesting\OzAbPhotoFingerprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -480,19 +482,41 @@ class OzAbTestingTest extends WebAuthTestCase
         $cabinet = $this->createUnifiedCabinet($user, 'Prepare Cabinet', withPerformance: true);
         [$product, $experiment] = $this->createDraft($cabinet);
 
-        $perf = $this->mockPerformance([
-            'token' => true,
-            'find' => [
-                'id' => 777,
-                'title' => 'Existing',
-                'state' => 'CAMPAIGN_STATE_INACTIVE',
-                'advObjectType' => 'SKU',
-            ],
-            'objects' => [777 => [1]],
-        ]);
+        $added = false;
+        $perf = Mockery::mock(OzonPerformanceApiService::class);
+        $perf->shouldReceive('getAccessToken')
+            ->andReturn(['success' => true, 'status' => 200, 'data' => ['access_token' => 'tok']]);
+        $perf->shouldReceive('listCampaigns')
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => [
+                    'list' => [[
+                        'id' => 777,
+                        'title' => 'Existing',
+                        'state' => 'CAMPAIGN_STATE_INACTIVE',
+                        'advObjectType' => 'SKU',
+                    ]],
+                ],
+            ]);
+        $perf->shouldReceive('getCampaignObjects')
+            ->andReturnUsing(function () use (&$added, $product) {
+                $skus = $added ? [(int) $product->sku] : [];
+
+                return [
+                    'success' => true,
+                    'status' => 200,
+                    'data' => ['list' => array_map(static fn ($sku) => ['sku' => $sku], $skus)],
+                ];
+            });
         $perf->shouldReceive('addCampaignProducts')
             ->once()
-            ->andReturn(['success' => true, 'status' => 200, 'data' => []]);
+            ->andReturnUsing(function () use (&$added) {
+                $added = true;
+
+                return ['success' => true, 'status' => 200, 'data' => []];
+            });
+        $this->app->instance(OzonPerformanceApiService::class, $perf);
 
         $this->actingAs($user)
             ->postJson('/panel/oz/ab-testing/campaigns/777/prepare', [
@@ -644,6 +668,44 @@ class OzAbTestingTest extends WebAuthTestCase
         $this->assertSame(['views' => 100, 'clicks' => 4, 'spend' => 10.0, 'orders' => 0], $stats);
     }
 
+    public function test_extract_sku_stats_ignores_days_before_cycle_start(): void
+    {
+        $engine = app(OzAbExperimentEngine::class);
+        $stats = $engine->extractSkuStats([
+            'rows' => [
+                ['sku' => '111111', 'campaignId' => '9', 'date' => '2026-09-25', 'views' => '2384', 'clicks' => '61', 'expense' => '10'],
+                ['sku' => '111111', 'campaignId' => '9', 'date' => '2026-09-26', 'views' => '631', 'clicks' => '19', 'expense' => '3'],
+            ],
+        ], 9, 111111, '2026-09-26');
+
+        $this->assertSame(['views' => 631, 'clicks' => 19, 'spend' => 3.0, 'orders' => 0], $stats);
+    }
+
+    public function test_extract_sku_stats_keeps_start_day_after_midnight(): void
+    {
+        $engine = app(OzAbExperimentEngine::class);
+        $stats = $engine->extractSkuStats([
+            'rows' => [
+                ['sku' => '111111', 'campaignId' => '9', 'date' => '2026-09-25', 'views' => '2384', 'clicks' => '61', 'expense' => '10'],
+                ['sku' => '111111', 'campaignId' => '9', 'date' => '2026-09-26', 'views' => '50', 'clicks' => '2', 'expense' => '1'],
+            ],
+        ], 9, 111111, '2026-09-25');
+
+        $this->assertSame(['views' => 2434, 'clicks' => 63, 'spend' => 11.0, 'orders' => 0], $stats);
+    }
+
+    public function test_snapshot_falls_back_to_single_campaign_sku(): void
+    {
+        $engine = app(OzAbExperimentEngine::class);
+        $stats = $engine->extractSkuStats([
+            'rows' => [
+                ['sku' => '999', 'campaignId' => '9', 'views' => '40', 'clicks' => '3', 'expense' => '2'],
+            ],
+        ], 9, 111111);
+
+        $this->assertSame(['views' => 40, 'clicks' => 3, 'spend' => 2.0, 'orders' => 0], $stats);
+    }
+
     public function test_cabinet_tick_loads_all_running_campaigns_in_one_stats_request(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
@@ -675,6 +737,7 @@ class OzAbTestingTest extends WebAuthTestCase
                 ],
             ]);
         $this->app->instance(OzonPerformanceApiService::class, $perf);
+        $this->mockCardPhotoUnreadable();
 
         $result = app(OzAbExperimentEngine::class)->processCabinet((int) $cabinet->id);
 
@@ -683,6 +746,411 @@ class OzAbTestingTest extends WebAuthTestCase
         $this->assertSame(2, $result['processed']);
         $this->assertSame(15, (int) $first['cycle']->fresh()->views_end);
         $this->assertSame(40, (int) $second['cycle']->fresh()->views_end);
+    }
+
+    public function test_cabinet_tick_does_not_zero_out_existing_cycle_stats_on_sku_miss(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Keep Stats', withPerformance: true);
+        $running = $this->createRunningExperiment($cabinet, 10, 101);
+        $running['cycle']->update([
+            'views_start' => 10,
+            'views_end' => 80,
+            'clicks_start' => 1,
+            'clicks_end' => 9,
+        ]);
+
+        $perf = Mockery::mock(OzonPerformanceApiService::class);
+        $perf->shouldReceive('getAccessToken')
+            ->once()
+            ->andReturn(['success' => true, 'status' => 200, 'data' => ['access_token' => 'tok']]);
+        $perf->shouldReceive('getProductSkuStatistics')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => [
+                    'rows' => [
+                        ['sku' => 202, 'campaignId' => 10, 'views' => 900, 'clicks' => 40, 'expense' => 8],
+                        ['sku' => 303, 'campaignId' => 10, 'views' => 100, 'clicks' => 4, 'expense' => 1],
+                    ],
+                ],
+            ]);
+        $this->app->instance(OzonPerformanceApiService::class, $perf);
+        $this->mockCardPhotoUnreadable();
+
+        app(OzAbExperimentEngine::class)->processCabinet((int) $cabinet->id);
+
+        $cycle = $running['cycle']->fresh();
+        $this->assertSame(80, (int) $cycle->views_end);
+        $this->assertSame(9, (int) $cycle->clicks_end);
+    }
+
+    public function test_pictures_info_uploaded_state_is_ready(): void
+    {
+        $engine = app(OzAbExperimentEngine::class);
+
+        $this->assertSame('uploaded', $engine->interpretPicturesInfo([
+            'success' => true,
+            'data' => [
+                'result' => [
+                    'pictures' => [
+                        ['url' => 'https://cdn.example/a.jpg', 'state' => 'uploaded', 'is_primary' => true],
+                    ],
+                ],
+            ],
+        ]));
+    }
+
+    public function test_pictures_info_pending_and_errors_are_not_ready(): void
+    {
+        $engine = app(OzAbExperimentEngine::class);
+
+        $this->assertSame('pending', $engine->interpretPicturesInfo([
+            'success' => true,
+            'data' => [
+                'result' => [
+                    'pictures' => [
+                        ['url' => 'https://cdn.example/a.jpg', 'state' => 'imported'],
+                    ],
+                ],
+            ],
+        ]));
+        $this->assertSame('failed', $engine->interpretPicturesInfo([
+            'success' => true,
+            'data' => [
+                'items' => [[
+                    'product_id' => 101,
+                    'primary_photo' => ['https://cdn.example/a.jpg'],
+                    'errors' => [['description' => 'download failed']],
+                ]],
+            ],
+        ]));
+    }
+
+    public function test_pictures_info_v2_urls_without_state_ready_after_wait(): void
+    {
+        $engine = app(OzAbExperimentEngine::class);
+        $payload = [
+            'success' => true,
+            'data' => [
+                'items' => [[
+                    'product_id' => 101,
+                    'primary_photo' => ['https://cdn.example/a.jpg'],
+                    'photo' => ['https://cdn.example/b.jpg'],
+                    'errors' => [],
+                ]],
+            ],
+        ];
+
+        $this->assertSame('pending', $engine->interpretPicturesInfo($payload, false));
+        $this->assertSame('uploaded', $engine->interpretPicturesInfo($payload, true));
+    }
+
+    public function test_upload_photo_waits_until_ozon_marks_uploaded(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Photo Cabinet');
+        [$product, $experiment] = $this->createDraft($cabinet);
+
+        config([
+            'app.url' => 'https://files.example.test',
+            'filesystems.disks.public.url' => 'https://files.example.test/storage',
+        ]);
+        Storage::fake('public');
+        $path = "oz/ab-testing/{$cabinet->id}/{$experiment->id}/1.jpg";
+        Storage::disk('public')->put($path, 'img');
+        $photo = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'public',
+            'path' => $path,
+            'mime' => 'image/jpeg',
+            'size' => 3,
+        ]);
+        $experiment->gallery_snapshot = [
+            'primary_image' => 'https://cdn.example/old-main.jpg',
+            'images' => ['https://cdn.example/old-extra.jpg'],
+        ];
+        $experiment->save();
+
+        $api = Mockery::mock(OzonApiService::class);
+        $api->shouldReceive('importProductPictures')
+            ->once()
+            ->withArgs(function (string $apiKey, string $clientId, array $payload) use ($path): bool {
+                $item = $payload['items'][0] ?? null;
+                $primary = is_array($item) ? ($item['primary_image'] ?? '') : '';
+
+                return is_array($item)
+                    && count($payload['items']) === 1
+                    && ($item['offer_id'] ?? null) === 'OFF-AB'
+                    && ! array_key_exists('product_id', $item)
+                    && is_string($primary)
+                    && str_contains($primary, $path)
+                    && ($item['images'][0] ?? null) === 'https://cdn.example/old-main.jpg'
+                    && ($item['images'][1] ?? null) === 'https://cdn.example/old-extra.jpg'
+                    && ! in_array($primary, $item['images'] ?? [], true);
+            })
+            ->andReturn(['success' => true, 'status' => 200, 'data' => []]);
+        $api->shouldReceive('getProductPicturesInfo')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => [
+                    'result' => [
+                        'pictures' => [
+                            ['state' => 'uploaded', 'is_primary' => true, 'url' => 'https://cdn.example/new-main.jpg'],
+                        ],
+                    ],
+                ],
+            ]);
+        $this->app->instance(OzonApiService::class, $api);
+
+        $result = app(OzAbExperimentEngine::class)->uploadPhotoAsMain(
+            $cabinet,
+            $experiment->fresh(['photos', 'product']),
+            $photo,
+        );
+
+        $this->assertTrue($result['success']);
+    }
+
+    public function test_upload_photo_fails_when_ozon_does_not_accept_image(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Photo Fail Cabinet');
+        [$product, $experiment] = $this->createDraft($cabinet);
+
+        config([
+            'app.url' => 'https://files.example.test',
+            'filesystems.disks.public.url' => 'https://files.example.test/storage',
+        ]);
+        Storage::fake('public');
+        $path = "oz/ab-testing/{$cabinet->id}/{$experiment->id}/1.jpg";
+        Storage::disk('public')->put($path, 'img');
+        $photo = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'public',
+            'path' => $path,
+            'mime' => 'image/jpeg',
+            'size' => 3,
+        ]);
+
+        $api = Mockery::mock(OzonApiService::class);
+        $api->shouldReceive('importProductPictures')
+            ->once()
+            ->andReturn(['success' => true, 'status' => 200, 'data' => []]);
+        $api->shouldReceive('getProductPicturesInfo')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => [
+                    'result' => [
+                        'pictures' => [
+                            ['state' => 'pending', 'url' => 'https://example.test/a.jpg'],
+                        ],
+                    ],
+                ],
+            ]);
+        $this->app->instance(OzonApiService::class, $api);
+
+        $result = app(OzAbExperimentEngine::class)->uploadPhotoAsMain(
+            $cabinet,
+            $experiment->fresh(['photos', 'product']),
+            $photo,
+        );
+
+        $this->assertFalse($result['success']);
+        $this->assertNotEmpty($result['message'] ?? '');
+    }
+
+    public function test_upload_photo_accepts_import_while_card_still_shows_old_primary(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Photo Same Cabinet');
+        [$product, $experiment] = $this->createDraft($cabinet);
+
+        config([
+            'app.url' => 'https://files.example.test',
+            'filesystems.disks.public.url' => 'https://files.example.test/storage',
+        ]);
+        Storage::fake('public');
+        $path = "oz/ab-testing/{$cabinet->id}/{$experiment->id}/1.jpg";
+        Storage::disk('public')->put($path, 'img');
+        $photo = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'public',
+            'path' => $path,
+            'mime' => 'image/jpeg',
+            'size' => 3,
+        ]);
+        $experiment->gallery_snapshot = [
+            'primary_image' => 'https://cdn.example/old-main.jpg',
+            'images' => ['https://cdn.example/old-extra.jpg'],
+        ];
+        $experiment->save();
+
+        $api = Mockery::mock(OzonApiService::class);
+        $api->shouldReceive('importProductPictures')
+            ->once()
+            ->andReturn(['success' => true, 'status' => 200, 'data' => []]);
+        $api->shouldReceive('getProductPicturesInfo')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => [
+                    'items' => [[
+                        'product_id' => 101,
+                        'primary_photo' => ['https://cdn.example/old-main.jpg'],
+                        'photo' => ['https://cdn.example/old-extra.jpg'],
+                        'pictures' => [[
+                            'state' => 'uploaded',
+                            'is_primary' => true,
+                            'url' => 'https://cdn.example/old-main.jpg',
+                        ]],
+                        'errors' => [],
+                    ]],
+                ],
+            ]);
+        $this->app->instance(OzonApiService::class, $api);
+
+        $result = app(OzAbExperimentEngine::class)->uploadPhotoAsMain(
+            $cabinet,
+            $experiment->fresh(['photos', 'product']),
+            $photo,
+        );
+
+        $this->assertTrue($result['success']);
+        $this->assertFalse($result['meta']['changed'] ?? true);
+    }
+
+    public function test_upload_photo_succeeds_when_ozon_returns_new_cdn_primary(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Photo Cdn Cabinet');
+        [$product, $experiment] = $this->createDraft($cabinet);
+
+        config([
+            'app.url' => 'https://files.example.test',
+            'filesystems.disks.public.url' => 'https://files.example.test/storage',
+        ]);
+        Storage::fake('public');
+        $path = "oz/ab-testing/{$cabinet->id}/{$experiment->id}/1.jpg";
+        Storage::disk('public')->put($path, 'img');
+        $photo = AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 0,
+            'disk' => 'public',
+            'path' => $path,
+            'mime' => 'image/jpeg',
+            'size' => 3,
+        ]);
+        $experiment->gallery_snapshot = [
+            'primary_image' => 'https://cdn.example/old-main.jpg',
+            'images' => [],
+        ];
+        $experiment->save();
+
+        $api = Mockery::mock(OzonApiService::class);
+        $api->shouldReceive('importProductPictures')
+            ->once()
+            ->andReturn(['success' => true, 'status' => 200, 'data' => []]);
+        $api->shouldReceive('getProductPicturesInfo')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => [
+                    'items' => [[
+                        'primary_photo' => ['https://cdn1.ozone.ru/s3/multimedia-new/variant.jpg'],
+                        'photo' => ['https://cdn.example/old-main.jpg'],
+                        'pictures' => [[
+                            'state' => 'uploaded',
+                            'is_primary' => true,
+                            'url' => 'https://cdn1.ozone.ru/s3/multimedia-new/variant.jpg',
+                        ]],
+                        'errors' => [],
+                    ]],
+                ],
+            ]);
+        $this->app->instance(OzonApiService::class, $api);
+
+        $result = app(OzAbExperimentEngine::class)->uploadPhotoAsMain(
+            $cabinet,
+            $experiment->fresh(['photos', 'product']),
+            $photo,
+        );
+
+        $this->assertTrue($result['success']);
+        $this->assertTrue($result['meta']['changed'] ?? false);
+        $this->assertSame(
+            'https://cdn1.ozone.ru/s3/multimedia-new/variant.jpg',
+            $result['meta']['primary_after'] ?? null,
+        );
+    }
+
+    public function test_prepare_replace_deletes_other_skus(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Replace Cabinet', withPerformance: true);
+        [$product, $experiment] = $this->createDraft($cabinet);
+
+        $objectCalls = 0;
+        $perf = Mockery::mock(OzonPerformanceApiService::class);
+        $perf->shouldReceive('getAccessToken')
+            ->andReturn(['success' => true, 'status' => 200, 'data' => ['access_token' => 'tok']]);
+        $perf->shouldReceive('listCampaigns')
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => [
+                    'list' => [[
+                        'id' => 777,
+                        'title' => 'Existing',
+                        'state' => 'CAMPAIGN_STATE_INACTIVE',
+                        'advObjectType' => 'SKU',
+                    ]],
+                ],
+            ]);
+        $perf->shouldReceive('getCampaignObjects')
+            ->andReturnUsing(function () use (&$objectCalls, $product) {
+                $objectCalls++;
+                $skus = $objectCalls === 1 ? [1, 2] : [(int) $product->sku];
+
+                return [
+                    'success' => true,
+                    'status' => 200,
+                    'data' => ['list' => array_map(static fn ($sku) => ['sku' => $sku], $skus)],
+                ];
+            });
+        $perf->shouldReceive('deleteCampaignProducts')
+            ->once()
+            ->withArgs(function (string $token, $campaignId, array $payload) {
+                $skus = $payload['sku'] ?? [];
+                sort($skus);
+
+                return $token === 'tok' && (int) $campaignId === 777 && $skus === ['1', '2'];
+            })
+            ->andReturn(['success' => true, 'status' => 200, 'data' => []]);
+        $perf->shouldReceive('addCampaignProducts')->never();
+        $this->app->instance(OzonPerformanceApiService::class, $perf);
+
+        $this->actingAs($user)
+            ->postJson('/panel/oz/ab-testing/campaigns/777/prepare', [
+                'experiment_id' => $experiment->id,
+                'confirm_replace' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
     }
 
     public function test_fallback_tick_dispatches_one_job_per_cabinet(): void
@@ -725,6 +1193,276 @@ class OzAbTestingTest extends WebAuthTestCase
     /**
      * @return array{0: AbProduct, 1: AbExperiment}
      */
+    public function test_photo_fingerprint_survives_recompression_and_rejects_another_picture(): void
+    {
+        if (! function_exists('imagejpeg')) {
+            $this->markTestSkipped('GD jpeg недоступен');
+        }
+
+        $make = function (int $red, int $green, int $blue, int $quality): string {
+            $image = imagecreatetruecolor(48, 48);
+            imagefilledrectangle($image, 0, 0, 47, 47, imagecolorallocate($image, $red, $green, $blue));
+            imagefilledrectangle($image, 6, 8, 28, 36, imagecolorallocate($image, 255 - $red, $green, 40));
+            ob_start();
+            imagejpeg($image, null, $quality);
+            imagedestroy($image);
+
+            return (string) ob_get_clean();
+        };
+
+        $sharp = OzAbPhotoFingerprint::fromBinary($make(210, 40, 40, 90));
+        $soft = OzAbPhotoFingerprint::fromBinary($make(210, 40, 40, 40));
+        $other = OzAbPhotoFingerprint::fromBinary($make(20, 40, 210, 90));
+
+        $this->assertNotNull($sharp);
+        $this->assertNotNull($soft);
+        $this->assertNotSame($sharp['md5'], $soft['md5']);
+        $this->assertTrue(OzAbPhotoFingerprint::matches($sharp['md5'], $sharp['hash'], $soft['md5'], $soft['hash']));
+        $this->assertFalse(OzAbPhotoFingerprint::matches($sharp['md5'], $sharp['hash'], $other['md5'], $other['hash']));
+    }
+
+    public function test_cycle_does_not_count_or_switch_until_card_photo_matches(): void
+    {
+        if (! function_exists('imagejpeg')) {
+            $this->markTestSkipped('GD jpeg недоступен');
+        }
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Wait Photo', withPerformance: true);
+        $running = $this->createRunningExperiment($cabinet, 10, 101);
+        $experiment = $running['experiment'];
+        $cycle = $running['cycle'];
+        $cycle->update(['started_at' => now()->subHours(3)]);
+        $experiment->update([
+            'impressions_per_round' => 100,
+            'round_minutes' => 30,
+            'started_at' => now()->subHours(3),
+        ]);
+
+        Storage::fake('public');
+        $expected = $this->jpegBinary(210, 40, 40, 90);
+        $onCard = $this->jpegBinary(20, 40, 210, 90);
+        $fingerprint = OzAbPhotoFingerprint::fromBinary($expected);
+        $photo = AbExperimentPhoto::query()->findOrFail($cycle->ab_experiment_photo_id);
+        Storage::disk('public')->put($photo->path, $expected);
+        $photo->update([
+            'content_md5' => $fingerprint['md5'],
+            'content_hash' => $fingerprint['hash'],
+        ]);
+        AbExperimentPhoto::query()->create([
+            'ab_experiment_id' => $experiment->id,
+            'cabinet_id' => $cabinet->id,
+            'sort_order' => 1,
+            'disk' => 'public',
+            'path' => 'oz/ab-testing/next.jpg',
+            'content_md5' => md5('next'),
+        ]);
+
+        $this->mockPerformanceToken();
+        $this->mockCardPrimary('https://cdn.example/card.jpg', $onCard);
+
+        $result = app(OzAbExperimentEngine::class)->process(
+            $experiment->fresh(['photos', 'product', 'cabinet']),
+            ['views' => 5000, 'clicks' => 40, 'spend' => 12.5, 'orders' => 1],
+        );
+
+        $fresh = $cycle->fresh();
+        $this->assertSame('waiting_photo', $result['action'] ?? null);
+        $this->assertNull($fresh->photo_confirmed_at);
+        $this->assertSame($photo->id, (int) $fresh->ab_experiment_photo_id);
+        $this->assertSame(0, (int) $fresh->views_start);
+        $this->assertSame(5000, (int) $fresh->views_end);
+        $aggregates = app(OzAbExperimentEngine::class)->photoAggregates($experiment->fresh());
+        $this->assertSame(5000, (int) ($aggregates[$photo->id]['views'] ?? 0));
+    }
+
+    public function test_cycle_baseline_starts_when_card_photo_matches_variant(): void
+    {
+        if (! function_exists('imagejpeg')) {
+            $this->markTestSkipped('GD jpeg недоступен');
+        }
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Match Photo', withPerformance: true);
+        $running = $this->createRunningExperiment($cabinet, 10, 101);
+        $experiment = $running['experiment'];
+        $cycle = $running['cycle'];
+        $cycle->update([
+            'started_at' => now()->subHours(3),
+            'views_start' => 10,
+            'clicks_start' => 1,
+        ]);
+
+        Storage::fake('public');
+        $binary = $this->jpegBinary(210, 40, 40, 90);
+        $fingerprint = OzAbPhotoFingerprint::fromBinary($binary);
+        $photo = AbExperimentPhoto::query()->findOrFail($cycle->ab_experiment_photo_id);
+        Storage::disk('public')->put($photo->path, $binary);
+        $photo->update([
+            'content_md5' => $fingerprint['md5'],
+            'content_hash' => $fingerprint['hash'],
+        ]);
+
+        $this->mockPerformanceToken();
+        $this->mockCardPrimary('https://cdn.example/card.jpg', $binary);
+
+        $result = app(OzAbExperimentEngine::class)->process(
+            $experiment->fresh(['photos', 'product', 'cabinet']),
+            ['views' => 800, 'clicks' => 20, 'spend' => 4.0, 'orders' => 0],
+        );
+
+        $fresh = $cycle->fresh();
+        $this->assertSame('updated', $result['action'] ?? null);
+        $this->assertNotNull($fresh->photo_confirmed_at);
+        $this->assertSame(0, (int) $fresh->views_start);
+        $this->assertSame(0, (int) $fresh->clicks_start);
+        $this->assertSame(800, $fresh->deltaViews());
+    }
+
+    public function test_cycle_confirms_photo_even_when_primary_url_did_not_change(): void
+    {
+        if (! function_exists('imagejpeg')) {
+            $this->markTestSkipped('GD jpeg недоступен');
+        }
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Same Url', withPerformance: true);
+        $running = $this->createRunningExperiment($cabinet, 10, 101);
+        $experiment = $running['experiment'];
+        $cycle = $running['cycle'];
+        $binary = $this->jpegBinary(210, 40, 40, 90);
+        $fingerprint = OzAbPhotoFingerprint::fromBinary($binary);
+        $photo = AbExperimentPhoto::query()->findOrFail($cycle->ab_experiment_photo_id);
+        Storage::fake('public');
+        Storage::disk('public')->put($photo->path, $binary);
+        $photo->update([
+            'content_md5' => $fingerprint['md5'],
+            'content_hash' => $fingerprint['hash'],
+        ]);
+        $cycle->update(['last_seen_primary_url' => 'https://cdn.example/card.jpg']);
+
+        $this->mockPerformanceToken();
+        $this->mockCardPrimary('https://cdn.example/card.jpg', $binary);
+
+        $result = app(OzAbExperimentEngine::class)->process(
+            $experiment->fresh(['photos', 'product', 'cabinet']),
+            ['views' => 40, 'clicks' => 2, 'spend' => 1.0, 'orders' => 0],
+        );
+
+        $this->assertSame('updated', $result['action'] ?? null);
+        $this->assertNotNull($cycle->fresh()->photo_confirmed_at);
+    }
+
+    public function test_cycle_confirms_card_photo_when_upload_status_still_shows_old_image(): void
+    {
+        if (! function_exists('imagejpeg')) {
+            $this->markTestSkipped('GD jpeg недоступен');
+        }
+
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Card Wins', withPerformance: true);
+        $running = $this->createRunningExperiment($cabinet, 10, 101);
+        $experiment = $running['experiment'];
+        $cycle = $running['cycle'];
+        Storage::fake('public');
+        $expected = $this->jpegBinary(210, 40, 40, 90);
+        $old = $this->jpegBinary(20, 40, 210, 90);
+        $fingerprint = OzAbPhotoFingerprint::fromBinary($expected);
+        $photo = AbExperimentPhoto::query()->findOrFail($cycle->ab_experiment_photo_id);
+        Storage::disk('public')->put($photo->path, $expected);
+        $photo->update([
+            'content_md5' => $fingerprint['md5'],
+            'content_hash' => $fingerprint['hash'],
+        ]);
+
+        $seller = Mockery::mock(OzonApiService::class);
+        $seller->shouldReceive('getProductsInfo')
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => ['items' => [['primary_image' => ['https://cdn.example/card.jpg']]]],
+            ]);
+        $seller->shouldReceive('getProductPicturesInfo')
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => ['items' => [['primary_photo' => ['https://cdn.example/old.jpg']]]],
+            ]);
+        $this->app->instance(OzonApiService::class, $seller);
+        Http::fake([
+            'https://cdn.example/card.jpg' => Http::response($expected, 200, ['Content-Type' => 'image/jpeg']),
+            'https://cdn.example/old.jpg' => Http::response($old, 200, ['Content-Type' => 'image/jpeg']),
+        ]);
+        $this->mockPerformanceToken();
+
+        $result = app(OzAbExperimentEngine::class)->process(
+            $experiment->fresh(['photos', 'product', 'cabinet']),
+            ['views' => 40, 'clicks' => 2, 'spend' => 1.0, 'orders' => 0],
+        );
+
+        $this->assertSame('updated', $result['action'] ?? null);
+        $this->assertNotNull($cycle->fresh()->photo_confirmed_at);
+    }
+
+    private function jpegBinary(int $red, int $green, int $blue, int $quality): string
+    {
+        $image = imagecreatetruecolor(48, 48);
+        imagefilledrectangle($image, 0, 0, 47, 47, imagecolorallocate($image, $red, $green, $blue));
+        imagefilledrectangle($image, 6, 8, 28, 36, imagecolorallocate($image, 255 - $red, min(255, $green + 80), 40));
+        ob_start();
+        imagejpeg($image, null, $quality);
+        imagedestroy($image);
+
+        return (string) ob_get_clean();
+    }
+
+    private function mockPerformanceToken(): void
+    {
+        $perf = Mockery::mock(OzonPerformanceApiService::class);
+        $perf->shouldReceive('getAccessToken')
+            ->andReturn(['success' => true, 'status' => 200, 'data' => ['access_token' => 'tok']]);
+        $this->app->instance(OzonPerformanceApiService::class, $perf);
+    }
+
+    private function mockCardPrimary(string $url, string $body): void
+    {
+        $seller = Mockery::mock(OzonApiService::class);
+        $seller->shouldReceive('getProductsInfo')
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => [
+                    'items' => [[
+                        'primary_image' => [$url],
+                    ]],
+                ],
+            ]);
+        $seller->shouldReceive('getProductPicturesInfo')
+            ->andReturn([
+                'success' => true,
+                'status' => 200,
+                'data' => [
+                    'items' => [[
+                        'primary_photo' => [$url],
+                    ]],
+                ],
+            ]);
+        $this->app->instance(OzonApiService::class, $seller);
+        Http::fake([
+            $url => Http::response($body, 200, ['Content-Type' => 'image/jpeg']),
+        ]);
+    }
+
+    private function mockCardPhotoUnreadable(): void
+    {
+        $seller = Mockery::mock(OzonApiService::class);
+        $seller->shouldReceive('getProductPicturesInfo')
+            ->andReturn(['success' => false, 'status' => 503, 'data' => []]);
+        $seller->shouldReceive('getProductsInfo')
+            ->andReturn(['success' => false, 'status' => 503, 'data' => []]);
+        $this->app->instance(OzonApiService::class, $seller);
+    }
+
     private function createDraft(OzCabinet $cabinet): array
     {
         $product = AbProduct::query()->create([
@@ -1016,6 +1754,8 @@ class OzAbTestingTest extends WebAuthTestCase
                 $table->string('original_name')->nullable();
                 $table->string('mime', 64)->nullable();
                 $table->unsignedInteger('size')->nullable();
+                $table->string('content_md5', 32)->nullable();
+                $table->string('content_hash', 16)->nullable();
                 $table->timestamps();
             });
         }
@@ -1027,6 +1767,8 @@ class OzAbTestingTest extends WebAuthTestCase
                 $table->unsignedBigInteger('ab_experiment_photo_id')->index();
                 $table->unsignedInteger('sequence')->default(1);
                 $table->timestamp('started_at');
+                $table->timestamp('photo_confirmed_at')->nullable();
+                $table->string('last_seen_primary_url', 1024)->nullable();
                 $table->timestamp('ended_at')->nullable();
                 $table->string('end_reason', 32)->nullable();
                 $table->unsignedBigInteger('views_start')->default(0);

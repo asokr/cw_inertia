@@ -397,6 +397,7 @@ class OzAiCabinetAnalyzerService
                     'rate_limit_profile' => [
                         'seller' => 'min_interval ~350ms, 429 backoff',
                         'analytics' => 'min_interval 1.2s, 429 backoff 60s; free metrics only',
+                        'analytics_stocks' => 'min_interval 20s, 429/500 backoff 60–180s, общий слот',
                         'performance' => 'api-performance.ozon.ru Bearer; min_interval ~400ms; 429 backoff 60s',
                     ],
                     'endpoints' => [

@@ -87,7 +87,7 @@ class ProcessOzStockHistoryStartJob implements ShouldQueue, ShouldBeUnique
                 'message' => $e->getMessage(),
             ]);
             $settings->tracking_status = OzStockHistoryTrackingStatus::Active;
-            $settings->last_error = 'Товары загружены, остатки за вчера не сохранились. Повторим вечером.';
+            $settings->last_error = 'Товары загружены, остатки за вчера не сохранились. Повторим попытку автоматически.';
             $settings->save();
         }
     }
@@ -107,7 +107,7 @@ class ProcessOzStockHistoryStartJob implements ShouldQueue, ShouldBeUnique
         if ($settings->products_synced_at) {
             $settings->tracking_enabled = true;
             $settings->tracking_status = OzStockHistoryTrackingStatus::Active;
-            $settings->last_error = 'Товары загружены, остатки за вчера не сохранились. Повторим вечером.';
+            $settings->last_error = 'Товары загружены, остатки за вчера не сохранились. Повторим попытку автоматически.';
         } else {
             $settings->tracking_enabled = false;
             $settings->tracking_status = OzStockHistoryTrackingStatus::Error;

@@ -92,6 +92,7 @@ const progressLabel = computed(
 );
 const impressionsProgress = computed(() => props.experiment?.impressions_progress ?? null);
 const isProgressPending = computed(() => progressMode.value === "pending");
+const isWaitingForCardPhoto = computed(() => progressMode.value === "waiting_photo");
 
 function formatInt(value) {
     const n = Number(value);
@@ -339,7 +340,11 @@ async function stop() {
                     />
                 </div>
                 <p class="text-xs text-muted-foreground">
-                    <template v-if="isProgressPending">
+                    <template v-if="isWaitingForCardPhoto">
+                        <span class="font-medium text-foreground">Прогресс:</span>
+                        ждём, пока на карточке появится это фото. Показы рекламы за этот круг уже учитываем.
+                    </template>
+                    <template v-else-if="isProgressPending">
                         <span class="font-medium text-foreground">Прогресс:</span>
                         ожидаем первые показы из статистики Ozon…
                     </template>

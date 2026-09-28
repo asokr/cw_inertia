@@ -26,11 +26,19 @@ class ProcessOzStockHistorySnapshotJob implements ShouldQueue, ShouldBeUnique
     use Queueable;
     use SerializesModels;
 
-    public int $uniqueFor = 3600;
+    public int $uniqueFor = 7200;
 
-    public int $tries = 2;
+    public int $tries = 5;
 
     public int $timeout = 1800;
+
+    /**
+     * @return list<int>
+     */
+    public function backoff(): array
+    {
+        return [120, 180, 300, 420];
+    }
 
     public function __construct(
         public readonly int $cabinetId,
@@ -71,7 +79,7 @@ class ProcessOzStockHistorySnapshotJob implements ShouldQueue, ShouldBeUnique
                 'stock_date' => $stockDate,
                 'message' => $e->getMessage(),
             ]);
-            $this->markActive($settings, false, 'Не удалось обновить остатки. Попробуем снова вечером.');
+            $this->markActive($settings, false, 'Не удалось обновить остатки. Повторим попытку автоматически.');
             throw $e;
         }
     }
@@ -84,7 +92,7 @@ class ProcessOzStockHistorySnapshotJob implements ShouldQueue, ShouldBeUnique
         ]);
 
         $settings = OzStockHistorySetting::query()->where('cabinet_id', $this->cabinetId)->first();
-        $this->markActive($settings, false, 'Не удалось обновить остатки. Попробуем снова вечером.');
+        $this->markActive($settings, false, 'Не удалось обновить остатки. Повторим попытку автоматически.');
     }
 
     private function markActive(?OzStockHistorySetting $settings, bool $ok, ?string $message): void

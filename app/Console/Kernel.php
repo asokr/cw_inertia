@@ -136,6 +136,13 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->runInBackground();
 
+        $schedule->command('subscriber:oz-stock-history-snapshot')
+            ->dailyAt('00:50')
+            ->timezone('Europe/Moscow')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground();
+
         $schedule->command('subscriber:oz-stock-history-prune')
             ->dailyAt('01:30')
             ->timezone('Europe/Moscow')

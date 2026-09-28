@@ -3,6 +3,7 @@
 namespace App\Services\Oz\AiCabinetAnalyzer;
 
 use App\Services\Oz\AiCabinetAnalyzer\Support\OzAiCabinetAnalyzerRequestGuard;
+use App\Services\Ozon\OzonAnalyticsStocksGate;
 use App\Services\Ozon\OzonApiService;
 use Illuminate\Support\Arr;
 use Throwable;
@@ -23,6 +24,7 @@ class OzAiCabinetAnalyzerStocksCollector
 
     public function __construct(
         private readonly OzonApiService $ozonApiService,
+        private readonly OzonAnalyticsStocksGate $analyticsStocksGate,
     ) {
         $this->guard = new OzAiCabinetAnalyzerRequestGuard(
             maxAttempts: 3,
@@ -33,12 +35,12 @@ class OzAiCabinetAnalyzerStocksCollector
 
     public function requestCount(): int
     {
-        return $this->guard->requestCount();
+        return $this->guard->requestCount() + $this->analyticsStocksGate->requestCount();
     }
 
     public function retryCount(): int
     {
-        return $this->guard->retryCount();
+        return $this->guard->retryCount() + $this->analyticsStocksGate->retryCount();
     }
 
     /**
@@ -290,7 +292,7 @@ class OzAiCabinetAnalyzerStocksCollector
                 'skus' => array_map('strval', $batch),
             ];
 
-            $response = $this->guard->requestWithRetry(
+            $response = $this->analyticsStocksGate->requestWithRetry(
                 fn () => $this->ozonApiService->getAnalyticsStocks($apiKey, $clientId, $payload),
                 'analytics/stocks',
             );

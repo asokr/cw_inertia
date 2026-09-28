@@ -9,6 +9,7 @@ use App\Models\Subscribers\Oz\StockHistory\OzStockHistoryProduct;
 use App\Models\Subscribers\Oz\StockHistory\OzStockHistorySetting;
 use App\Models\Subscribers\Oz\StockHistory\OzStockHistorySnapshot;
 use App\Models\Subscribers\Oz\StockHistory\OzStockHistoryWarehouse;
+use App\Services\Ozon\OzonAnalyticsStocksGate;
 use App\Services\Ozon\OzonApiService;
 use App\Support\Oz\OzStockHistoryCalendar;
 use Illuminate\Support\Arr;
@@ -31,6 +32,7 @@ class OzStockHistorySyncService
 
     public function __construct(
         private readonly OzonApiService $ozonApiService,
+        private readonly OzonAnalyticsStocksGate $analyticsStocksGate,
     ) {}
 
     /**
@@ -170,7 +172,7 @@ class OzStockHistorySyncService
             $guard = $this->makeGuard();
 
             $clusterMap = $this->fetchClusterWarehouseMap($guard, $apiKey, $clientId);
-            $stockRows = $this->fetchAnalyticsStocks($guard, $apiKey, $clientId, $skus);
+            $stockRows = $this->fetchAnalyticsStocks($apiKey, $clientId, $skus);
 
             $knownPairs = $this->knownPairs($cabinet->id);
             $now = now();
@@ -250,7 +252,7 @@ class OzStockHistorySyncService
             ];
         } catch (Throwable $e) {
             $snapshot->status = OzStockHistorySnapshotStatus::Failed;
-            $snapshot->error_message = 'Не удалось обновить остатки. Попробуем снова вечером.';
+            $snapshot->error_message = 'Не удалось обновить остатки. Повторим попытку автоматически.';
             $snapshot->save();
 
             throw $e;
@@ -480,7 +482,6 @@ class OzStockHistorySyncService
      * @return list<array<string, mixed>>
      */
     private function fetchAnalyticsStocks(
-        OzStockHistoryRequestGuard $guard,
         string $apiKey,
         string $clientId,
         array $skus,
@@ -488,7 +489,7 @@ class OzStockHistorySyncService
         $rows = [];
 
         foreach (array_chunk($skus, self::STOCKS_SKU_BATCH) as $batch) {
-            $response = $guard->requestWithRetry(
+            $response = $this->analyticsStocksGate->requestWithRetry(
                 fn () => $this->ozonApiService->getAnalyticsStocks($apiKey, $clientId, [
                     'skus' => array_map('strval', $batch),
                 ]),

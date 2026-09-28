@@ -80,13 +80,13 @@
 | `POST /v1/analytics/product-queries/details` | тексты запросов (до 15 на SKU) | частично |
 | `POST /v2/analytics/stock_on_warehouses` | остатки по складам | да (метод будет отключён, оставлен как разрез) |
 | `POST /v1/analytics/turnover/stocks` | IDC / ADS / turnover | да |
-| `POST /v1/analytics/stocks` | ликвидность остатков | да |
+| `POST /v1/analytics/stocks` | ликвидность остатков | да (общий шлюз с историей остатков: 20 с, retry 429/500) |
 | `POST /v1/product/rating-by-sku` | контент-рейтинг карточки | да |
 | `POST /v1/rating/summary` | рейтинги продавца | да |
 | `GET /v1/actions` | список акций | да |
 | `POST /v1/actions/products` | товары в акции | да |
 
-**Ограничения free analytics:** глубина ~3 месяца; max 1000 строк/запрос; throttle + 429 backoff 60s.
+**Ограничения free analytics:** глубина ~3 месяца; max 1000 строк/запрос; throttle + 429 backoff 60s. `POST /v1/analytics/stocks` идёт через `OzonAnalyticsStocksGate` вместе с историей остатков (пауза 20 с, backoff 60–180 с).
 
 ## Performance API (реклама)
 

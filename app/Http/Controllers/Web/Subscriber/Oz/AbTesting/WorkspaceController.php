@@ -369,14 +369,16 @@ class WorkspaceController extends SubscriberToolController
         if (! $model) {
             return response()->json(['success' => false, 'messages' => ['Эксперимент не найден.']], 404);
         }
-        $model->load('photos');
+        $model->load($this->abTestingService->experimentDetailRelations());
 
-        return response()->json([
-            'success' => true,
-            'photos' => $this->abTestingService->listPhotos($model),
-            'experiment' => $this->abTestingService->mapExperiment($model),
-            'messages' => [],
-        ]);
+        return response()
+            ->json([
+                'success' => true,
+                'photos' => $this->abTestingService->listPhotos($model),
+                'experiment' => $this->abTestingService->mapExperiment($model),
+                'messages' => [],
+            ])
+            ->header('Cache-Control', 'no-store, private');
     }
 
     public function storePhotos(StoreAbExperimentPhotosRequest $request, int $experiment): JsonResponse

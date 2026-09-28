@@ -23,14 +23,16 @@ class OzonApiService
     }
 
     /**
-     * Загрузить/обновить изображения карточки. Каждый вызов затирает предыдущий набор.
+     * Загрузить или обновить изображения карточки.
+     * POST /v2/product/pictures/import — тело {items: [...]}, 1–100 товаров, ключ — offer_id.
+     * Каждый вызов затирает предыдущий набор изображений товара.
      *
      * @param  array<string, mixed>  $payload
      * @return array{success: bool, status: int, data: mixed}
      */
     public function importProductPictures(string $apiKey, string $clientId, array $payload): array
     {
-        return $this->post('v1/product/pictures/import', $apiKey, $clientId, $payload);
+        return $this->post('v2/product/pictures/import', $apiKey, $clientId, $payload);
     }
 
     /**

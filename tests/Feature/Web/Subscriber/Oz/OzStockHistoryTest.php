@@ -199,6 +199,75 @@ class OzStockHistoryTest extends WebAuthTestCase
         });
     }
 
+    public function test_dispatcher_staggers_cabinets(): void
+    {
+        Queue::fake();
+        Carbon::setTestNow(Carbon::parse('2026-09-05 00:05:00', 'Europe/Moscow'));
+        $user = $this->createSubscriberUser(withPermission: true);
+        $first = $this->createCabinet($user);
+        $second = OzCabinet::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Ozon кабинет 2',
+            'client_id' => 'client-'.uniqid(),
+            'apikey' => 'test-api-key-2',
+        ]);
+
+        foreach ([$first, $second] as $cabinet) {
+            OzStockHistorySetting::query()->create([
+                'cabinet_id' => $cabinet->id,
+                'tracking_enabled' => true,
+                'tracking_status' => OzStockHistoryTrackingStatus::Active,
+                'retention_days' => 90,
+            ]);
+        }
+
+        Artisan::call('subscriber:oz-stock-history-snapshot');
+
+        $delays = [];
+        Queue::assertPushed(ProcessOzStockHistorySnapshotJob::class, 2);
+        Queue::assertPushed(ProcessOzStockHistorySnapshotJob::class, function (ProcessOzStockHistorySnapshotJob $job) use (&$delays) {
+            $delay = $job->delay;
+            $delays[$job->cabinetId] = $delay instanceof \DateTimeInterface
+                ? (int) Carbon::now()->diffInSeconds($delay, false)
+                : (int) $delay;
+
+            return true;
+        });
+
+        $orderedIds = OzStockHistorySetting::query()
+            ->where('tracking_enabled', true)
+            ->orderBy('cabinet_id')
+            ->pluck('cabinet_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $this->assertSame(0, $delays[$orderedIds[0]] ?? null);
+        $this->assertSame(45, $delays[$orderedIds[1]] ?? null);
+    }
+
+    public function test_snapshot_retries_analytics_stocks_after_429(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-05 12:00:00', 'Europe/Moscow'));
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createCabinet($user);
+        $this->mockOzonApi(qty: 15, analyticsFailures: [429, 500]);
+
+        $job = new ProcessOzStockHistorySnapshotJob((int) $cabinet->id, '2026-09-04', false, true);
+        $job->handle(app(\App\Services\Oz\StockHistory\OzStockHistorySyncService::class));
+
+        $this->assertDatabaseHas('oz_stock_history_items', [
+            'cabinet_id' => $cabinet->id,
+            'sku' => 111,
+            'stock_date' => '2026-09-04',
+            'qty' => 15,
+        ]);
+        $this->assertDatabaseHas('oz_stock_history_snapshots', [
+            'cabinet_id' => $cabinet->id,
+            'stock_date' => '2026-09-04',
+            'status' => OzStockHistorySnapshotStatus::Done->value,
+        ]);
+    }
+
     public function test_index_shows_all_saved_days_without_picking_a_date(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-09-05 12:00:00', 'Europe/Moscow'));
@@ -361,7 +430,10 @@ class OzStockHistoryTest extends WebAuthTestCase
     /**
      * @param  array<string, mixed>  $overrides
      */
-    private function mockOzonApi(bool $emptyCatalog = false, int $qty = 40): void
+    /**
+     * @param  list<int>  $analyticsFailures
+     */
+    private function mockOzonApi(bool $emptyCatalog = false, int $qty = 40, array $analyticsFailures = []): void
     {
         $mock = Mockery::mock(OzonApiService::class);
 
@@ -410,7 +482,7 @@ class OzStockHistoryTest extends WebAuthTestCase
             ],
         ]);
 
-        $mock->shouldReceive('getAnalyticsStocks')->andReturn([
+        $successStocks = [
             'success' => true,
             'status' => 200,
             'data' => [
@@ -423,7 +495,24 @@ class OzStockHistoryTest extends WebAuthTestCase
                     'cluster_name' => 'Москва',
                 ]],
             ],
-        ]);
+        ];
+        $stockCalls = 0;
+        $mock->shouldReceive('getAnalyticsStocks')->andReturnUsing(function () use (&$stockCalls, $analyticsFailures, $successStocks) {
+            $status = $analyticsFailures[$stockCalls] ?? null;
+            $stockCalls++;
+            if ($status !== null) {
+                return [
+                    'success' => false,
+                    'status' => $status,
+                    'data' => [
+                        'code' => $status === 429 ? 8 : 2,
+                        'message' => $status === 429 ? 'You have reached request rate limit per second' : null,
+                    ],
+                ];
+            }
+
+            return $successStocks;
+        });
 
         $this->app->instance(OzonApiService::class, $mock);
     }

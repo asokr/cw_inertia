@@ -28,6 +28,8 @@ class AbExperimentCycle extends Model
         'ab_experiment_photo_id',
         'sequence',
         'started_at',
+        'photo_confirmed_at',
+        'last_seen_primary_url',
         'ended_at',
         'end_reason',
         'views_start',
@@ -43,6 +45,7 @@ class AbExperimentCycle extends Model
     protected $casts = [
         'sequence' => 'integer',
         'started_at' => 'datetime',
+        'photo_confirmed_at' => 'datetime',
         'ended_at' => 'datetime',
         'views_start' => 'integer',
         'views_end' => 'integer',

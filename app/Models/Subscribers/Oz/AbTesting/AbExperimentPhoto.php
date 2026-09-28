@@ -19,6 +19,8 @@ class AbExperimentPhoto extends Model
         'original_name',
         'mime',
         'size',
+        'content_md5',
+        'content_hash',
     ];
 
     protected $casts = [

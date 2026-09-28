@@ -40,6 +40,8 @@ const { showError, showSuccess } = useFlashToast();
 
 const photos = ref([]);
 const loading = ref(false);
+/** Ответ списка фото не должен затирать более новый снимок с опроса страницы. */
+let photosRequestId = 0;
 const busy = ref(false);
 const loadError = ref("");
 const dragFromIndex = ref(null);
@@ -115,15 +117,17 @@ watch(
         if (!Array.isArray(next) || !next.length) {
             return;
         }
-        // Prefer full list from experiment payload; merge stats if ids match.
-        if (!photos.value.length) {
+        photosRequestId += 1;
+        if (!photos.value.length || next.length !== photos.value.length) {
             photos.value = next;
             return;
         }
-        const byId = new Map(next.map((p) => [p.id, p]));
-        photos.value = photos.value.map((local) => {
-            const fresh = byId.get(local.id);
+        const byId = new Map(next.map((photo) => [String(photo.id), photo]));
+        let missed = false;
+        const merged = photos.value.map((local) => {
+            const fresh = byId.get(String(local.id));
             if (!fresh) {
+                missed = true;
                 return local;
             }
             return {
@@ -132,10 +136,7 @@ watch(
                 stats: fresh.stats ?? local.stats,
             };
         });
-        // Append any new ids (order from server).
-        if (next.length !== photos.value.length) {
-            photos.value = next;
-        }
+        photos.value = missed ? next : merged;
     },
     { deep: true },
 );
@@ -146,6 +147,7 @@ async function loadPhotos() {
         return;
     }
 
+    const requestId = ++photosRequestId;
     loading.value = true;
     loadError.value = "";
 
@@ -155,7 +157,15 @@ async function loadPhotos() {
             photos.value = props.experiment.photos;
         }
 
-        const { data } = await axios.get(photosUrl.value);
+        const { data } = await axios.get(photosUrl.value, {
+            headers: {
+                "Cache-Control": "no-cache",
+                Pragma: "no-cache",
+            },
+        });
+        if (requestId !== photosRequestId) {
+            return;
+        }
         if (!data?.success) {
             loadError.value = data?.messages?.[0] || "Не удалось загрузить фотографии";
             return;

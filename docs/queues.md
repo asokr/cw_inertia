@@ -122,9 +122,9 @@ Fallback-команда: каждые 2 минуты, по одному job на
 | Job | Timeout | Tries | Unique | Где задаётся очередь |
 |-----|---------|-------|--------|----------------------|
 | `App\Jobs\Oz\StockHistory\ProcessOzStockHistoryStartJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `oz-stock-history-start-{cabinetId}`) | `$this->onQueue('oz_stock_history')` |
-| `App\Jobs\Oz\StockHistory\ProcessOzStockHistorySnapshotJob` | 1800 | 2 | `ShouldBeUnique` (`uniqueFor` 3600, id `oz-stock-history-snapshot-{cabinetId}-{date}`) | `$this->onQueue('oz_stock_history')` |
+| `App\Jobs\Oz\StockHistory\ProcessOzStockHistorySnapshotJob` | 1800 | 5 | `ShouldBeUnique` (`uniqueFor` 7200, id `oz-stock-history-snapshot-{cabinetId}-{date}`), backoff 120/180/300/420 с | `$this->onQueue('oz_stock_history')` |
 
-Диспатч: «Начать отслеживание» → start job → snapshot за вчера. Ежедневно `subscriber:oz-stock-history-snapshot` в 00:05 МСК только для `tracking_enabled`. Prune: `subscriber:oz-stock-history-prune` в 01:30 МСК.  
+Диспатч: «Начать отслеживание» → start job → snapshot за вчера. Ежедневно `subscriber:oz-stock-history-snapshot` в 00:05 и 00:50 МСК только для `tracking_enabled`, кабинеты с шагом 45 с. `POST /v1/analytics/stocks` — общий шлюз `OzonAnalyticsStocksGate` (20 с между запросами, retry 429/500). Prune: `subscriber:oz-stock-history-prune` в 01:30 МСК.  
 Документация: [oz-stock-history.md](oz-stock-history.md).
 
 ### `wb_stock_history`

@@ -127,6 +127,15 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        // Смена главного фото карточки в Ozon A/B. Без ключей API.
+        'oz_ab_photos' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/oz-ab-photos.log'),
+            'level' => 'debug',
+            'days' => 14,
+            'replace_placeholders' => true,
+        ],
+
         'wb_api_response' => [
             'driver' => 'single',
             'path' => storage_path('logs/wb_api_response.log'),

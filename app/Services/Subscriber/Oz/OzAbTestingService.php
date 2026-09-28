@@ -14,6 +14,7 @@ use App\Services\Ozon\OzonApiService;
 use App\Services\Ozon\OzonPerformanceApiService;
 use App\Services\Subscriber\Oz\AbTesting\OzAbExperimentEngine;
 use App\Services\Subscriber\Oz\AbTesting\OzAbExperimentJournal;
+use App\Services\Subscriber\Oz\AbTesting\OzAbPhotoFingerprint;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
@@ -724,6 +725,23 @@ class OzAbTestingService
             ];
         }
 
+        if ($confirmReplace && $otherSkus !== []) {
+            $removed = $this->performanceApi->deleteCampaignProducts($token, $campaignId, [
+                'sku' => array_map(static fn (int $id): string => (string) $id, $otherSkus),
+            ]);
+            if (! ($removed['success'] ?? false)) {
+                return [
+                    'success' => false,
+                    'messages' => [
+                        $this->experimentEngine->apiMessage(
+                            $removed,
+                            'Не удалось убрать другие товары из кампании',
+                        ),
+                    ],
+                ];
+            }
+        }
+
         $attach = $this->ensureCampaignContainsSku(
             $token,
             $campaignId,
@@ -919,7 +937,9 @@ class OzAbTestingService
                 (string) Str::uuid(),
                 $ext,
             );
-            Storage::disk(self::PHOTO_DISK)->put($path, file_get_contents($file->getRealPath()) ?: '');
+            $binary = file_get_contents($file->getRealPath()) ?: '';
+            Storage::disk(self::PHOTO_DISK)->put($path, $binary);
+            $fingerprint = OzAbPhotoFingerprint::fromBinary($binary);
             AbExperimentPhoto::query()->create([
                 'ab_experiment_id' => $experiment->id,
                 'cabinet_id' => $cabinet->id,
@@ -929,6 +949,8 @@ class OzAbTestingService
                 'original_name' => $file->getClientOriginalName(),
                 'mime' => $file->getMimeType(),
                 'size' => $file->getSize(),
+                'content_md5' => $fingerprint['md5'] ?? null,
+                'content_hash' => $fingerprint['hash'] ?? null,
             ]);
         }
 
@@ -979,12 +1001,16 @@ class OzAbTestingService
             (string) Str::uuid(),
             $ext,
         );
-        Storage::disk(self::PHOTO_DISK)->put($path, file_get_contents($file->getRealPath()) ?: '');
+        $binary = file_get_contents($file->getRealPath()) ?: '';
+        Storage::disk(self::PHOTO_DISK)->put($path, $binary);
+        $fingerprint = OzAbPhotoFingerprint::fromBinary($binary);
         $photo->disk = self::PHOTO_DISK;
         $photo->path = $path;
         $photo->original_name = $file->getClientOriginalName();
         $photo->mime = $file->getMimeType();
         $photo->size = $file->getSize();
+        $photo->content_md5 = $fingerprint['md5'] ?? null;
+        $photo->content_hash = $fingerprint['hash'] ?? null;
         $photo->save();
 
         return [
@@ -1117,6 +1143,15 @@ class OzAbTestingService
 
         if ($status === OzAbTestStatus::Running) {
             $breakdown = $this->experimentEngine->impressionsProgressBreakdown($experiment, $target, $openCycle);
+            if ($openCycle && $openCycle->photo_confirmed_at === null) {
+                return [
+                    'progress' => (int) ($breakdown['progress'] ?? 0),
+                    'mode' => 'waiting_photo',
+                    'label' => 'Ждём фото на карточке',
+                    'impressions_progress' => $breakdown,
+                ];
+            }
+
             $label = ($breakdown['mode'] ?? '') === 'pending'
                 ? 'Ожидание показов'
                 : 'Сбор статистики';

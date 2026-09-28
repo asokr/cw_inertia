@@ -8,7 +8,7 @@ import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import Button from "@/components/ui/Button.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
-import { useAbExperimentPoll } from "@/composables/useAbExperimentPoll";
+import { acceptExperimentPayload, useAbExperimentPoll } from "@/composables/useAbExperimentPoll";
 
 const props = defineProps({
     cabinet: {
@@ -76,6 +76,7 @@ const view = computed(() => {
 
 useAbExperimentPoll({
     shouldPoll: () => view.value === "workspace",
+    experiment: () => selectedExperimentLocal.value,
 });
 
 watch(
@@ -90,7 +91,10 @@ watch(
 watch(
     () => props.selectedExperiment,
     (value) => {
-        selectedExperimentLocal.value = value ?? null;
+        selectedExperimentLocal.value = acceptExperimentPayload(
+            selectedExperimentLocal.value,
+            value ?? null,
+        );
     },
 );
 

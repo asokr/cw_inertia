@@ -181,6 +181,22 @@ class OzonPerformanceApiService
     }
 
     /**
+     * Удалить SKU из кампании.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{success: bool, status: int, data: mixed}
+     */
+    public function deleteCampaignProducts(string $accessToken, int|string $campaignId, array $payload): array
+    {
+        return $this->request(
+            'POST',
+            'api/client/campaign/'.rawurlencode((string) $campaignId).'/products/delete',
+            ['json' => $payload],
+            $accessToken,
+        );
+    }
+
+    /**
      * @return array{success: bool, status: int, data: mixed}
      */
     public function activateCampaign(string $accessToken, int|string $campaignId): array
