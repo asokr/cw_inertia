@@ -303,7 +303,47 @@ class OzAbTestingTest extends WebAuthTestCase
                 ->where('selectedExperiment.start_checks.3.ok', false));
     }
 
-    public function test_round_minutes_cannot_be_shorter_than_30(): void
+    public function test_workspace_poll_is_not_cached(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'Cache Cabinet');
+        [$product, $experiment] = $this->createDraft($cabinet);
+
+        $this->actingAs($user)
+            ->get('/panel/oz/ab-testing?product_id='.$product->id.'&experiment_id='.$experiment->id)
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+    }
+
+    public function test_running_open_cycle_is_in_action_history_without_eager_cycles(): void
+    {
+        $user = $this->createSubscriberUser(withPermission: true);
+        $cabinet = $this->createUnifiedCabinet($user, 'History Cabinet');
+        $running = $this->createRunningExperiment($cabinet, 77, 770);
+        $product = $running['product'];
+        $experiment = $running['experiment'];
+        $running['cycle']->update([
+            'views_end' => 1200,
+            'clicks_end' => 30,
+        ]);
+
+        $mapped = app(\App\Services\Subscriber\Oz\OzAbTestingService::class)
+            ->mapExperiment($experiment->fresh());
+        $this->assertSame(1200, $mapped['action_history'][0]['views'] ?? null);
+        $this->assertSame(30, $mapped['action_history'][0]['clicks'] ?? null);
+        $this->assertTrue($mapped['action_history'][0]['in_progress'] ?? false);
+
+        $this->actingAs($user)
+            ->get('/panel/oz/ab-testing?product_id='.$product->id.'&experiment_id='.$experiment->id)
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('selectedExperiment.action_history.0.views', 1200)
+                ->where('selectedExperiment.action_history.0.clicks', 30)
+                ->where('selectedExperiment.action_history.0.in_progress', true)
+                ->where('experiments.0.action_history.0.views', 1200));
+    }
+
+    public function test_impressions_cannot_be_below_5000(): void
     {
         $user = $this->createSubscriberUser(withPermission: true);
         $cabinet = $this->createUnifiedCabinet($user, 'Settings Cabinet');
@@ -317,13 +357,12 @@ class OzAbTestingTest extends WebAuthTestCase
                 'cpm' => 15,
             ])
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['round_minutes']);
+            ->assertJsonValidationErrors(['impressions_per_photo', 'impressions_per_round']);
 
         $this->actingAs($user)
             ->patchJson('/panel/oz/ab-testing/experiments/'.$experiment->id.'/settings', [
-                'impressions_per_photo' => 1000,
-                'impressions_per_round' => 100,
-                'round_minutes' => 30,
+                'impressions_per_photo' => 20000,
+                'impressions_per_round' => 1000,
                 'cpm' => 15,
             ])
             ->assertOk()
@@ -331,7 +370,8 @@ class OzAbTestingTest extends WebAuthTestCase
 
         $this->assertDatabaseHas('oz_ab_experiments', [
             'id' => $experiment->id,
-            'round_minutes' => 30,
+            'impressions_per_photo' => 20000,
+            'impressions_per_round' => 1000,
         ]);
     }
 
@@ -681,6 +721,19 @@ class OzAbTestingTest extends WebAuthTestCase
         $this->assertSame(['views' => 631, 'clicks' => 19, 'spend' => 3.0, 'orders' => 0], $stats);
     }
 
+    public function test_extract_sku_stats_accepts_dotted_and_datetime_dates(): void
+    {
+        $engine = app(OzAbExperimentEngine::class);
+        $stats = $engine->extractSkuStats([
+            'rows' => [
+                ['sku' => '111111', 'campaignId' => '9', 'date' => '25.09.2026', 'views' => '1 000', 'clicks' => '10', 'expense' => '1,5'],
+                ['sku' => '111111', 'campaignId' => '9', 'date' => '2026-09-26T00:00:00Z', 'views' => '50', 'clicks' => '2', 'expense' => '1'],
+            ],
+        ], 9, 111111, '2026-09-26');
+
+        $this->assertSame(['views' => 50, 'clicks' => 2, 'spend' => 1.0, 'orders' => 0], $stats);
+    }
+
     public function test_extract_sku_stats_keeps_start_day_after_midnight(): void
     {
         $engine = app(OzAbExperimentEngine::class);
@@ -737,8 +790,6 @@ class OzAbTestingTest extends WebAuthTestCase
                 ],
             ]);
         $this->app->instance(OzonPerformanceApiService::class, $perf);
-        $this->mockCardPhotoUnreadable();
-
         $result = app(OzAbExperimentEngine::class)->processCabinet((int) $cabinet->id);
 
         $this->assertTrue($result['success']);
@@ -777,7 +828,6 @@ class OzAbTestingTest extends WebAuthTestCase
                 ],
             ]);
         $this->app->instance(OzonPerformanceApiService::class, $perf);
-        $this->mockCardPhotoUnreadable();
 
         app(OzAbExperimentEngine::class)->processCabinet((int) $cabinet->id);
 
@@ -1221,34 +1271,21 @@ class OzAbTestingTest extends WebAuthTestCase
         $this->assertFalse(OzAbPhotoFingerprint::matches($sharp['md5'], $sharp['hash'], $other['md5'], $other['hash']));
     }
 
-    public function test_cycle_does_not_count_or_switch_until_card_photo_matches(): void
+    public function test_cycle_counts_views_without_photo_match_and_does_not_switch_on_time(): void
     {
-        if (! function_exists('imagejpeg')) {
-            $this->markTestSkipped('GD jpeg недоступен');
-        }
-
         $user = $this->createSubscriberUser(withPermission: true);
         $cabinet = $this->createUnifiedCabinet($user, 'Wait Photo', withPerformance: true);
         $running = $this->createRunningExperiment($cabinet, 10, 101);
         $experiment = $running['experiment'];
         $cycle = $running['cycle'];
-        $cycle->update(['started_at' => now()->subHours(3)]);
+        $cycle->update(['started_at' => now()->subHours(12)]);
         $experiment->update([
-            'impressions_per_round' => 100,
+            'impressions_per_photo' => 20000,
+            'impressions_per_round' => 5000,
             'round_minutes' => 30,
-            'started_at' => now()->subHours(3),
+            'started_at' => now()->subHours(12),
         ]);
-
-        Storage::fake('public');
-        $expected = $this->jpegBinary(210, 40, 40, 90);
-        $onCard = $this->jpegBinary(20, 40, 210, 90);
-        $fingerprint = OzAbPhotoFingerprint::fromBinary($expected);
         $photo = AbExperimentPhoto::query()->findOrFail($cycle->ab_experiment_photo_id);
-        Storage::disk('public')->put($photo->path, $expected);
-        $photo->update([
-            'content_md5' => $fingerprint['md5'],
-            'content_hash' => $fingerprint['hash'],
-        ]);
         AbExperimentPhoto::query()->create([
             'ab_experiment_id' => $experiment->id,
             'cabinet_id' => $cabinet->id,
@@ -1259,21 +1296,20 @@ class OzAbTestingTest extends WebAuthTestCase
         ]);
 
         $this->mockPerformanceToken();
-        $this->mockCardPrimary('https://cdn.example/card.jpg', $onCard);
 
         $result = app(OzAbExperimentEngine::class)->process(
             $experiment->fresh(['photos', 'product', 'cabinet']),
-            ['views' => 5000, 'clicks' => 40, 'spend' => 12.5, 'orders' => 1],
+            ['views' => 4999, 'clicks' => 40, 'spend' => 12.5, 'orders' => 1],
         );
 
         $fresh = $cycle->fresh();
-        $this->assertSame('waiting_photo', $result['action'] ?? null);
-        $this->assertNull($fresh->photo_confirmed_at);
+        $this->assertSame('updated', $result['action'] ?? null);
+        $this->assertNull($fresh->ended_at);
         $this->assertSame($photo->id, (int) $fresh->ab_experiment_photo_id);
         $this->assertSame(0, (int) $fresh->views_start);
-        $this->assertSame(5000, (int) $fresh->views_end);
+        $this->assertSame(4999, (int) $fresh->views_end);
         $aggregates = app(OzAbExperimentEngine::class)->photoAggregates($experiment->fresh());
-        $this->assertSame(5000, (int) ($aggregates[$photo->id]['views'] ?? 0));
+        $this->assertSame(4999, (int) ($aggregates[$photo->id]['views'] ?? 0));
     }
 
     public function test_cycle_baseline_starts_when_card_photo_matches_variant(): void
@@ -1313,7 +1349,7 @@ class OzAbTestingTest extends WebAuthTestCase
 
         $fresh = $cycle->fresh();
         $this->assertSame('updated', $result['action'] ?? null);
-        $this->assertNotNull($fresh->photo_confirmed_at);
+        $this->assertNull($fresh->ended_at);
         $this->assertSame(0, (int) $fresh->views_start);
         $this->assertSame(0, (int) $fresh->clicks_start);
         $this->assertSame(800, $fresh->deltaViews());
@@ -1350,7 +1386,7 @@ class OzAbTestingTest extends WebAuthTestCase
         );
 
         $this->assertSame('updated', $result['action'] ?? null);
-        $this->assertNotNull($cycle->fresh()->photo_confirmed_at);
+        $this->assertSame(40, $cycle->fresh()->deltaViews());
     }
 
     public function test_cycle_confirms_card_photo_when_upload_status_still_shows_old_image(): void
@@ -1401,7 +1437,7 @@ class OzAbTestingTest extends WebAuthTestCase
         );
 
         $this->assertSame('updated', $result['action'] ?? null);
-        $this->assertNotNull($cycle->fresh()->photo_confirmed_at);
+        $this->assertSame(40, $cycle->fresh()->deltaViews());
     }
 
     private function jpegBinary(int $red, int $green, int $blue, int $quality): string

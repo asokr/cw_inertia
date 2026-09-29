@@ -9,28 +9,19 @@ const BASE_SETTINGS_FIELDS = [
     key: "impressions_per_photo",
     title: "Всего показов на одно фото",
     description:
-      "Сколько показов набрать на каждом варианте фото. После достижения лимита на всех вариантах эксперимент завершится.",
+      "Сколько показов из статистики рекламы набрать на каждом варианте. Когда лимит есть у всех фото, эксперимент завершится. Минимум 5 000.",
     unit: "на фото",
-    min: 1000,
+    min: 5000,
     max: 50000000,
   },
   {
     key: "impressions_per_round",
     title: "Показов за круг",
     description:
-      "Лимит показов на текущем варианте за один круг. Как только наберётся — фото сменится. Если раньше истечёт «Длительность круга», смена произойдёт по времени, даже без этого лимита.",
+      "Сколько показов из статистики рекламы нужно текущему фото, чтобы поставить следующее. По времени фото не меняется. Минимум 1 000.",
     unit: "за круг",
-    min: 100,
+    min: 1000,
     max: 50000000,
-  },
-  {
-    key: "round_minutes",
-    title: "Длительность круга",
-    description:
-      "Максимальное время одного круга (мин). Минимум 30 минут — за меньшее время статистика показов ещё не успевает накопиться. По истечении фото сменится, даже если «Показов за круг» ещё не набрано. Если показы наберутся раньше — круг закончится по показам.",
-    unit: "мин",
-    min: 30,
-    max: 1440,
   },
 ];
 
@@ -70,7 +61,7 @@ export function formatSettingsSummary(settings) {
   const s = normalizeSettings(settings);
   const fmt = (n) => new Intl.NumberFormat("ru-RU").format(n);
 
-  return `${fmt(s.impressions_per_photo)} на фото • ${fmt(s.impressions_per_round)} за круг • ${fmt(s.round_minutes)} мин`;
+  return `${fmt(s.impressions_per_photo)} на фото • ${fmt(s.impressions_per_round)} за круг`;
 }
 
 /**
@@ -81,18 +72,15 @@ export function validateSettingsClient(settings) {
   const s = normalizeSettings(settings);
   const errors = {};
 
-  if (s.impressions_per_photo < 1000 || s.impressions_per_photo > 50000000) {
+  if (s.impressions_per_photo < 5000 || s.impressions_per_photo > 50000000) {
     errors.impressions_per_photo =
-      "Укажите от 1 000 до 50 000 000 показов на одно фото.";
+      "Укажите от 5 000 до 50 000 000 показов на одно фото.";
   }
-  if (s.impressions_per_round < 100) {
-    errors.impressions_per_round = "Минимум 100 показов за круг.";
+  if (s.impressions_per_round < 1000) {
+    errors.impressions_per_round = "Минимум 1 000 показов за круг.";
   } else if (s.impressions_per_round > s.impressions_per_photo) {
     errors.impressions_per_round =
       "Показов за круг не может быть больше, чем всего показов на одно фото.";
-  }
-  if (s.round_minutes < 30 || s.round_minutes > 1440) {
-    errors.round_minutes = "Длительность круга: от 30 до 1440 минут.";
   }
 
   return errors;

@@ -3,7 +3,7 @@
 namespace App\Http\Requests\Web\Subscriber;
 
 /**
- * Настройки Ozon A/B: длительность круга не меньше 30 минут (статистика показов не успевает за меньшее окно).
+ * Настройки Ozon A/B: смена фото только по показам, минимум 5000 на вариант и 1000 за круг.
  */
 class UpdateOzAbExperimentSettingsRequest extends UpdateAbExperimentSettingsRequest
 {
@@ -13,7 +13,9 @@ class UpdateOzAbExperimentSettingsRequest extends UpdateAbExperimentSettingsRequ
     public function rules(): array
     {
         $rules = parent::rules();
-        $rules['round_minutes'] = ['required', 'integer', 'min:30', 'max:1440'];
+        $rules['impressions_per_photo'] = ['required', 'integer', 'min:5000', 'max:50000000'];
+        $rules['impressions_per_round'] = ['required', 'integer', 'min:1000', 'max:50000000'];
+        $rules['round_minutes'] = ['nullable', 'integer', 'min:1', 'max:1440'];
 
         return $rules;
     }
@@ -24,7 +26,8 @@ class UpdateOzAbExperimentSettingsRequest extends UpdateAbExperimentSettingsRequ
     public function messages(): array
     {
         $messages = parent::messages();
-        $messages['round_minutes.min'] = 'Минимум 30 минут.';
+        $messages['impressions_per_photo.min'] = 'Минимум 5 000 показов на одно фото.';
+        $messages['impressions_per_round.min'] = 'Минимум 1 000 показов за круг.';
 
         return $messages;
     }

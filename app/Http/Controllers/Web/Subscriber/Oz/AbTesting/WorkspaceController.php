@@ -32,7 +32,7 @@ class WorkspaceController extends SubscriberToolController
         private readonly OzAbTestingService $abTestingService,
     ) {}
 
-    public function show(Request $request): Response
+    public function show(Request $request): Response|\Symfony\Component\HttpFoundation\Response
     {
         $cabinetOrResponse = $this->requireSelectedOzCabinet($request, self::TOOL_NAME, [
             ['label' => 'Главная', 'href' => '/panel'],
@@ -69,7 +69,7 @@ class WorkspaceController extends SubscriberToolController
             }
         }
 
-        return Inertia::render('Subscriber/Oz/AbTesting/Index', [
+        $page = Inertia::render('Subscriber/Oz/AbTesting/Index', [
             'cabinet' => [
                 'id' => $cabinet->id,
                 'name' => $cabinet->name,
@@ -90,6 +90,12 @@ class WorkspaceController extends SubscriberToolController
             'experiments' => $experiments,
             'createdExperiment' => null,
         ]);
+
+        // Опрос экрана — тот же GET. Без no-store браузер отдаёт первый ответ и показы не растут.
+        $response = $page->toResponse($request);
+        $response->headers->set('Cache-Control', 'no-store, private');
+
+        return $response;
     }
 
     public function sync(Request $request): RedirectResponse|Response

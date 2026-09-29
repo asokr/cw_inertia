@@ -8,7 +8,7 @@ import ToolPageHeader from "@/components/subscriber/tools/ToolPageHeader.vue";
 import Button from "@/components/ui/Button.vue";
 import SubscriberLayout from "@/Layouts/SubscriberLayout.vue";
 import { useFlashToast } from "@/composables/useFlashToast";
-import { acceptExperimentPayload, useAbExperimentPoll } from "@/composables/useAbExperimentPoll";
+import { acceptExperimentPayload, mergeExperimentUpdate, preferLiveExperiment, useAbExperimentPoll } from "@/composables/useAbExperimentPoll";
 
 const props = defineProps({
     cabinet: {
@@ -62,6 +62,21 @@ const loadingExperiments = ref(false);
 const experimentsLocal = computed(() => props.experiments ?? []);
 
 /**
+ * Опрос кладёт свежую историю в props. Локальная копия — только ответ кнопок,
+ * пока props ещё старые. Иначе таблица пустая до остановки.
+ */
+const displayedExperiment = computed(() => {
+    if (!selectedExperimentLocal.value?.id) {
+        return null;
+    }
+
+    return preferLiveExperiment(
+        selectedExperimentLocal.value,
+        page.props.selectedExperiment ?? null,
+    );
+});
+
+/**
  * products | experiments | workspace
  */
 const view = computed(() => {
@@ -76,7 +91,7 @@ const view = computed(() => {
 
 useAbExperimentPoll({
     shouldPoll: () => view.value === "workspace",
-    experiment: () => selectedExperimentLocal.value,
+    experiment: () => displayedExperiment.value,
 });
 
 watch(
@@ -96,6 +111,7 @@ watch(
             value ?? null,
         );
     },
+    { deep: true },
 );
 
 function loadExperimentsForProduct(product) {
@@ -156,10 +172,10 @@ function onExperimentUpdated(updated) {
     if (!updated?.id) {
         return;
     }
-    selectedExperimentLocal.value = {
-        ...(selectedExperimentLocal.value ?? {}),
-        ...updated,
-    };
+    selectedExperimentLocal.value = mergeExperimentUpdate(
+        selectedExperimentLocal.value,
+        updated,
+    );
 }
 
 function onCampaignDeleted(updated) {
@@ -243,7 +259,7 @@ watch(
             <ExperimentWorkspace
                 v-else-if="view === 'workspace'"
                 :product="selectedProduct || selectedProductLocal"
-                :experiment="selectedExperimentLocal"
+                :experiment="displayedExperiment"
                 :base-url="baseUrl"
                 @experiment-updated="onExperimentUpdated"
                 @campaign-deleted="onCampaignDeleted"

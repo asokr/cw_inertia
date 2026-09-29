@@ -98,11 +98,13 @@ const photosUrl = computed(() => {
     return `${props.baseUrl}/experiments/${props.experiment.id}/photos`;
 });
 
-function applyPayload(data) {
+function applyPayload(data, syncExperiment = true) {
     if (Array.isArray(data?.photos)) {
         photos.value = data.photos;
     }
-    if (data?.experiment) {
+    // Фоновый список фото не подменяет эксперимент: в нём история отстаёт,
+    // и таблица «История действий» снова пустеет до остановки.
+    if (syncExperiment && data?.experiment) {
         emit("experiment-updated", data.experiment);
     }
 }
@@ -111,34 +113,34 @@ function applyPayload(data) {
  * Keep local photo cards in sync when Inertia poll refreshes selectedExperiment
  * (stats, progress) without re-hitting the photos JSON endpoint.
  */
+function photoStatsKey(list) {
+    if (!Array.isArray(list)) {
+        return "";
+    }
+
+    return list
+        .map((photo) => [
+            photo?.id,
+            photo?.stats?.impressions ?? "",
+            photo?.stats?.clicks ?? "",
+            photo?.stats?.ctr ?? "",
+        ].join(":"))
+        .join("|");
+}
+
 watch(
-    () => props.experiment?.photos,
-    (next) => {
+    () => photoStatsKey(props.experiment?.photos),
+    () => {
+        const next = props.experiment?.photos;
         if (!Array.isArray(next) || !next.length) {
             return;
         }
         photosRequestId += 1;
-        if (!photos.value.length || next.length !== photos.value.length) {
-            photos.value = next;
-            return;
-        }
-        const byId = new Map(next.map((photo) => [String(photo.id), photo]));
-        let missed = false;
-        const merged = photos.value.map((local) => {
-            const fresh = byId.get(String(local.id));
-            if (!fresh) {
-                missed = true;
-                return local;
-            }
-            return {
-                ...local,
-                ...fresh,
-                stats: fresh.stats ?? local.stats,
-            };
-        });
-        photos.value = missed ? next : merged;
+        photos.value = next.map((photo) => ({
+            ...photo,
+            stats: { ...(photo.stats ?? {}) },
+        }));
     },
-    { deep: true },
 );
 
 async function loadPhotos() {
@@ -170,7 +172,7 @@ async function loadPhotos() {
             loadError.value = data?.messages?.[0] || "Не удалось загрузить фотографии";
             return;
         }
-        applyPayload(data);
+        applyPayload(data, false);
     } catch (error) {
         loadError.value =
             error?.response?.data?.messages?.[0] ||

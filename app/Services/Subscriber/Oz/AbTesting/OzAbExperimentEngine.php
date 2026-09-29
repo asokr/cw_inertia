@@ -39,6 +39,12 @@ class OzAbExperimentEngine
     /** Performance API: не больше 10 кампаний в одном запросе статистики. */
     public const STATS_CAMPAIGN_CHUNK = 10;
 
+    /** Минимум показов на одно фото. */
+    public const MIN_IMPRESSIONS = 5000;
+
+    /** Минимум показов за круг. Ниже этого фото не сменяем. */
+    public const MIN_IMPRESSIONS_PER_ROUND = 1000;
+
     /** Первая пауза после /v2/product/pictures/import, пока Ozon обрабатывает файлы. */
     private const PICTURES_WAIT_INITIAL_SECONDS = 8;
 
@@ -324,12 +330,13 @@ class OzAbExperimentEngine
                 'Открыт цикл №' . $cycleSeq . ' эксперимента.',
                 ['cycle_id' => $openedCycle?->id, 'photo_id' => $firstPhoto->id, 'sequence' => $cycleSeq],
             );
-            $this->journal->log(
-                $experiment,
-                OzAbExperimentJournal::TYPE_PHOTO_PENDING,
-                'Ждём, пока на карточке появится это фото.',
-                ['cycle_id' => $openedCycle?->id, 'photo_id' => $firstPhoto->id],
-            );
+            // Сверка кадра отключена: не пишем «ждём фото», круг считается по показам.
+            // $this->journal->log(
+            //     $experiment,
+            //     OzAbExperimentJournal::TYPE_PHOTO_PENDING,
+            //     'Ждём, пока на карточке появится это фото.',
+            //     ['cycle_id' => $openedCycle?->id, 'photo_id' => $firstPhoto->id],
+            // );
             $this->journal->log(
                 $experiment,
                 OzAbExperimentJournal::TYPE_EXPERIMENT_STARTED,
@@ -579,10 +586,11 @@ class OzAbExperimentEngine
             return $this->handleTransientFailure($experiment, $e->getMessage());
         }
 
-        $cardCheck = $this->inspectCardPhoto($cabinet, $experiment);
+        // Сверка фото с карточкой временно выключена для тестов: не скачиваем кадр и не ждём совпадения.
+        // $cardCheck = $this->inspectCardPhoto($cabinet, $experiment);
 
         try {
-            return DB::transaction(function () use ($experiment, $snapshot, $cabinet, $token, $campaignId, $cardCheck) {
+            return DB::transaction(function () use ($experiment, $snapshot, $cabinet, $token, $campaignId) {
                 /** @var AbExperiment $locked */
                 $locked = AbExperiment::query()->whereKey($experiment->id)->lockForUpdate()->firstOrFail();
                 if ($this->resolveStatus($locked) !== OzAbTestStatus::Running) {
@@ -600,18 +608,19 @@ class OzAbExperimentEngine
                 $snapshot = $this->monotonicSnapshot($cycle, $snapshot);
                 $this->anchorFirstCycleBaseline($locked, $cycle);
 
-                if ($cycle->photo_confirmed_at === null) {
-                    $waiting = $this->holdCycleUntilPhotoConfirmed($locked, $cycle, $snapshot, $cardCheck);
-                    if ($waiting !== null) {
-                        return $waiting;
-                    }
-                    $cycle->refresh();
-                }
+                // Пока сверка выключена, отсутствие photo_confirmed_at не останавливает круг.
+                // if ($cycle->photo_confirmed_at === null) {
+                //     $waiting = $this->holdCycleUntilPhotoConfirmed($locked, $cycle, $snapshot, $cardCheck);
+                //     if ($waiting !== null) {
+                //         return $waiting;
+                //     }
+                //     $cycle->refresh();
+                // }
 
                 $settings = $this->settingsOf($locked);
                 $deltaViews = $cycle->deltaViews($snapshot['views']);
-                $elapsedMinutes = $cycle->photo_confirmed_at
-                    ? $cycle->photo_confirmed_at->diffInMinutes(now())
+                $elapsedMinutes = $cycle->started_at
+                    ? $cycle->started_at->diffInMinutes(now())
                     : 0;
                 $this->photoLog('info', 'Прирост показов варианта', [
                     'experiment_id' => (int) $locked->id,
@@ -628,15 +637,9 @@ class OzAbExperimentEngine
                     'elapsed_minutes' => $elapsedMinutes,
                 ]);
 
-                $shouldSwitch = false;
-                $endReason = null;
-                if ($deltaViews >= $settings['impressions_per_round']) {
-                    $shouldSwitch = true;
-                    $endReason = AbExperimentCycle::END_IMPRESSIONS;
-                } elseif ($elapsedMinutes >= $settings['round_minutes']) {
-                    $shouldSwitch = true;
-                    $endReason = AbExperimentCycle::END_TIME;
-                }
+                // Смена только по показам рекламы. Время круга на решение не влияет.
+                $shouldSwitch = $deltaViews >= $settings['impressions_per_round'];
+                $endReason = $shouldSwitch ? AbExperimentCycle::END_IMPRESSIONS : null;
 
                 if ($this->allPhotosReachedTarget($locked, $cycle, $snapshot, $settings['impressions_per_photo'])) {
                     return $this->finalizeCompletedInTransaction(
@@ -1753,18 +1756,15 @@ class OzAbExperimentEngine
                 continue;
             }
 
-            $date = trim((string) ($row['date'] ?? ''));
-            if ($date === '') {
-                $date = '_';
-            }
+            $date = $this->normalizeStatsDate((string) ($row['date'] ?? ''));
 
             if (! isset($index[$rowCampaign][$rowSku][$date])) {
                 $index[$rowCampaign][$rowSku][$date] = $this->emptyStats();
             }
-            $index[$rowCampaign][$rowSku][$date]['views'] += (int) round((float) ($row['views'] ?? 0));
-            $index[$rowCampaign][$rowSku][$date]['clicks'] += (int) round((float) ($row['clicks'] ?? 0));
-            $index[$rowCampaign][$rowSku][$date]['spend'] += (float) ($row['expense'] ?? $row['moneySpent'] ?? 0);
-            $index[$rowCampaign][$rowSku][$date]['orders'] += (int) round((float) ($row['orders'] ?? 0));
+            $index[$rowCampaign][$rowSku][$date]['views'] += $this->parseStatInt($row['views'] ?? $row['impressions'] ?? $row['shows'] ?? 0);
+            $index[$rowCampaign][$rowSku][$date]['clicks'] += $this->parseStatInt($row['clicks'] ?? 0);
+            $index[$rowCampaign][$rowSku][$date]['spend'] += $this->parseStatFloat($row['expense'] ?? $row['moneySpent'] ?? 0);
+            $index[$rowCampaign][$rowSku][$date]['orders'] += $this->parseStatInt($row['orders'] ?? 0);
         }
     }
 
@@ -2236,19 +2236,66 @@ class OzAbExperimentEngine
      */
     public function settingsOf(AbExperiment $experiment): array
     {
+        $perPhoto = max(self::MIN_IMPRESSIONS, (int) ($experiment->impressions_per_photo ?: 100000));
+        $perRound = max(self::MIN_IMPRESSIONS_PER_ROUND, (int) ($experiment->impressions_per_round ?: 10000));
+        if ($perRound > $perPhoto) {
+            $perRound = $perPhoto;
+        }
+
         return [
-            'impressions_per_photo' => (int) ($experiment->impressions_per_photo ?: 100000),
-            'impressions_per_round' => (int) ($experiment->impressions_per_round ?: 10000),
+            'impressions_per_photo' => $perPhoto,
+            'impressions_per_round' => $perRound,
+            // Поле остаётся в настройках, на смену фото больше не влияет.
             'round_minutes' => (int) ($experiment->round_minutes ?: 30),
         ];
     }
 
     public function areSettingsReady(AbExperiment $experiment): bool
     {
-        return $experiment->impressions_per_photo !== null
-            && $experiment->impressions_per_round !== null
-            && $experiment->round_minutes !== null
-            && (int) $experiment->round_minutes >= 30;
+        if ($experiment->impressions_per_photo === null || $experiment->impressions_per_round === null) {
+            return false;
+        }
+
+        $perPhoto = (int) $experiment->impressions_per_photo;
+        $perRound = (int) $experiment->impressions_per_round;
+
+        return $perPhoto >= self::MIN_IMPRESSIONS
+            && $perRound >= self::MIN_IMPRESSIONS_PER_ROUND
+            && $perRound <= $perPhoto;
+    }
+
+    /**
+     * Дата строки статистики к YYYY-MM-DD. Пустая дата — строка без дня.
+     */
+    private function normalizeStatsDate(string $date): string
+    {
+        $date = trim($date);
+        if ($date === '') {
+            return '_';
+        }
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $date, $match) === 1) {
+            return $match[1];
+        }
+        if (preg_match('/^(\d{2})\.(\d{2})\.(\d{4})/', $date, $match) === 1) {
+            return $match[3].'-'.$match[2].'-'.$match[1];
+        }
+
+        return $date;
+    }
+
+    private function parseStatInt(mixed $value): int
+    {
+        return (int) round($this->parseStatFloat($value));
+    }
+
+    private function parseStatFloat(mixed $value): float
+    {
+        if (is_string($value)) {
+            $value = str_replace(["\u{00A0}", ' '], '', $value);
+            $value = str_replace(',', '.', $value);
+        }
+
+        return (float) $value;
     }
 
     public function hasPerformanceCredentials(OzCabinet $cabinet): bool

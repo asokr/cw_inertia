@@ -297,7 +297,9 @@ class OzAbTestingService
 
         $experiment->impressions_per_photo = (int) $input['impressions_per_photo'];
         $experiment->impressions_per_round = (int) $input['impressions_per_round'];
-        $experiment->round_minutes = (int) $input['round_minutes'];
+        if (array_key_exists('round_minutes', $input) && $input['round_minutes'] !== null) {
+            $experiment->round_minutes = (int) $input['round_minutes'];
+        }
         $this->refreshSetupProgress($experiment);
         $experiment->save();
 
@@ -473,16 +475,17 @@ class OzAbTestingService
             $payload['last_api_error'] = null;
         }
 
-        if ($experiment->relationLoaded('cycles')) {
-            $totalRounds = $this->experimentEngine->totalRounds($experiment);
-            $payload['total_rounds'] = $totalRounds;
-            $payload['action_history'] = $this->mapActionHistory($experiment);
-            $payload['action_history_meta'] = [
-                'total_rounds' => $totalRounds,
-                'shown' => count($payload['action_history']),
-                'limit' => 100,
-            ];
-        }
+        // История всегда из базы, не из уже загруженной связи:
+        // список экспериментов и часть JSON-ответов cycles не подгружают,
+        // и экран до остановки остаётся без кликов и показов.
+        $totalRounds = $this->experimentEngine->totalRounds($experiment);
+        $payload['total_rounds'] = $totalRounds;
+        $payload['action_history'] = $this->mapActionHistory($experiment);
+        $payload['action_history_meta'] = [
+            'total_rounds' => $totalRounds,
+            'shown' => count($payload['action_history']),
+            'limit' => 100,
+        ];
 
         return $payload;
     }
@@ -1104,11 +1107,7 @@ class OzAbTestingService
      */
     private function resolveExperimentSettings(AbExperiment $experiment): array
     {
-        return [
-            'impressions_per_photo' => (int) ($experiment->impressions_per_photo ?: self::DEFAULT_IMPRESSIONS_PER_PHOTO),
-            'impressions_per_round' => (int) ($experiment->impressions_per_round ?: self::DEFAULT_IMPRESSIONS_PER_ROUND),
-            'round_minutes' => (int) ($experiment->round_minutes ?: self::DEFAULT_ROUND_MINUTES),
-        ];
+        return $this->experimentEngine->settingsOf($experiment);
     }
 
     /**
@@ -1119,8 +1118,7 @@ class OzAbTestingService
         $fmt = static fn(int $n): string => number_format($n, 0, ',', ' ');
 
         return $fmt($settings['impressions_per_photo']) . ' на фото • '
-            . $fmt($settings['impressions_per_round']) . ' за круг • '
-            . $fmt($settings['round_minutes']) . ' мин';
+            . $fmt($settings['impressions_per_round']) . ' за круг';
     }
 
     /**
@@ -1143,14 +1141,16 @@ class OzAbTestingService
 
         if ($status === OzAbTestStatus::Running) {
             $breakdown = $this->experimentEngine->impressionsProgressBreakdown($experiment, $target, $openCycle);
-            if ($openCycle && $openCycle->photo_confirmed_at === null) {
-                return [
-                    'progress' => (int) ($breakdown['progress'] ?? 0),
-                    'mode' => 'waiting_photo',
-                    'label' => 'Ждём фото на карточке',
-                    'impressions_progress' => $breakdown,
-                ];
-            }
+            // Сверка кадра выключена: не подменяем прогресс текстом «ждём фото»,
+            // иначе экран не показывает рост показов.
+            // if ($openCycle && $openCycle->photo_confirmed_at === null) {
+            //     return [
+            //         'progress' => (int) ($breakdown['progress'] ?? 0),
+            //         'mode' => 'waiting_photo',
+            //         'label' => 'Ждём фото на карточке',
+            //         'impressions_progress' => $breakdown,
+            //     ];
+            // }
 
             $label = ($breakdown['mode'] ?? '') === 'pending'
                 ? 'Ожидание показов'
@@ -1261,7 +1261,14 @@ class OzAbTestingService
      */
     private function mapActionHistory(AbExperiment $experiment): array
     {
-        $cycles = $experiment->cycles->sortByDesc('sequence')->take(100)->values();
+        // Нельзя брать уже загруженную коллекцию: её порядок sequence ASC,
+        // а открытый круг мог быть прочитан до записи views_end.
+        $cycles = $experiment->cycles()
+            ->reorder()
+            ->orderByDesc('sequence')
+            ->orderByDesc('id')
+            ->limit(100)
+            ->get();
         $photos = $experiment->relationLoaded('photos')
             ? $experiment->photos->keyBy('id')
             : $experiment->photos()->get()->keyBy('id');

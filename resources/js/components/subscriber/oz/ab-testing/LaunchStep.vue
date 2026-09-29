@@ -285,9 +285,9 @@ async function stop() {
                 <div>
                     <p class="text-sm font-semibold text-foreground">Эксперимент выполняется</p>
                     <p class="mt-0.5 text-xs text-muted-foreground">
-                        Смена фото — что наступит раньше: лимит «показов за круг» или
-                        «длительность круга». Завершение — когда каждое фото наберёт
-                        «показов на одно фото».
+                        Следующее фото ставится, когда по статистике рекламы набраны
+                        «показы за круг». Минимум 1 000. По времени фото не меняется.
+                        Эксперимент завершится, когда каждое фото наберёт свой лимит.
                     </p>
                     <p
                         v-if="experiment.last_processed_at"
@@ -354,7 +354,7 @@ async function stop() {
                     </template>
                 </p>
                 <ul
-                    v-if="impressionsProgress?.photos?.length && !isProgressPending"
+                    v-if="impressionsProgress?.photos?.length"
                     class="space-y-0.5 text-[11px] tabular-nums text-muted-foreground"
                 >
                     <li
